@@ -12,6 +12,7 @@ DB_NAME="outline"
 DB_PASSWORD="pass"
 REDIS_HOST="127.0.0.1"
 REDIS_PORT="6379"
+POSTGRES_CONTAINER="baozi-postgres-1"
 
 # Check if backup file is provided
 if [ $# -eq 0 ]; then
@@ -86,7 +87,7 @@ echo ""
 echo "🔍 Checking services..."
 
 # Check PostgreSQL
-if ! PGPASSWORD="$DB_PASSWORD" pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" >/dev/null 2>&1; then
+if ! docker exec "$POSTGRES_CONTAINER" pg_isready -h localhost -p 5432 -U "$DB_USER" >/dev/null 2>&1; then
     echo "❌ PostgreSQL is not accessible at $DB_HOST:$DB_PORT"
     rm -rf "$TEMP_DIR"
     exit 1
@@ -119,11 +120,11 @@ if [ -f "$RESTORE_DIR/database.sql" ]; then
     echo "🗄️  Restoring PostgreSQL database..."
     
     # Drop existing database connections
-    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres \
+    docker exec -i "$POSTGRES_CONTAINER" psql -U "$DB_USER" -d postgres \
         -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DB_NAME';" >/dev/null 2>&1
     
     # Restore database
-    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres \
+    docker exec -i "$POSTGRES_CONTAINER" psql -U "$DB_USER" -d postgres \
         < "$RESTORE_DIR/database.sql" >/dev/null 2>&1
     
     if [ $? -eq 0 ]; then

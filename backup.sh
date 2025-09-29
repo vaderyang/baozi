@@ -14,6 +14,7 @@ REDIS_HOST="127.0.0.1"
 REDIS_PORT="6379"
 DATE=$(date +"%Y%m%d_%H%M%S")
 BACKUP_NAME="outline_backup_$DATE"
+POSTGRES_CONTAINER="baozi-postgres-1"
 
 echo "💾 Starting Outline Wiki Backup..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -25,9 +26,9 @@ mkdir -p "$BACKUP_DIR/$BACKUP_NAME"
 # Check if services are accessible
 echo "🔍 Checking services..."
 
-# Check PostgreSQL
-if ! PGPASSWORD="$DB_PASSWORD" pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" >/dev/null 2>&1; then
-    echo "❌ PostgreSQL is not accessible at $DB_HOST:$DB_PORT"
+# Check PostgreSQL (using Docker)
+if ! docker exec "$POSTGRES_CONTAINER" pg_isready -h localhost -p 5432 -U "$DB_USER" >/dev/null 2>&1; then
+    echo "❌ PostgreSQL container is not accessible: $POSTGRES_CONTAINER"
     exit 1
 else
     echo "✅ PostgreSQL is accessible"
@@ -42,12 +43,12 @@ else
     REDIS_AVAILABLE=true
 fi
 
-# Backup PostgreSQL database
+# Backup PostgreSQL database (using Docker)
 echo ""
 echo "🗄️  Backing up PostgreSQL database..."
-PGPASSWORD="$DB_PASSWORD" pg_dump \
-    -h "$DB_HOST" \
-    -p "$DB_PORT" \
+docker exec -e PGPASSWORD="$DB_PASSWORD" "$POSTGRES_CONTAINER" pg_dump \
+    -h localhost \
+    -p 5432 \
     -U "$DB_USER" \
     -d "$DB_NAME" \
     --no-password \
@@ -124,7 +125,7 @@ Server: $(hostname)
 User: $(whoami)
 
 Database Information:
-- Host: $DB_HOST:$DB_PORT
+- Container: $POSTGRES_CONTAINER
 - Database: $DB_NAME
 - User: $DB_USER
 
@@ -140,7 +141,7 @@ $([ -d "/var/lib/outline/data" ] && echo "- data/ (Application data)")
 - backup_info.txt (This file)
 
 Restore Instructions:
-1. Restore database: PGPASSWORD=pass psql -h 127.0.0.1 -p 5432 -U user < database.sql
+1. Restore database: docker exec -i baozi-postgres-1 psql -U user -d postgres < database.sql
 2. Restore Redis: redis-cli -h 127.0.0.1 -p 6379 --rdb redis_dump.rdb
 3. Restore data: sudo cp -r data /var/lib/outline/
 4. Restore config: cp env_backup.txt .env
