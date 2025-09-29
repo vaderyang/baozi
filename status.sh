@@ -54,3 +54,34 @@ echo "   Stop:   ./stop.sh"
 echo "   Status: ./status.sh"
 echo "   Logs:   tail -f logs/outline.log (if using PM2 or systemd)"
 
+
+# Check backup status
+echo ""
+echo "💾 Backup Status:"
+BACKUP_DIR="/home/vader/backups/outline"
+if [ -d "$BACKUP_DIR" ]; then
+    BACKUP_COUNT=$(ls -1 "$BACKUP_DIR"/outline_backup_*.tar.gz 2>/dev/null | wc -l)
+    if [ $BACKUP_COUNT -gt 0 ]; then
+        LATEST_BACKUP=$(ls -t "$BACKUP_DIR"/outline_backup_*.tar.gz 2>/dev/null | head -1)
+        BACKUP_SIZE=$(du -sh "$BACKUP_DIR" 2>/dev/null | cut -f1)
+        echo "✅ $BACKUP_COUNT backups available (Total: $BACKUP_SIZE)"
+        echo "   Latest: $(basename "$LATEST_BACKUP")"
+    else
+        echo "⚠️  No backups found"
+    fi
+else
+    echo "⚠️  Backup directory not created"
+fi
+
+# Check automated backup schedule
+if crontab -l 2>/dev/null | grep -q "backup-cron.sh"; then
+    echo "✅ Automated backup is scheduled"
+else
+    echo "⚠️  No automated backup scheduled"
+fi
+
+echo ""
+echo "🛠️  Backup Commands:"
+echo "   Create backup:    ./backup.sh"
+echo "   Manage backups:   ./backup-manage.sh list"
+echo "   Setup automated:  ./backup-manage.sh schedule"
