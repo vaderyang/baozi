@@ -14,3 +14,7 @@ data/*
 *.pem
 *.key
 *.cert
+
+# Backup files and logs
+*.bak
+nohup.out
