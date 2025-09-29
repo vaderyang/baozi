@@ -11,7 +11,7 @@ let httpsConfig: ServerOptions["https"] | undefined;
 let host: string | undefined;
 
 if (environment.NODE_ENV === "development") {
-  host = host = new URL(environment.URL!).hostname;
+  host = new URL(environment.URL!).hostname;
 
   try {
     httpsConfig = {
@@ -30,8 +30,8 @@ export default () =>
     publicDir: "./server/static",
     base: (environment.CDN_URL ?? "") + "/static/",
     server: {
-      port: 3001,
-      host: true,
+      port: 3250,
+      host: host || "localhost",
       https: httpsConfig,
       allowedHosts: host ? [host] : undefined,
       cors: true,
