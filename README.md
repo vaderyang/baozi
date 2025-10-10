@@ -23,6 +23,57 @@ Please see the [documentation](https://docs.getoutline.com/s/hosting/) for runni
 
 If you have questions or improvements for the docs please create a thread in [GitHub discussions](https://github.com/outline/outline/discussions).
 
+# Quick Start
+
+## Development Setup
+
+For first-time setup, run the initialization script:
+
+```shell
+# Initialize development environment
+./init.sh dev
+
+# Start the development server
+./start.sh
+```
+
+The initialization script will:
+- Check system requirements (Node.js 20+, Yarn, Docker)
+- Create `.env` from `.env.development`
+- Generate SECRET_KEY and UTILS_SECRET
+- Start PostgreSQL and Redis in Docker
+- Install dependencies and build the application
+- Create database and run migrations
+- Install SSL certificates for HTTPS
+
+Once initialized, you can start/stop the development server:
+
+```shell
+./start.sh  # Start development server
+./stop.sh   # Stop the server
+./status.sh # Check server status
+```
+
+## Production Setup
+
+For production deployment:
+
+```shell
+# Initialize production environment
+./init.sh production
+
+# Edit .env with your production values
+nano .env
+
+# Run migrations
+yarn db:migrate
+
+# Start production server
+./start.sh
+```
+
+See [OPERATION_GUIDE.md](OPERATION_GUIDE.md) for backup, restore, and operational procedures.
+
 # Development
 
 There is a short guide for [setting up a development environment](https://docs.getoutline.com/s/hosting/doc/local-development-5hEhFRXow7) if you wish to contribute changes, fixes, and improvements to Outline.
