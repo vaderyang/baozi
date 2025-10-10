@@ -1,48 +1,57 @@
 #!/bin/bash
 
-# Outline Wiki Start Script
-# This script starts the Outline application in production mode
+# Outline Development Start Script
+# This script starts the Outline application in development mode
 
-echo "🚀 Starting Outline Wiki..."
+echo "🚀 Starting Outline (Development Mode)..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Check if services are running
-echo "📋 Checking prerequisites..."
-
-# Check if PostgreSQL is running
-if ! pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then
-    echo "❌ PostgreSQL is not running on 127.0.0.1:5432"
-    echo "   Please ensure PostgreSQL is started"
-    exit 1
-else
-    echo "✅ PostgreSQL is running"
-fi
-
-# Check if Redis is running  
-if ! redis-cli -h 127.0.0.1 -p 6379 ping >/dev/null 2>&1; then
-    echo "❌ Redis is not running on 127.0.0.1:6379"
-    echo "   Please ensure Redis is started"
-    exit 1
-else
-    echo "✅ Redis is running"
-fi
-
-# Check if build directory exists
-if [ ! -d "build" ]; then
-    echo "❌ Build directory not found"
-    echo "   Please run 'yarn build' first"
-    exit 1
-else
-    echo "✅ Build directory exists"
+# Check if .env exists, if not use .env.development
+if [ ! -f .env ]; then
+    echo "⚠️  No .env file found. Using .env.development..."
+    if [ -f .env.development ]; then
+        cp .env.development .env
+        echo "✅ Created .env from .env.development"
+    else
+        echo "❌ No .env.development found either!"
+        exit 1
+    fi
 fi
 
 echo ""
-echo "🌐 Starting Outline server..."
-echo "   URL: http://172.16.11.67:3000"
-echo "   Mode: Production"
-echo "   Press Ctrl+C to stop"
+echo "📦 Starting Docker services (PostgreSQL & Redis)..."
+docker-compose up -d
+
+# Wait for services to be ready
+echo "⏳ Waiting for database to be ready..."
+sleep 5
+
+# Check if database is accessible
+RETRIES=0
+MAX_RETRIES=10
+until PGPASSWORD=pass psql -h 127.0.0.1 -U user -d outline -c "SELECT 1;" > /dev/null 2>&1; do
+    RETRIES=$((RETRIES+1))
+    if [ $RETRIES -ge $MAX_RETRIES ]; then
+        echo "❌ PostgreSQL failed to start after $MAX_RETRIES attempts"
+        exit 1
+    fi
+    echo "   Still waiting for PostgreSQL... ($RETRIES/$MAX_RETRIES)"
+    sleep 2
+done
+
+echo "✅ PostgreSQL is ready"
+echo "✅ Redis is ready"
 echo ""
 
-# Start the application
-NODE_ENV=production yarn start
+# Start development server
+echo "🔧 Starting development server..."
+echo "   Backend will be available at: http://localhost:3000"
+echo "   Frontend (Vite) will be available at: http://localhost:3001"
+echo ""
+echo "📝 Server logs will be shown below."
+echo "   Press Ctrl+C to stop the servers (Docker will keep running)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
 
+# Start the dev server (foreground)
+yarn dev:watch

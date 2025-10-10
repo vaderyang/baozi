@@ -1,57 +1,38 @@
 #!/bin/bash
 
-# Outline Wiki Stop Script
-# This script stops the Outline application
+# Outline Development Stop Script
+# This script stops all development services
 
-echo "🛑 Stopping Outline Wiki..."
+echo "🛑 Stopping Outline Development Environment..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Find Outline processes
-PIDS=$(pgrep -f "node.*build/server/index.js" || true)
-
-if [ -z "$PIDS" ]; then
-    echo "✅ No Outline processes found running"
-    exit 0
-fi
-
-echo "📋 Found Outline processes: $PIDS"
-
-# Try graceful shutdown first
-echo "🔄 Attempting graceful shutdown..."
-for pid in $PIDS; do
-    if kill -TERM "$pid" 2>/dev/null; then
-        echo "   Sent SIGTERM to process $pid"
-    fi
-done
-
-# Wait for graceful shutdown
-sleep 5
-
-# Check if processes are still running
-REMAINING=$(pgrep -f "node.*build/server/index.js" || true)
-
-if [ -z "$REMAINING" ]; then
-    echo "✅ Outline stopped successfully"
-    exit 0
-fi
-
-# Force kill if still running
-echo "⚠️  Processes still running, force killing..."
-for pid in $REMAINING; do
-    if kill -KILL "$pid" 2>/dev/null; then
-        echo "   Force killed process $pid"
-    fi
-done
-
-# Final check
-sleep 2
-FINAL_CHECK=$(pgrep -f "node.*build/server/index.js" || true)
-
-if [ -z "$FINAL_CHECK" ]; then
-    echo "✅ Outline stopped successfully"
+# Find and kill yarn dev:watch processes
+echo "📦 Stopping development servers..."
+YARN_PIDS=$(pgrep -f "yarn dev:watch" || true)
+if [ -n "$YARN_PIDS" ]; then
+    for pid in $YARN_PIDS; do
+        kill $pid 2>/dev/null && echo "   ✅ Stopped yarn dev:watch (PID: $pid)"
+    done
+    sleep 2
 else
-    echo "❌ Some processes may still be running: $FINAL_CHECK"
-    echo "   You may need to stop them manually"
-    exit 1
+    echo "   ℹ️  No yarn dev:watch processes running"
 fi
 
+# Kill any node processes on ports 3000 and 3001
+for PORT in 3000 3001; do
+    NODE_PID=$(lsof -ti:$PORT 2>/dev/null || true)
+    if [ -n "$NODE_PID" ]; then
+        kill $NODE_PID 2>/dev/null && echo "   ✅ Killed process on port $PORT (PID: $NODE_PID)" || true
+        sleep 1
+    fi
+done
+
+# Stop Docker services
+echo ""
+echo "🐳 Stopping Docker services..."
+docker-compose down
+
+echo ""
+echo "✅ All services stopped successfully"
+echo ""
+echo "💡 Run './start.sh' to start the development environment again"

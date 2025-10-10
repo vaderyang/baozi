@@ -1,50 +1,105 @@
 #!/bin/bash
 
-# Outline Wiki Status Script
-# This script checks the status of Outline and its dependencies
+# Outline Development Status Script
+# This script checks the status of all development services
 
-echo "📊 Outline Wiki Status"
+echo "📊 Outline Development Environment Status"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
 
-# Check Outline processes
-OUTLINE_PIDS=$(pgrep -f "node.*build/server/index.js" || true)
+# Check Docker services
+echo "🐳 Docker Services:"
+if command -v docker-compose &> /dev/null; then
+    DOCKER_RUNNING=$(docker-compose ps 2>&1)
 
-if [ -n "$OUTLINE_PIDS" ]; then
-    echo "✅ Outline is RUNNING (PID: $OUTLINE_PIDS)"
-    echo "   URL: http://172.16.11.67:3000"
+    # Check PostgreSQL
+    if echo "$DOCKER_RUNNING" | grep -q "postgres.*Up"; then
+        POSTGRES_PORT=$(docker port baozi-postgres-1 5432 2>/dev/null | cut -d: -f2 || echo "5432")
+        echo "   ✅ PostgreSQL: Running"
+        echo "      Host: 127.0.0.1:$POSTGRES_PORT"
+        echo "      Database: outline"
+    else
+        echo "   ❌ PostgreSQL: Not running"
+    fi
+
+    # Check Redis
+    if echo "$DOCKER_RUNNING" | grep -q "redis.*Up"; then
+        REDIS_PORT=$(docker port baozi-redis-1 6379 2>/dev/null | cut -d: -f2 || echo "6379")
+        echo "   ✅ Redis: Running"
+        echo "      Host: 127.0.0.1:$REDIS_PORT"
+    else
+        echo "   ❌ Redis: Not running"
+    fi
 else
-    echo "❌ Outline is NOT running"
+    echo "   ⚠️  docker-compose not found"
 fi
 
 echo ""
-echo "📋 Dependencies Status:"
 
-# Check PostgreSQL
-if pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1; then
-    echo "✅ PostgreSQL is running (127.0.0.1:5432)"
+# Check backend (port 3000)
+echo "🔧 Backend Server (Port 3000):"
+if lsof -Pi :3000 -sTCP:LISTEN -t >/dev/null 2>&1; then
+    BACKEND_PID=$(lsof -ti:3000 || echo "unknown")
+    echo "   ✅ Running (PID: $BACKEND_PID)"
+
+    # Test connection
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/ 2>/dev/null || echo "000")
+    if [ "$HTTP_CODE" = "200" ]; then
+        echo "      Status: ✅ Responding (HTTP $HTTP_CODE)"
+        echo "      URL: http://localhost:3000"
+    else
+        echo "      Status: ⚠️  Port open but not responding properly (HTTP $HTTP_CODE)"
+    fi
 else
-    echo "❌ PostgreSQL is not accessible"
+    echo "   ❌ Not running"
 fi
 
-# Check Redis
-if redis-cli -h 127.0.0.1 -p 6379 ping >/dev/null 2>&1; then
-    echo "✅ Redis is running (127.0.0.1:6379)"
+echo ""
+
+# Check frontend (port 3001)
+echo "🎨 Frontend Vite Server (Port 3001):"
+if lsof -Pi :3001 -sTCP:LISTEN -t >/dev/null 2>&1; then
+    FRONTEND_PID=$(lsof -ti:3001 || echo "unknown")
+    echo "   ✅ Running (PID: $FRONTEND_PID)"
+    echo "      URL: http://localhost:3001/static/"
 else
-    echo "❌ Redis is not accessible"
+    echo "   ❌ Not running"
 fi
 
-# Check build directory
-if [ -d "build" ]; then
-    echo "✅ Build directory exists"
+echo ""
+
+# Check for dev processes
+echo "📝 Development Processes:"
+YARN_PROCS=$(pgrep -f "yarn dev" || true)
+NODEMON_PROCS=$(pgrep -f "nodemon" || true)
+
+if [ -n "$YARN_PROCS" ] || [ -n "$NODEMON_PROCS" ]; then
+    echo "   ✅ Active processes found:"
+    ps aux | grep -E "(yarn dev|nodemon)" | grep -v grep | awk '{printf "      - %s %s %s (PID: %s)\n", $11, $12, $13, $2}'
 else
-    echo "❌ Build directory missing"
+    echo "   ❌ No development processes running"
 fi
 
-# Check if port is in use
-if netstat -tuln 2>/dev/null | grep -q ":3000 "; then
-    echo "✅ Port 3000 is in use"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Overall status
+BACKEND_OK=$(lsof -Pi :3000 -sTCP:LISTEN -t >/dev/null 2>&1 && echo "1" || echo "0")
+POSTGRES_OK=$(docker ps 2>/dev/null | grep -q "baozi-postgres-1.*Up" && echo "1" || echo "0")
+REDIS_OK=$(docker ps 2>/dev/null | grep -q "baozi-redis-1.*Up" && echo "1" || echo "0")
+
+if [ "$BACKEND_OK" = "1" ] && [ "$POSTGRES_OK" = "1" ] && [ "$REDIS_OK" = "1" ]; then
+    echo "✅ System Status: All services running"
+    echo ""
+    echo "🌐 Access the app at: http://localhost:3000"
+elif [ "$POSTGRES_OK" = "1" ] && [ "$REDIS_OK" = "1" ]; then
+    echo "⚠️  System Status: Docker services running, but dev server not started"
+    echo ""
+    echo "💡 Run 'yarn dev:watch' or './start.sh' to start the development server"
 else
-    echo "⚠️  Port 3000 is free"
+    echo "❌ System Status: Some services not running"
+    echo ""
+    echo "💡 Run './start.sh' to start all services"
 fi
 
 echo ""
@@ -52,36 +107,3 @@ echo "🔧 Quick Commands:"
 echo "   Start:  ./start.sh"
 echo "   Stop:   ./stop.sh"
 echo "   Status: ./status.sh"
-echo "   Logs:   tail -f logs/outline.log (if using PM2 or systemd)"
-
-
-# Check backup status
-echo ""
-echo "💾 Backup Status:"
-BACKUP_DIR="/home/vader/backups/outline"
-if [ -d "$BACKUP_DIR" ]; then
-    BACKUP_COUNT=$(ls -1 "$BACKUP_DIR"/outline_backup_*.tar.gz 2>/dev/null | wc -l)
-    if [ $BACKUP_COUNT -gt 0 ]; then
-        LATEST_BACKUP=$(ls -t "$BACKUP_DIR"/outline_backup_*.tar.gz 2>/dev/null | head -1)
-        BACKUP_SIZE=$(du -sh "$BACKUP_DIR" 2>/dev/null | cut -f1)
-        echo "✅ $BACKUP_COUNT backups available (Total: $BACKUP_SIZE)"
-        echo "   Latest: $(basename "$LATEST_BACKUP")"
-    else
-        echo "⚠️  No backups found"
-    fi
-else
-    echo "⚠️  Backup directory not created"
-fi
-
-# Check automated backup schedule
-if crontab -l 2>/dev/null | grep -q "backup-cron.sh"; then
-    echo "✅ Automated backup is scheduled"
-else
-    echo "⚠️  No automated backup scheduled"
-fi
-
-echo ""
-echo "🛠️  Backup Commands:"
-echo "   Create backup:    ./backup.sh"
-echo "   Manage backups:   ./backup-manage.sh list"
-echo "   Setup automated:  ./backup-manage.sh schedule"
