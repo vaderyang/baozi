@@ -20,23 +20,23 @@ fi
 
 echo ""
 echo "📦 Starting Docker services (PostgreSQL & Redis)..."
-docker-compose up -d
+docker compose up -d
 
 # Wait for services to be ready
 echo "⏳ Waiting for database to be ready..."
-sleep 5
+sleep 2
 
-# Check if database is accessible
+# Check if database is accessible using Docker
 RETRIES=0
-MAX_RETRIES=10
-until PGPASSWORD=pass psql -h 127.0.0.1 -U user -d outline -c "SELECT 1;" > /dev/null 2>&1; do
+MAX_RETRIES=30
+until docker compose exec -T postgres pg_isready -U user > /dev/null 2>&1; do
     RETRIES=$((RETRIES+1))
     if [ $RETRIES -ge $MAX_RETRIES ]; then
         echo "❌ PostgreSQL failed to start after $MAX_RETRIES attempts"
         exit 1
     fi
     echo "   Still waiting for PostgreSQL... ($RETRIES/$MAX_RETRIES)"
-    sleep 2
+    sleep 1
 done
 
 echo "✅ PostgreSQL is ready"

@@ -116,15 +116,7 @@ if [[ "$ENV" == "dev" ]]; then
     ENV_TEMPLATE=".env.development"
     
     if [ -f "$ENV_FILE" ]; then
-        print_warning "$ENV_FILE already exists"
-        read -p "Do you want to overwrite it? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_success "Keeping existing $ENV_FILE"
-        else
-            cp "$ENV_TEMPLATE" "$ENV_FILE"
-            print_success "Created $ENV_FILE from $ENV_TEMPLATE"
-        fi
+        print_success "$ENV_FILE already exists, keeping it"
     else
         cp "$ENV_TEMPLATE" "$ENV_FILE"
         print_success "Created $ENV_FILE from $ENV_TEMPLATE"
@@ -149,6 +141,14 @@ if [[ "$ENV" == "dev" ]]; then
         else
             print_warning "OpenSSL not found - you'll need to generate secrets manually"
         fi
+    fi
+    
+    # Ensure DATABASE_URL has sslmode=disable for local development
+    if grep -q "^DATABASE_URL=.*@127.0.0.1" "$ENV_FILE" 2>/dev/null && ! grep -q "sslmode=disable" "$ENV_FILE" 2>/dev/null; then
+        print_warning "Updating DATABASE_URL to disable SSL for local development..."
+        sed -i.bak 's|\(DATABASE_URL=postgres://.*@127.0.0.1:[0-9]*/[^?]*\)|\1?sslmode=disable|g' "$ENV_FILE"
+        rm -f "$ENV_FILE.bak"
+        print_success "DATABASE_URL updated"
     fi
 else
     # Production setup
@@ -244,16 +244,8 @@ else
     echo "Please ensure your database is accessible and run: yarn db:migrate"
 fi
 
-# Install local SSL certificates for development
-if [[ "$ENV" == "dev" ]]; then
-    print_step "Installing local SSL certificates..."
-    yarn install-local-ssl
-    if [ -f "./server/config/certs/private.key" ] && [ -f "./server/config/certs/public.cert" ]; then
-        print_success "SSL certificates installed"
-    else
-        print_warning "SSL certificates not generated (optional for HTTP)"
-    fi
-fi
+# Note: SSL certificates are optional for development
+# Run 'yarn install-local-ssl' manually if you need HTTPS in development
 
 # Build the application
 print_step "Building application..."
