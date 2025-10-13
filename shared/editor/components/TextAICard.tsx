@@ -283,6 +283,7 @@ const PromptInput = styled.textarea`
   max-width: 100%;
   box-sizing: border-box;
   display: block;
+  margin: 0;
   padding: 8px 12px;
   border: 1px solid ${(props) => props.theme.divider};
   border-radius: 4px;

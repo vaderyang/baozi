@@ -816,7 +816,7 @@ export class Editor extends React.PureComponent<
     return (
       <PortalContext.Provider value={this.wrapperRef.current}>
         <EditorContext.Provider value={this}>
-          <Flex
+          <EditorWrapper
             ref={this.wrapperRef}
             onKeyDown={onKeyDown}
             style={style}
@@ -858,7 +858,7 @@ export class Editor extends React.PureComponent<
                 <>{Array.from(this.renderers).map((view) => view.content)}</>
               )}
             </Observer>
-          </Flex>
+          </EditorWrapper>
           {!isNull(this.state.activeLightboxImage) && (
             <Lightbox
               images={this.getLightboxImages()}
@@ -936,3 +936,7 @@ const observe = (
 };
 
 export default LazyLoadedEditor;
+
+const EditorWrapper = styled(Flex)`
+  position: relative;
+`;
