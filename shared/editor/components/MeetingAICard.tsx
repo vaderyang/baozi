@@ -31,6 +31,7 @@ export default function MeetingAICard({
   const audioLevelIntervalRef = React.useRef<number | null>(null);
   const wsRef = React.useRef<WebSocket | null>(null);
   const audioChunkIntervalRef = React.useRef<number | null>(null);
+  const mockIntervalRef = React.useRef<number | null>(null);
 
   const transcript: TranscriptSegment[] = node.attrs.transcript || [];
   const isListening = node.attrs.listening || false;
@@ -55,6 +56,9 @@ export default function MeetingAICard({
       if (audioChunkIntervalRef.current) {
         window.clearInterval(audioChunkIntervalRef.current);
       }
+      if (mockIntervalRef.current) {
+        window.clearInterval(mockIntervalRef.current);
+      }
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       }
@@ -73,62 +77,21 @@ export default function MeetingAICard({
       setError(null);
       setIsLoading(true);
 
-      // Connect to WebSocket
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(
-        `${protocol}//${window.location.host}/meeting-ai`
-      );
-      wsRef.current = ws;
+      // Decide whether to use mock mode via query param
+      const params = new URLSearchParams(window.location.search);
+      const forceMock = params.get("mockMeetingAI") === "1";
 
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ type: "start" }));
-      };
-
-      ws.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-
-        switch (message.type) {
-          case "partial-transcript":
-          case "final-transcript": {
-            // Update transcript in node attrs
-            const pos = getPos();
-            const { tr } = view.state;
-            const currentTranscript = node.attrs.transcript || [];
-            const newSegments = [...currentTranscript, ...message.segments];
-
-            const transaction = tr.setNodeMarkup(pos, undefined, {
-              ...node.attrs,
-              transcript: newSegments,
-            });
-            view.dispatch(transaction);
-            break;
-          }
-
-          case "error":
-            setError(message.message || "WebSocket error occurred");
-            break;
-
-          case "stopped":
-            // WebSocket acknowledged stop
-            break;
-        }
-      };
-
-      // Request microphone permission
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
+      // Request microphone permission regardless (to drive the level meter UI)
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
 
       // Set up Web Audio for level meter
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
-
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 256;
       analyserRef.current = analyser;
-
       source.connect(analyser);
 
       // Start audio level monitoring
@@ -138,36 +101,135 @@ export default function MeetingAICard({
           analyserRef.current.getByteFrequencyData(dataArray);
           const average =
             dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
-          setAudioLevel(average / 255); // Normalize to 0-1
-        }
-      }, 100);
-
-      // Set up audio chunk streaming (simulated for now)
-      // TODO: Implement actual PCM16 audio conversion and streaming
-      const startedAt = Date.now();
-      audioChunkIntervalRef.current = window.setInterval(() => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          const elapsedMs = Date.now() - startedAt;
-          // Send mock audio chunk
-          wsRef.current.send(
-            JSON.stringify({
-              type: "audio-chunk",
-              data: new ArrayBuffer(1024), // Mock data
-              timestampMs: elapsedMs,
-            })
-          );
+          setAudioLevel(average / 255);
         }
       }, 100);
 
       // Update node attrs to listening state
-      const pos = getPos();
-      const { tr } = view.state;
-      const transaction = tr.setNodeMarkup(pos, undefined, {
-        ...node.attrs,
-        listening: true,
-        startedAt,
-      });
-      view.dispatch(transaction);
+      const startedAt = Date.now();
+      {
+        const pos = getPos();
+        const { tr } = view.state;
+        const transaction = tr.setNodeMarkup(pos, undefined, {
+          ...node.attrs,
+          listening: true,
+          startedAt,
+        });
+        view.dispatch(transaction);
+      }
+
+      // Mock streaming fallback (either forced or on ws failure)
+      const startMockStreaming = () => {
+        const script: { speaker: string; text: string; dur: number }[] = [
+          { speaker: "Speaker 1", text: "Welcome to the meeting!", dur: 2500 },
+          { speaker: "Speaker 2", text: "Great to be here.", dur: 1800 },
+          {
+            speaker: "Speaker 1",
+            text: "Let's begin with updates.",
+            dur: 2200,
+          },
+          { speaker: "Speaker 2", text: "Shipping is on track.", dur: 2000 },
+          { speaker: "Speaker 1", text: "Any blockers?", dur: 1600 },
+          {
+            speaker: "Speaker 2",
+            text: "No blockers from my side.",
+            dur: 2200,
+          },
+        ];
+        let idx = 0;
+        let lastEnd = 0;
+        mockIntervalRef.current = window.setInterval(() => {
+          const nowElapsed = Date.now() - startedAt;
+          const line = script[idx % script.length];
+          const start = Math.max(lastEnd, nowElapsed);
+          const end = start + line.dur;
+          lastEnd = end;
+          const seg = [
+            {
+              startMs: start,
+              endMs: end,
+              speaker: line.speaker,
+              text: line.text,
+            },
+          ];
+
+          const pos = getPos();
+          const { tr } = view.state;
+          const currentTranscript: TranscriptSegment[] =
+            node.attrs.transcript || [];
+          const newSegments = [...currentTranscript, ...seg];
+
+          const transaction = tr.setNodeMarkup(pos, undefined, {
+            ...node.attrs,
+            transcript: newSegments,
+          });
+          view.dispatch(transaction);
+          idx++;
+        }, 1000);
+      };
+
+      if (forceMock) {
+        startMockStreaming();
+        setIsLoading(false);
+        return;
+      }
+
+      // Attempt to connect real WebSocket
+      try {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(
+          `${protocol}//${window.location.host}/meeting-ai`
+        );
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: "start" }));
+        };
+
+        ws.onmessage = (event) => {
+          const message = JSON.parse(event.data);
+          switch (message.type) {
+            case "partial-transcript":
+            case "final-transcript": {
+              const pos = getPos();
+              const { tr } = view.state;
+              const currentTranscript: TranscriptSegment[] =
+                node.attrs.transcript || [];
+              const newSegments = [...currentTranscript, ...message.segments];
+              const transaction = tr.setNodeMarkup(pos, undefined, {
+                ...node.attrs,
+                transcript: newSegments,
+              });
+              view.dispatch(transaction);
+              break;
+            }
+            case "error":
+              setError(message.message || "WebSocket error occurred");
+              break;
+            case "stopped":
+              break;
+          }
+        };
+
+        ws.onerror = () => {
+          startMockStreaming();
+        };
+
+        audioChunkIntervalRef.current = window.setInterval(() => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            const elapsedMs = Date.now() - startedAt;
+            wsRef.current.send(
+              JSON.stringify({
+                type: "audio-chunk",
+                data: new ArrayBuffer(512),
+                timestampMs: elapsedMs,
+              })
+            );
+          }
+        }, 200);
+      } catch {
+        startMockStreaming();
+      }
 
       setIsLoading(false);
     } catch (err) {
@@ -178,99 +240,6 @@ export default function MeetingAICard({
       );
       setIsLoading(false);
     }
-  };
-
-  const handleStopListening = () => {
-    // Stop audio chunk streaming
-    if (audioChunkIntervalRef.current) {
-      window.clearInterval(audioChunkIntervalRef.current);
-      audioChunkIntervalRef.current = null;
-    }
-
-    // Send stop message to WebSocket
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "stop" }));
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    // Stop all audio streams
-    if (audioLevelIntervalRef.current) {
-      window.clearInterval(audioLevelIntervalRef.current);
-      audioLevelIntervalRef.current = null;
-    }
-
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
-    }
-
-    if (audioContextRef.current) {
-      void audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-
-    setAudioLevel(0);
-
-    // Update node attrs to stopped state
-    const pos = getPos();
-    const { tr } = view.state;
-    const transaction = tr.setNodeMarkup(pos, undefined, {
-      ...node.attrs,
-      listening: false,
-    });
-    view.dispatch(transaction);
-  };
-
-  const handleMark = () => {
-    // Get current timestamp relative to recording start
-    const now = Date.now();
-    const startedAt = node.attrs.startedAt || now;
-    const elapsedMs = now - startedAt;
-
-    // Extract transcript segments from 3s before to 7s after
-    const windowStart = Math.max(0, elapsedMs - 3000);
-    const windowEnd = elapsedMs + 7000;
-
-    const contextSegments = transcript.filter(
-      (seg) => seg.endMs >= windowStart && seg.startMs <= windowEnd
-    );
-
-    // Format time as HH:MM:SS
-    const formatTime = (ms: number) => {
-      const seconds = Math.floor(ms / 1000);
-      const minutes = Math.floor(seconds / 60);
-      const hours = Math.floor(minutes / 60);
-      const mm = String(minutes % 60).padStart(2, "0");
-      const ss = String(seconds % 60).padStart(2, "0");
-      const hh = String(hours).padStart(2, "0");
-      return `${hh}:${mm}:${ss}`;
-    };
-
-    const timeStr = formatTime(elapsedMs);
-
-    let markText: string;
-    if (contextSegments.length > 0) {
-      const contextText = contextSegments.map((seg) => seg.text).join(" ");
-      markText = `[${timeStr}] marked '${contextText}'\n\n`;
-    } else {
-      markText = `[${timeStr}] marked\n\n`;
-    }
-
-    // Append to Notes content (inside the card's contentDOM)
-    const pos = getPos();
-    const { tr } = view.state;
-
-    // Create a paragraph with the mark text
-    const paragraph = view.state.schema.nodes.paragraph.create(
-      null,
-      view.state.schema.text(markText)
-    );
-
-    // Insert at the end of the card's content
-    const endPos = pos + node.nodeSize - 1;
-    const transaction = tr.insert(endPos, paragraph);
-    view.dispatch(transaction);
   };
 
   const handleGenerateSummary = async () => {
