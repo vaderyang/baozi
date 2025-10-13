@@ -509,6 +509,22 @@ export class Environment {
   public LLM_MODEL_NAME = environment.LLM_MODEL_NAME ?? "gpt-4o-mini";
 
   /**
+   * API key for OpenAI services.
+   * Used for Meeting AI Card real-time transcription.
+   */
+  @IsOptional()
+  public OPENAI_API_KEY = this.toOptionalString(environment.OPENAI_API_KEY);
+
+  /**
+   * Model name for OpenAI Realtime API.
+   * Used for Meeting AI Card real-time transcription with speaker diarization.
+   * Example: gpt-4o-realtime-preview
+   */
+  @IsOptional()
+  public OPENAI_REALTIME_MODEL =
+    environment.OPENAI_REALTIME_MODEL ?? "gpt-4o-realtime-preview";
+
+  /**
    * A DataDog API key for tracking server metrics.
    */
   public DD_API_KEY = environment.DD_API_KEY;

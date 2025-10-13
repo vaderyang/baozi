@@ -28,6 +28,8 @@ export default function MeetingAICard({
   const analyserRef = React.useRef<AnalyserNode | null>(null);
   const mediaStreamRef = React.useRef<MediaStream | null>(null);
   const audioLevelIntervalRef = React.useRef<number | null>(null);
+  const wsRef = React.useRef<WebSocket | null>(null);
+  const audioChunkIntervalRef = React.useRef<number | null>(null);
 
   const transcript: TranscriptSegment[] = node.attrs.transcript || [];
   const isListening = node.attrs.listening || false;
@@ -49,11 +51,17 @@ export default function MeetingAICard({
       if (audioLevelIntervalRef.current) {
         window.clearInterval(audioLevelIntervalRef.current);
       }
+      if (audioChunkIntervalRef.current) {
+        window.clearInterval(audioChunkIntervalRef.current);
+      }
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       }
       if (audioContextRef.current) {
         void audioContextRef.current.close();
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
       }
     },
     []
@@ -63,6 +71,47 @@ export default function MeetingAICard({
     try {
       setError(null);
       setIsLoading(true);
+
+      // Connect to WebSocket
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(
+        `${protocol}//${window.location.host}/meeting-ai`
+      );
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: "start" }));
+      };
+
+      ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+
+        switch (message.type) {
+          case "partial-transcript":
+          case "final-transcript": {
+            // Update transcript in node attrs
+            const pos = getPos();
+            const { tr } = view.state;
+            const currentTranscript = node.attrs.transcript || [];
+            const newSegments = [...currentTranscript, ...message.segments];
+
+            const transaction = tr.setNodeMarkup(pos, undefined, {
+              ...node.attrs,
+              transcript: newSegments,
+            });
+            view.dispatch(transaction);
+            break;
+          }
+
+          case "error":
+            setError(message.message || "WebSocket error occurred");
+            break;
+
+          case "stopped":
+            // WebSocket acknowledged stop
+            break;
+        }
+      };
 
       // Request microphone permission
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -92,13 +141,30 @@ export default function MeetingAICard({
         }
       }, 100);
 
+      // Set up audio chunk streaming (simulated for now)
+      // TODO: Implement actual PCM16 audio conversion and streaming
+      const startedAt = Date.now();
+      audioChunkIntervalRef.current = window.setInterval(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          const elapsedMs = Date.now() - startedAt;
+          // Send mock audio chunk
+          wsRef.current.send(
+            JSON.stringify({
+              type: "audio-chunk",
+              data: new ArrayBuffer(1024), // Mock data
+              timestampMs: elapsedMs,
+            })
+          );
+        }
+      }, 100);
+
       // Update node attrs to listening state
       const pos = getPos();
       const { tr } = view.state;
       const transaction = tr.setNodeMarkup(pos, undefined, {
         ...node.attrs,
         listening: true,
-        startedAt: Date.now(),
+        startedAt,
       });
       view.dispatch(transaction);
 
@@ -114,6 +180,19 @@ export default function MeetingAICard({
   };
 
   const handleStopListening = () => {
+    // Stop audio chunk streaming
+    if (audioChunkIntervalRef.current) {
+      window.clearInterval(audioChunkIntervalRef.current);
+      audioChunkIntervalRef.current = null;
+    }
+
+    // Send stop message to WebSocket
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "stop" }));
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
     // Stop all audio streams
     if (audioLevelIntervalRef.current) {
       window.clearInterval(audioLevelIntervalRef.current);
