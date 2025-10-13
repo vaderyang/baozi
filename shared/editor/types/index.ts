@@ -5,6 +5,7 @@ import { EditorView } from "prosemirror-view";
 import * as React from "react";
 import { DefaultTheme } from "styled-components";
 import { Primitive } from "utility-types";
+import type { MarkdownParser } from "prosemirror-markdown";
 
 export type NodeWithPos = {
   pos: number;
@@ -50,4 +51,13 @@ export type ComponentProps = {
   isSelected: boolean;
   isEditable: boolean;
   getPos: () => number;
+  /**
+   * The DOM element ProseMirror will render this node's content into.
+   * Present if the node schema defines `content`.
+   */
+  contentDOM?: HTMLElement | null;
+  /**
+   * The editor's paste parser for converting Markdown to ProseMirror nodes.
+   */
+  pasteParser?: MarkdownParser;
 };

@@ -109,6 +109,33 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       }
 
       const caretPosition = () => {
+        // Use DOM selection rect only when the caret is inside a React NodeView (e.g. Text AI Card)
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount) {
+          try {
+            const range = sel.getRangeAt(0);
+            const startEl =
+              (range.startContainer as Node).parentElement || undefined;
+            const inReactNode = startEl?.closest?.(
+              ".component-text_ai_card, [class^='component-']"
+            );
+            if (inReactNode && startEl?.isConnected) {
+              const rect = range.getBoundingClientRect();
+              if (rect) {
+                return {
+                  top: rect.top,
+                  bottom: rect.bottom,
+                  left: rect.left,
+                  right: rect.right,
+                };
+              }
+            }
+          } catch (_err) {
+            // fall through to coordsAtPos
+          }
+        }
+
+        // Default: ProseMirror's coordsAtPos works best in the main editor
         let fromPos;
         let toPos;
         try {
@@ -124,7 +151,6 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
           };
         }
 
-        // ensure that start < end for the menu to be positioned correctly
         return {
           top: Math.min(fromPos.top, toPos.top),
           bottom: Math.max(fromPos.bottom, toPos.bottom),
@@ -219,6 +245,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     setPosition(calculatePosition(props));
     setSelectedIndex(0);
     setInsertItem(undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calculatePosition, props.isActive]);
 
   React.useEffect(() => {
