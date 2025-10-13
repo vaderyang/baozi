@@ -242,6 +242,54 @@ export default function MeetingAICard({
     }
   };
 
+  const handleStopListening = () => {
+    // Stop audio chunk streaming
+    if (audioChunkIntervalRef.current) {
+      window.clearInterval(audioChunkIntervalRef.current);
+      audioChunkIntervalRef.current = null;
+    }
+
+    // Stop mock streaming if active
+    if (mockIntervalRef.current) {
+      window.clearInterval(mockIntervalRef.current);
+      mockIntervalRef.current = null;
+    }
+
+    // Send stop message to WebSocket
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "stop" }));
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    // Stop all audio streams
+    if (audioLevelIntervalRef.current) {
+      window.clearInterval(audioLevelIntervalRef.current);
+      audioLevelIntervalRef.current = null;
+    }
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+
+    if (audioContextRef.current) {
+      void audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+
+    setAudioLevel(0);
+
+    // Update node attrs to stopped state
+    const pos = getPos();
+    const { tr } = view.state;
+    const transaction = tr.setNodeMarkup(pos, undefined, {
+      ...node.attrs,
+      listening: false,
+    });
+    view.dispatch(transaction);
+  };
+
   const handleGenerateSummary = async () => {
     try {
       setError(null);
