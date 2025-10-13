@@ -16,7 +16,8 @@
       "Bash(git log:*)",
       "Bash(git reset:*)",
       "Bash(git rebase:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []
