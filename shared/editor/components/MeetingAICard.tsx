@@ -2,6 +2,7 @@ import { LightningIcon, TrashIcon, ShapesIcon } from "outline-icons";
 import * as React from "react";
 import styled from "styled-components";
 import { ComponentProps } from "../types";
+import { NodeSelection } from "prosemirror-state";
 import type { TranscriptSegment } from "../nodes/MeetingAICard";
 
 type MeetingAICardProps = ComponentProps;
@@ -369,8 +370,6 @@ export default function MeetingAICard({
     }
     const { state, dispatch } = view;
     const $pos = state.doc.resolve(getPos());
-    // @ts-expect-error NodeSelection is available at runtime
-    const { NodeSelection } = require("prosemirror-state");
     const tr = state.tr.setSelection(new NodeSelection($pos));
     dispatch(tr);
   };
