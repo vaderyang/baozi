@@ -5,6 +5,7 @@ import { MarkdownSerializerState } from "../lib/markdown/serializer";
 import textAICardRule from "../rules/textAICard";
 import { ComponentProps } from "../types";
 import Node from "./Node";
+import TextAICardComponent from "../components/TextAICard";
 
 export default class TextAICard extends Node {
   get name() {
@@ -124,9 +125,6 @@ export default class TextAICard extends Node {
   }
 
   component(props: ComponentProps) {
-    // Import the component dynamically to avoid circular dependencies
-    // The actual component will be created next
-    const TextAICardComponent = require("../components/TextAICard").default;
     return <TextAICardComponent {...props} />;
   }
 }
