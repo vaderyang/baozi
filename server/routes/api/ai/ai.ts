@@ -153,4 +153,151 @@ router.post(
   }
 );
 
+router.post(
+  "ai.meetingSummary",
+  auth({ optional: env.isDevelopment }),
+  validate(T.MeetingSummarySchema),
+  async (ctx: APIContext<T.MeetingSummaryReq>) => {
+    const { transcript, prompt } = ctx.input.body;
+
+    // Dev mode: allow bypass with special header
+    let actor = ctx.state.auth?.user;
+    if (env.isDevelopment && !actor) {
+      const devKey = ctx.request.headers["x-dev-api-key"];
+      if (devKey === "dev_test_key") {
+        actor = {
+          id: "dev-user",
+          name: "Dev User",
+          email: "dev@test.local",
+        } as unknown as { id: string; name?: string; email?: string };
+        Logger.info(
+          "Dev mode: Using bypass authentication for meeting summary"
+        );
+      }
+    }
+
+    if (!actor) {
+      throw ValidationError("Authentication required");
+    }
+
+    // Validate LLM configuration
+    if (!env.LLM_API_KEY || !env.LLM_API_BASE_URL || !env.LLM_MODEL_NAME) {
+      Logger.error("LLM configuration missing", {
+        userId: actor.id,
+        hasApiKey: !!env.LLM_API_KEY,
+        hasBaseUrl: !!env.LLM_API_BASE_URL,
+        hasModelName: !!env.LLM_MODEL_NAME,
+      });
+      throw ValidationError(
+        "AI meeting summary is not configured on this server"
+      );
+    }
+
+    try {
+      const systemPrompt =
+        prompt ||
+        `You are a meeting assistant. Generate a concise, well-structured summary of the following meeting transcript. Include key points, decisions made, and action items if any. Format the summary in clear paragraphs with headings where appropriate.`;
+
+      // Call OpenAI-compatible API
+      const response = await fetch(`${env.LLM_API_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.LLM_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: env.LLM_MODEL_NAME,
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt,
+            },
+            {
+              role: "user",
+              content: transcript,
+            },
+          ],
+          temperature: 0.7,
+        }),
+        // Allow private IP addresses in development (for local LLM servers)
+        allowPrivateIPAddress: env.isDevelopment,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        Logger.error("LLM API error for meeting summary", {
+          userId: actor.id,
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText,
+        });
+
+        if (response.status === 429) {
+          throw RateLimitExceededError(
+            "AI service rate limit exceeded, please try again later"
+          );
+        }
+
+        if (response.status === 401 || response.status === 403) {
+          throw ValidationError(
+            "AI service authentication failed, please contact support"
+          );
+        }
+
+        if (response.status >= 500) {
+          throw new Error(
+            "AI service is temporarily unavailable, please try again later"
+          );
+        }
+
+        throw new Error(`AI service returned error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const summary = data?.choices?.[0]?.message?.content?.trim() || "";
+
+      if (!summary) {
+        Logger.warn("LLM returned empty summary", {
+          userId: actor.id,
+          transcriptLength: transcript.length,
+        });
+        throw ValidationError(
+          "AI service returned an empty response, please try again"
+        );
+      }
+
+      Logger.info("Meeting summary generated successfully", {
+        userId: actor.id,
+        transcriptLength: transcript.length,
+        summaryLength: summary.length,
+      });
+
+      ctx.body = {
+        data: {
+          summary,
+        },
+      };
+    } catch (error) {
+      // If it's already a custom error, rethrow it
+      if (
+        error instanceof RateLimitExceededError ||
+        error instanceof ValidationError
+      ) {
+        throw error;
+      }
+
+      // Log unexpected errors
+      Logger.error("Unexpected error in meeting summary generation", error, {
+        userId: actor.id,
+        transcriptLength: transcript.substring(0, 100),
+      });
+
+      // Throw a generic error for unexpected cases
+      throw new Error(
+        "An unexpected error occurred during summary generation, please try again"
+      );
+    }
+  }
+);
+
 export default router;

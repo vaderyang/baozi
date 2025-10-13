@@ -13,6 +13,7 @@ import {
   TodoListIcon,
   ImageIcon,
   StarredIcon,
+  LightningIcon,
   WarningIcon,
   InfoIcon,
   AttachmentIcon,
@@ -51,6 +52,16 @@ export default function blockMenuItems(
       icon: <StarredIcon />,
       keywords: "text ai generate llm gpt assistant",
       priority: 1000,
+    },
+    {
+      name: "meeting_ai_card",
+      title: "Meeting AI",
+      icon: <LightningIcon />,
+      keywords: "meeting ai transcript voice record lightning",
+      priority: 999,
+    },
+    {
+      name: "separator",
     },
     {
       name: "heading",

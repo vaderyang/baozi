@@ -13,3 +13,18 @@ export type GenerateRes = {
     text: string;
   };
 };
+
+export const MeetingSummarySchema = z.object({
+  body: z.object({
+    transcript: z.string().min(1).max(50000),
+    prompt: z.string().optional(),
+  }),
+});
+
+export type MeetingSummaryReq = z.infer<typeof MeetingSummarySchema>;
+
+export type MeetingSummaryRes = {
+  data: {
+    summary: string;
+  };
+};
