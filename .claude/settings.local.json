@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git tag:*)",
+      "Bash(nvm:*)",
+      "Bash(node:*)",
+      "Bash(echo $SHELL)",
+      "Read(//Users/vader/**)",
+      "Bash(zsh:*)",
+      "Bash(git checkout:*)",
+      "Bash(git stash:*)",
+      "Bash(claude mcp:*)",
+      "Bash(git log:*)",
+      "Bash(git reset:*)",
+      "Bash(git rebase:*)",
+      "Bash(git restore:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
