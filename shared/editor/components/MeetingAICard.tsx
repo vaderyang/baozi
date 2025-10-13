@@ -47,6 +47,29 @@ export default function MeetingAICard({
     }
   }, [contentDOM]);
 
+  // Helper: get current node attrs from state to avoid stale props
+  const getCurrentAttrs = () => {
+    const pos = getPos();
+    const nodeAtPos = view.state.doc.nodeAt(pos);
+    // Fallback to props if not found (shouldn't happen in normal flow)
+    return (nodeAtPos?.attrs as any) || node.attrs;
+  };
+
+  // Helper: append transcript segments while preserving other attrs
+  const appendTranscriptSegments = (segments: TranscriptSegment[]) => {
+    const pos = getPos();
+    const { tr } = view.state;
+    const currentAttrs = getCurrentAttrs();
+    const currentTranscript: TranscriptSegment[] =
+      currentAttrs.transcript || [];
+    const newSegments = [...currentTranscript, ...segments];
+    const transaction = tr.setNodeMarkup(pos, undefined, {
+      ...currentAttrs,
+      transcript: newSegments,
+    });
+    view.dispatch(transaction);
+  };
+
   // Cleanup on unmount
   React.useEffect(
     () => () => {
@@ -110,8 +133,9 @@ export default function MeetingAICard({
       {
         const pos = getPos();
         const { tr } = view.state;
+        const currentAttrs = getCurrentAttrs();
         const transaction = tr.setNodeMarkup(pos, undefined, {
-          ...node.attrs,
+          ...currentAttrs,
           listening: true,
           startedAt,
         });
@@ -153,17 +177,17 @@ export default function MeetingAICard({
             },
           ];
 
-          const pos = getPos();
-          const { tr } = view.state;
-          const currentTranscript: TranscriptSegment[] =
-            node.attrs.transcript || [];
-          const newSegments = [...currentTranscript, ...seg];
+          // Stop mock streaming if listening turned off externally
+          const currentAttrs = getCurrentAttrs();
+          if (!currentAttrs.listening) {
+            if (mockIntervalRef.current) {
+              window.clearInterval(mockIntervalRef.current);
+              mockIntervalRef.current = null;
+            }
+            return;
+          }
 
-          const transaction = tr.setNodeMarkup(pos, undefined, {
-            ...node.attrs,
-            transcript: newSegments,
-          });
-          view.dispatch(transaction);
+          appendTranscriptSegments(seg);
           idx++;
         }, 1000);
       };
@@ -191,16 +215,7 @@ export default function MeetingAICard({
           switch (message.type) {
             case "partial-transcript":
             case "final-transcript": {
-              const pos = getPos();
-              const { tr } = view.state;
-              const currentTranscript: TranscriptSegment[] =
-                node.attrs.transcript || [];
-              const newSegments = [...currentTranscript, ...message.segments];
-              const transaction = tr.setNodeMarkup(pos, undefined, {
-                ...node.attrs,
-                transcript: newSegments,
-              });
-              view.dispatch(transaction);
+              appendTranscriptSegments(message.segments as TranscriptSegment[]);
               break;
             }
             case "error":
@@ -283,8 +298,9 @@ export default function MeetingAICard({
     // Update node attrs to stopped state
     const pos = getPos();
     const { tr } = view.state;
+    const currentAttrs = getCurrentAttrs();
     const transaction = tr.setNodeMarkup(pos, undefined, {
-      ...node.attrs,
+      ...currentAttrs,
       listening: false,
     });
     view.dispatch(transaction);
