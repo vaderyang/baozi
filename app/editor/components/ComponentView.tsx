@@ -108,7 +108,33 @@ export default class ComponentView {
   }
 
   stopEvent(event: Event) {
-    return event.type !== "mousedown" && !event.type.startsWith("drag");
+    // Allow ProseMirror to handle keyboard and text input related events
+    if (
+      event.type.startsWith("key") ||
+      event.type === "input" ||
+      event.type.startsWith("composition") ||
+      event.type === "paste" ||
+      event.type === "cut" ||
+      event.type === "copy"
+    ) {
+      return false;
+    }
+
+    // Allow ProseMirror to handle drag events
+    if (event.type.startsWith("drag")) {
+      return false;
+    }
+
+    // Prevent ProseMirror from handling mousedown on our UI controls
+    if (event.type === "mousedown") {
+      const target = event.target as HTMLElement | null;
+      if (target && target.closest("button, [data-stop-prosemirror]")) {
+        return true;
+      }
+      return false;
+    }
+
+    return false;
   }
 
   destroy() {
@@ -128,6 +154,7 @@ export default class ComponentView {
       isEditable: this.view.editable,
       getPos: this.getPos,
       contentDOM: this.contentDOM,
+      pasteParser: this.editor.pasteParser,
     } as ComponentProps;
   }
 }

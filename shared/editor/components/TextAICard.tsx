@@ -14,6 +14,7 @@ export default function TextAICard({
   getPos,
   view,
   contentDOM,
+  pasteParser,
 }: TextAICardProps) {
   const [isHover, setIsHover] = React.useState(false);
   const [showPrompt, setShowPrompt] = React.useState(!node.attrs.generated);
@@ -25,7 +26,9 @@ export default function TextAICard({
 
   // Mount ProseMirror's contentDOM when available
   React.useEffect(() => {
-    if (!contentRef.current || !contentDOM) {return;}
+    if (!contentRef.current || !contentDOM) {
+      return;
+    }
     if (contentDOM.parentElement !== contentRef.current) {
       contentRef.current.appendChild(contentDOM);
     }
@@ -64,41 +67,47 @@ export default function TextAICard({
       const data = await response.json();
       const generatedText = data.data?.text || "";
 
-      // Split generated text into blocks by double newlines
-      const blocks = generatedText
-        .split(/\n\n+/)
-        .map((b) => b.trim())
-        .filter(Boolean);
-
-      // Replace node content with new nodes
+      // Prefer full Markdown parsing if a paste parser is available
       const pos = getPos();
       const { tr } = view.state;
-      const { paragraph, heading } = view.state.schema.nodes;
 
-      const nodes: PMNode[] = [];
+      let nodes: PMNode[] = [];
+      if (pasteParser) {
+        const parsedDoc = pasteParser.parse(generatedText);
+        nodes = parsedDoc.content.content as PMNode[];
+      } else {
+        // Fallback: Split generated text into blocks by double newlines
+        const { paragraph, heading } = view.state.schema.nodes;
+        const blocks = generatedText
+          .split(/\n\n+/)
+          .map((b) => b.trim())
+          .filter(Boolean);
 
-      // Convert the first block to H1 if it looks like a markdown H1 heading
-      if (blocks.length > 0) {
-        const first = blocks[0];
-        const headingMatch = first.match(/^#\s+(.+)/);
-        if (heading && headingMatch) {
-          nodes.push(
-            heading.create(
-              { level: 1 },
-              view.state.schema.text(headingMatch[1].trim())
-            )
-          );
-        } else {
-          nodes.push(paragraph.create(null, view.state.schema.text(first)));
+        if (blocks.length > 0) {
+          const first = blocks[0];
+          const headingMatch = first.match(/^#\s+(.+)/);
+          if (heading && headingMatch) {
+            nodes.push(
+              view.state.schema.nodes.heading.create(
+                { level: 1 },
+                view.state.schema.text(headingMatch[1].trim())
+              )
+            );
+          } else {
+            nodes.push(paragraph.create(null, view.state.schema.text(first)));
+          }
+
+          for (let i = 1; i < blocks.length; i++) {
+            nodes.push(
+              paragraph.create(null, view.state.schema.text(blocks[i]))
+            );
+          }
         }
 
-        // Remaining blocks become paragraphs (basic fallback without full markdown parsing)
-        for (let i = 1; i < blocks.length; i++) {
-          nodes.push(paragraph.create(null, view.state.schema.text(blocks[i])));
+        if (nodes.length === 0) {
+          nodes.push(paragraph.create());
         }
       }
-
-      // If no content, add an empty paragraph
       if (nodes.length === 0) {
         nodes.push(paragraph.create());
       }
@@ -193,6 +202,7 @@ const Wrapper = styled.div<{ showBorder: boolean }>`
   margin: 8px 0;
   border-radius: 8px;
   transition: all 0.2s ease;
+  overflow: hidden;
 
   ${(props) =>
     props.showBorder &&
