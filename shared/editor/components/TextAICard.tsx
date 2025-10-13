@@ -1,4 +1,4 @@
-import { SettingsIcon } from "outline-icons";
+import { SettingsIcon, DeleteIcon } from "outline-icons";
 import * as React from "react";
 import styled from "styled-components";
 import { Node as PMNode } from "prosemirror-model";
@@ -142,6 +142,29 @@ export default function TextAICard({
     setShowPrompt(!showPrompt);
   };
 
+  const handleSelectNode: React.MouseEventHandler<HTMLDivElement> = (ev) => {
+    // Only select when clicking the card chrome, not the inner editor content
+    const inContent = (ev.target as HTMLElement)?.closest(
+      "[data-prosemirror-content]"
+    );
+    if (inContent) {return;}
+    const { state, dispatch } = view;
+    const $pos = state.doc.resolve(getPos());
+    // @ts-expect-error NodeSelection is available at runtime
+    const { NodeSelection } = require("prosemirror-state");
+    const tr = state.tr.setSelection(new NodeSelection($pos));
+    dispatch(tr);
+  };
+
+  const handleDelete = () => {
+    const { state, dispatch } = view;
+    const pos = getPos();
+    const tr = state.tr
+      .delete(pos, pos + node.nodeSize)
+      .setMeta("addToHistory", true);
+    dispatch(tr);
+  };
+
   const showBorder =
     !node.attrs.generated || isHover || isSelected || showPrompt;
 
@@ -149,16 +172,29 @@ export default function TextAICard({
     <Wrapper
       onMouseEnter={() => setIsHover(true)}
       onMouseLeave={() => setIsHover(false)}
+      onMouseDown={handleSelectNode}
+      data-stop-prosemirror
       showBorder={showBorder}
       theme={theme}
     >
       {isEditable && (
         <ButtonGroup>
+          {(isHover || isSelected) && (
+            <IconButton
+              type="button"
+              onClick={handleDelete}
+              title="Delete"
+              data-stop-prosemirror
+            >
+              <DeleteIcon />
+            </IconButton>
+          )}
           {node.attrs.generated && (isHover || isSelected) && (
             <IconButton
               type="button"
               onClick={handleSettingsClick}
               title="Settings"
+              data-stop-prosemirror
             >
               <SettingsIcon />
             </IconButton>
@@ -168,6 +204,7 @@ export default function TextAICard({
               type="button"
               onClick={handleGenerate}
               disabled={isLoading || !prompt.trim()}
+              data-stop-prosemirror
             >
               {isLoading ? "Generating..." : "Generate"}
             </GenerateButton>
