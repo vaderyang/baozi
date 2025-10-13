@@ -50,4 +50,9 @@ export type ComponentProps = {
   isSelected: boolean;
   isEditable: boolean;
   getPos: () => number;
+  /**
+   * The DOM element ProseMirror will render this node's content into.
+   * Present if the node schema defines `content`.
+   */
+  contentDOM?: HTMLElement | null;
 };

@@ -4,10 +4,10 @@ import { Command } from "prosemirror-state";
 import { MarkdownSerializerState } from "../lib/markdown/serializer";
 import textAICardRule from "../rules/textAICard";
 import { ComponentProps } from "../types";
-import Node from "./Node";
+import ReactNode from "./ReactNode";
 import TextAICardComponent from "../components/TextAICard";
 
-export default class TextAICard extends Node {
+export default class TextAICard extends ReactNode {
   get name() {
     return "text_ai_card";
   }

@@ -1,6 +1,7 @@
 import { SettingsIcon } from "outline-icons";
 import * as React from "react";
 import styled from "styled-components";
+import { Node as PMNode } from "prosemirror-model";
 import { ComponentProps } from "../types";
 
 type TextAICardProps = ComponentProps;
@@ -12,6 +13,7 @@ export default function TextAICard({
   theme,
   getPos,
   view,
+  contentDOM,
 }: TextAICardProps) {
   const [isHover, setIsHover] = React.useState(false);
   const [showPrompt, setShowPrompt] = React.useState(!node.attrs.generated);
@@ -20,6 +22,14 @@ export default function TextAICard({
   const [error, setError] = React.useState<string | null>(null);
 
   const contentRef = React.useRef<HTMLDivElement>(null);
+
+  // Mount ProseMirror's contentDOM when available
+  React.useEffect(() => {
+    if (!contentRef.current || !contentDOM) {return;}
+    if (contentDOM.parentElement !== contentRef.current) {
+      contentRef.current.appendChild(contentDOM);
+    }
+  }, [contentDOM]);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -31,12 +41,18 @@ export default function TextAICard({
     setError(null);
 
     try {
-      // We'll use the ApiClient in the next step
-      // For now, just create placeholder logic
+      // Get CSRF token from cookie
+      const csrfToken = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("csrfToken="))
+        ?.split("=")[1];
+
       const response = await fetch("/api/ai.generate", {
         method: "POST",
+        credentials: "same-origin", // Include cookies
         headers: {
           "Content-Type": "application/json",
+          ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
         },
         body: JSON.stringify({ prompt }),
       });
@@ -48,21 +64,39 @@ export default function TextAICard({
       const data = await response.json();
       const generatedText = data.data?.text || "";
 
-      // Split generated text into paragraphs
-      const paragraphs = generatedText
+      // Split generated text into blocks by double newlines
+      const blocks = generatedText
         .split(/\n\n+/)
-        .filter((p) => p.trim())
-        .map((p) => p.trim());
+        .map((b) => b.trim())
+        .filter(Boolean);
 
-      // Replace node content with new paragraphs
+      // Replace node content with new nodes
       const pos = getPos();
       const { tr } = view.state;
-      const { paragraph } = view.state.schema.nodes;
+      const { paragraph, heading } = view.state.schema.nodes;
 
-      // Create paragraph nodes from the generated text
-      const nodes = paragraphs.map((text) =>
-        paragraph.create(null, view.state.schema.text(text))
-      );
+      const nodes: PMNode[] = [];
+
+      // Convert the first block to H1 if it looks like a markdown H1 heading
+      if (blocks.length > 0) {
+        const first = blocks[0];
+        const headingMatch = first.match(/^#\s+(.+)/);
+        if (heading && headingMatch) {
+          nodes.push(
+            heading.create(
+              { level: 1 },
+              view.state.schema.text(headingMatch[1].trim())
+            )
+          );
+        } else {
+          nodes.push(paragraph.create(null, view.state.schema.text(first)));
+        }
+
+        // Remaining blocks become paragraphs (basic fallback without full markdown parsing)
+        for (let i = 1; i < blocks.length; i++) {
+          nodes.push(paragraph.create(null, view.state.schema.text(blocks[i])));
+        }
+      }
 
       // If no content, add an empty paragraph
       if (nodes.length === 0) {
@@ -111,7 +145,7 @@ export default function TextAICard({
     >
       {isEditable && (
         <ButtonGroup>
-          {node.attrs.generated && (
+          {node.attrs.generated && (isHover || isSelected) && (
             <IconButton
               type="button"
               onClick={handleSettingsClick}
@@ -146,12 +180,8 @@ export default function TextAICard({
         </PromptSection>
       )}
 
-      <ContentSection
-        ref={contentRef}
-        contentEditable={false}
-        suppressContentEditableWarning
-      >
-        <div data-content-dom />
+      <ContentSection ref={contentRef}>
+        {/* ProseMirror contentDOM will be mounted here */}
       </ContentSection>
     </Wrapper>
   );
@@ -207,8 +237,8 @@ const IconButton = styled.button`
 
 const GenerateButton = styled.button`
   padding: 6px 12px;
-  border: 1px solid ${(props) => props.theme.primary};
-  background: ${(props) => props.theme.primary};
+  border: 1px solid #001f3f; /* Navy blue */
+  background: #001f3f; /* Navy blue */
   color: ${(props) => props.theme.white};
   border-radius: 4px;
   cursor: pointer;
@@ -217,7 +247,7 @@ const GenerateButton = styled.button`
   transition: all 0.2s ease;
 
   &:hover:not(:disabled) {
-    opacity: 0.9;
+    filter: brightness(1.1);
   }
 
   &:disabled {
@@ -240,6 +270,9 @@ const PromptLabel = styled.label`
 
 const PromptInput = styled.textarea`
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  display: block;
   padding: 8px 12px;
   border: 1px solid ${(props) => props.theme.divider};
   border-radius: 4px;

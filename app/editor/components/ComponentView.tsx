@@ -42,6 +42,8 @@ export default class ComponentView {
   isSelected = false;
   /** The DOM element that the node is rendered into. */
   dom: HTMLElement | null;
+  /** The DOM element that holds the node's content (for nodes with content). */
+  contentDOM: HTMLElement | null | undefined;
 
   // See https://prosemirror.net/docs/ref/#view.NodeView
   constructor(
@@ -67,6 +69,14 @@ export default class ComponentView {
       : document.createElement("div");
 
     this.dom.classList.add(`component-${node.type.name}`);
+
+    // For nodes with content, create a contentDOM element upfront
+    if (node.type.spec.content) {
+      this.contentDOM = document.createElement("div");
+      // Give it a class for styling/debugging if needed
+      this.contentDOM.className = "pm-node-content";
+    }
+
     this.renderer = new NodeViewRenderer(this.dom, this.component, this.props);
 
     // Add the renderer to the editor's set of renderers so that it is included in the React tree.
@@ -117,6 +127,7 @@ export default class ComponentView {
       isSelected: this.isSelected,
       isEditable: this.view.editable,
       getPos: this.getPos,
+      contentDOM: this.contentDOM,
     } as ComponentProps;
   }
 }

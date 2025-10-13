@@ -27,7 +27,7 @@ router.post(
           id: "dev-user",
           name: "Dev User",
           email: "dev@test.local",
-        } as any;
+        } as unknown as { id: string; name?: string; email?: string };
         Logger.info("Dev mode: Using bypass authentication");
       }
     }
@@ -60,6 +60,11 @@ router.post(
         body: JSON.stringify({
           model: env.LLM_MODEL_NAME,
           messages: [
+            {
+              role: "system",
+              content:
+                "You are assisting in generating Markdown content for an editor. Always respond in Markdown. Begin with a single Subject line as an H1 heading in the format: '# <Subject>'. Then include the detailed content after a blank line. Do not include any other preface, titles, or explanations. Output only the Subject heading and the content.",
+            },
             {
               role: "user",
               content: prompt,
