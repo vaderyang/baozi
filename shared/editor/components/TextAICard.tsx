@@ -1,4 +1,4 @@
-import { SettingsIcon, DeleteIcon } from "outline-icons";
+import { SettingsIcon, TrashIcon } from "outline-icons";
 import * as React from "react";
 import styled from "styled-components";
 import { Node as PMNode } from "prosemirror-model";
@@ -147,7 +147,9 @@ export default function TextAICard({
     const inContent = (ev.target as HTMLElement)?.closest(
       "[data-prosemirror-content]"
     );
-    if (inContent) {return;}
+    if (inContent) {
+      return;
+    }
     const { state, dispatch } = view;
     const $pos = state.doc.resolve(getPos());
     // @ts-expect-error NodeSelection is available at runtime
@@ -186,7 +188,7 @@ export default function TextAICard({
               title="Delete"
               data-stop-prosemirror
             >
-              <DeleteIcon />
+              <TrashIcon />
             </IconButton>
           )}
           {node.attrs.generated && (isHover || isSelected) && (
