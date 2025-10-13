@@ -427,7 +427,13 @@ export default function MeetingAICard({
             )}
             {isListening && (
               <>
-                <AudioLevelIndicator level={audioLevel} />
+                <AudioLevelIndicator>
+                  <AudioLevelBar
+                    style={{
+                      width: `${Math.min(1, Math.max(0, audioLevel)) * 100}%`,
+                    }}
+                  />
+                </AudioLevelIndicator>
                 <IconButton
                   type="button"
                   onClick={handleMark}
@@ -575,7 +581,7 @@ const ActionButton = styled.button`
   }
 `;
 
-const AudioLevelIndicator = styled.div<{ level: number }>`
+const AudioLevelIndicator = styled.div`
   width: 60px;
   height: 24px;
   border: 1px solid ${(props) => props.theme.divider};
@@ -583,23 +589,21 @@ const AudioLevelIndicator = styled.div<{ level: number }>`
   overflow: hidden;
   position: relative;
   background: ${(props) => props.theme.secondaryBackground};
+`;
 
-  &::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: ${(props) => props.level * 100}%;
-    background: linear-gradient(
-      90deg,
-      #4caf50 0%,
-      #8bc34a 50%,
-      #ff9800 75%,
-      #f44336 100%
-    );
-    transition: width 0.1s ease;
-  }
+const AudioLevelBar = styled.div`
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    #4caf50 0%,
+    #8bc34a 50%,
+    #ff9800 75%,
+    #f44336 100%
+  );
+  transition: width 0.1s ease;
 `;
 
 const ErrorMessage = styled.div`
