@@ -109,31 +109,33 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       }
 
       const caretPosition = () => {
-        // Prefer DOM selection range for accurate coordinates inside NodeViews
-        const root = (view as unknown as { root?: Document | ShadowRoot }).root;
-        const sel: Selection | null =
-          (root && "getSelection" in root
-            ? (root as Document | ShadowRoot).getSelection?.()
-            : undefined) || window.getSelection();
-
+        // Use DOM selection rect only when the caret is inside a React NodeView (e.g. Text AI Card)
+        const sel = window.getSelection();
         if (sel && sel.rangeCount) {
           try {
             const range = sel.getRangeAt(0);
-            const rect = range.getBoundingClientRect();
-            if (rect) {
-              return {
-                top: rect.top,
-                bottom: rect.bottom,
-                left: rect.left,
-                right: rect.right,
-              };
+            const startEl =
+              (range.startContainer as Node).parentElement || undefined;
+            const inReactNode = startEl?.closest?.(
+              ".component-text_ai_card, [class^='component-']"
+            );
+            if (inReactNode && startEl?.isConnected) {
+              const rect = range.getBoundingClientRect();
+              if (rect) {
+                return {
+                  top: rect.top,
+                  bottom: rect.bottom,
+                  left: rect.left,
+                  right: rect.right,
+                };
+              }
             }
           } catch (_err) {
             // fall through to coordsAtPos
           }
         }
 
-        // Fallback to ProseMirror's coordsAtPos
+        // Default: ProseMirror's coordsAtPos works best in the main editor
         let fromPos;
         let toPos;
         try {
