@@ -12,11 +12,29 @@ const router = new Router();
 
 router.post(
   "ai.generate",
-  auth(),
+  auth({ optional: env.isDevelopment }),
   validate(T.GenerateSchema),
   async (ctx: APIContext<T.GenerateReq>) => {
     const { prompt } = ctx.input.body;
-    const actor = ctx.state.auth.user;
+
+    // Dev mode: allow bypass with special header
+    let actor = ctx.state.auth?.user;
+    if (env.isDevelopment && !actor) {
+      const devKey = ctx.request.headers["x-dev-api-key"];
+      if (devKey === "dev_test_key") {
+        // Create a mock user for dev testing
+        actor = {
+          id: "dev-user",
+          name: "Dev User",
+          email: "dev@test.local",
+        } as any;
+        Logger.info("Dev mode: Using bypass authentication");
+      }
+    }
+
+    if (!actor) {
+      throw ValidationError("Authentication required");
+    }
 
     // Validate LLM configuration
     if (!env.LLM_API_KEY || !env.LLM_API_BASE_URL || !env.LLM_MODEL_NAME) {
