@@ -1,4 +1,3 @@
-import fs from "fs";
 import path from "path";
 import react from "@vitejs/plugin-react-oxc";
 import browserslistToEsbuild from "browserslist-to-esbuild";
@@ -13,14 +12,22 @@ let host: string | undefined;
 if (environment.NODE_ENV === "development") {
   host = host = new URL(environment.URL!).hostname;
 
-  try {
-    httpsConfig = {
-      key: fs.readFileSync("./server/config/certs/private.key"),
-      cert: fs.readFileSync("./server/config/certs/public.cert"),
-    };
-  } catch (_err) {
-    // oxlint-disable-next-line no-console
-    console.warn("No local SSL certs found, HTTPS will not be available");
+  // Explicitly disable HTTPS in development to avoid CSP/HSTS issues
+  // Only enable if SSL certs are explicitly provided via environment variables
+  if (environment.SSL_KEY && environment.SSL_CERT) {
+    try {
+      httpsConfig = {
+        key: Buffer.from(environment.SSL_KEY, "base64"),
+        cert: Buffer.from(environment.SSL_CERT, "base64"),
+      };
+    } catch (_err) {
+      // oxlint-disable-next-line no-console
+      console.warn("Failed to parse SSL environment variables");
+      httpsConfig = false;
+    }
+  } else {
+    // Explicitly set to false to ensure HTTP
+    httpsConfig = false;
   }
 }
 

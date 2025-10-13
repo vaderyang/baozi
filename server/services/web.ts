@@ -2,7 +2,7 @@
 import { Server } from "https";
 import Koa from "koa";
 import compress from "koa-compress";
-import { dnsPrefetchControl, referrerPolicy } from "koa-helmet";
+import { dnsPrefetchControl, referrerPolicy, hsts } from "koa-helmet";
 import mount from "koa-mount";
 import enforceHttps, {
   httpsResolver,
@@ -46,6 +46,15 @@ export default function init(app: Koa = new Koa(), server?: Server) {
   }
 
   app.use(compress());
+
+  // Disable HSTS in development (otherwise browser will cache HTTPS requirement)
+  if (!env.isProduction) {
+    app.use(
+      hsts({
+        maxAge: 0,
+      })
+    );
+  }
 
   // Monitor server connections
   if (server) {
