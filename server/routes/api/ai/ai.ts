@@ -67,6 +67,8 @@ router.post(
           ],
           temperature: 0.7,
         }),
+        // Allow private IP addresses in development (for local LLM servers)
+        allowPrivateIPAddress: env.isDevelopment,
       });
 
       if (!response.ok) {
