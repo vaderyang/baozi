@@ -186,6 +186,12 @@ export default function blockMenuItems(
       name: "separator",
     },
     {
+      name: "text_ai_card",
+      title: "Text AI Card",
+      icon: <StarredIcon />,
+      keywords: "text ai generate llm gpt assistant",
+    },
+    {
       name: "container_notice",
       title: dictionary.infoNotice,
       icon: <InfoIcon />,
