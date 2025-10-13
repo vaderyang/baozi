@@ -187,7 +187,7 @@ export default function blockMenuItems(
     },
     {
       name: "text_ai_card",
-      title: "Text AI Card",
+      title: "Text AI",
       icon: <StarredIcon />,
       keywords: "text ai generate llm gpt assistant",
     },
