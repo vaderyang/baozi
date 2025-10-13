@@ -290,6 +290,58 @@ export default function MeetingAICard({
     view.dispatch(transaction);
   };
 
+  const handleMark = () => {
+    // Get current timestamp relative to recording start
+    const now = Date.now();
+    const startedAt = node.attrs.startedAt || now;
+    const elapsedMs = now - startedAt;
+
+    // Extract transcript segments from 3s before to 7s after current time
+    const windowStart = Math.max(0, elapsedMs - 3000);
+    const windowEnd = elapsedMs + 7000;
+
+    const transcriptList: TranscriptSegment[] = node.attrs.transcript || [];
+    const contextSegments = transcriptList.filter(
+      (seg) => seg.endMs >= windowStart && seg.startMs <= windowEnd
+    );
+
+    // Format time as HH:MM:SS
+    const formatTime = (ms: number) => {
+      const seconds = Math.floor(ms / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      const mm = String(minutes % 60).padStart(2, "0");
+      const ss = String(seconds % 60).padStart(2, "0");
+      const hh = String(hours).padStart(2, "0");
+      return `${hh}:${mm}:${ss}`;
+    };
+
+    const timeStr = formatTime(elapsedMs);
+
+    let markText: string;
+    if (contextSegments.length > 0) {
+      const contextText = contextSegments.map((seg) => seg.text).join(" ");
+      markText = `[${timeStr}] marked '${contextText}'\n\n`;
+    } else {
+      markText = `[${timeStr}] marked\n\n`;
+    }
+
+    // Append to Notes content (inside the card's contentDOM)
+    const pos = getPos();
+    const { tr } = view.state;
+
+    // Create a paragraph with the mark text
+    const paragraph = view.state.schema.nodes.paragraph.create(
+      null,
+      view.state.schema.text(markText)
+    );
+
+    // Insert at the end of the card's content
+    const endPos = pos + node.nodeSize - 1;
+    const transaction = tr.insert(endPos, paragraph);
+    view.dispatch(transaction);
+  };
+
   const handleGenerateSummary = async () => {
     try {
       setError(null);
