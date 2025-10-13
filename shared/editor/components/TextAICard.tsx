@@ -185,7 +185,7 @@ export default function TextAICard({
             <IconButton
               type="button"
               onClick={handleDelete}
-              title="Delete"
+              title="Delete this card"
               data-stop-prosemirror
             >
               <TrashIcon />
