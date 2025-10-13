@@ -484,6 +484,31 @@ export class Environment {
   );
 
   /**
+   * API key for LLM provider (OpenAI-compatible).
+   * Required for Text AI Card feature to generate content.
+   */
+  @IsOptional()
+  public LLM_API_KEY = this.toOptionalString(environment.LLM_API_KEY);
+
+  /**
+   * Base URL for LLM API endpoint (OpenAI-compatible).
+   * Examples:
+   *  - OpenAI: https://api.openai.com/v1
+   *  - Azure OpenAI: https://your-resource.openai.azure.com
+   *  - Local Ollama: http://localhost:11434/v1
+   */
+  @IsOptional()
+  @IsUrl()
+  public LLM_API_BASE_URL = this.toOptionalString(environment.LLM_API_BASE_URL);
+
+  /**
+   * Model name/identifier for LLM.
+   * Examples: gpt-4o-mini, gpt-4, gpt-3.5-turbo, llama3.1
+   */
+  @IsOptional()
+  public LLM_MODEL_NAME = environment.LLM_MODEL_NAME ?? "gpt-4o-mini";
+
+  /**
    * A DataDog API key for tracking server metrics.
    */
   public DD_API_KEY = environment.DD_API_KEY;
