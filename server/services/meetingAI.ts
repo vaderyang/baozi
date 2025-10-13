@@ -9,6 +9,7 @@ import Metrics from "@server/logging/Metrics";
 import { User } from "@server/models";
 import { getUserForJWT } from "@server/utils/jwt";
 import cookie from "cookie";
+import { OpenAIRealtimeClient } from "./openai-realtime";
 
 type TranscriptSegment = {
   startMs: number;
@@ -62,7 +63,7 @@ export default function init(
     Metrics.increment("websockets.meeting_ai.connected");
 
     let user: User | null = null;
-    let openAIWs: WebSocket | null = null;
+    let openAIClient: OpenAIRealtimeClient | null = null;
     const transcriptSegments: TranscriptSegment[] = [];
 
     // Authenticate the connection
@@ -107,59 +108,59 @@ export default function init(
               return;
             }
 
-            // For now, send mock transcript segments for testing
-            // TODO: Connect to OpenAI Realtime API
-            Logger.warn(
-              "OpenAI Realtime integration not yet implemented, using mock data"
-            );
+            // Initialize OpenAI Realtime client
+            try {
+              openAIClient = new OpenAIRealtimeClient(user?.id || "unknown", {
+                onTranscript: (segments) => {
+                  // Store segments
+                  transcriptSegments.push(...segments);
 
-            // Simulate receiving transcript after a delay
-            setTimeout(() => {
-              const mockSegments: TranscriptSegment[] = [
-                {
-                  startMs: 0,
-                  endMs: 3000,
-                  speaker: "Speaker 1",
-                  text: "Welcome to the meeting!",
+                  // Send to client
+                  const response: ServerMessage = {
+                    type: "partial-transcript",
+                    segments,
+                  };
+                  ws.send(JSON.stringify(response));
                 },
-              ];
+                onError: (error) => {
+                  Logger.error("OpenAI Realtime error", error);
+                  const errorMessage: ServerMessage = {
+                    type: "error",
+                    code: "OPENAI_ERROR",
+                    message: error.message || "OpenAI Realtime API error",
+                  };
+                  ws.send(JSON.stringify(errorMessage));
+                },
+                onClose: () => {
+                  Logger.info("OpenAI Realtime connection closed");
+                },
+              });
 
-              transcriptSegments.push(...mockSegments);
-
-              const response: ServerMessage = {
-                type: "partial-transcript",
-                segments: mockSegments,
+              await openAIClient.connect();
+              Logger.info("OpenAI Realtime client connected", {
+                userId: user?.id,
+              });
+            } catch (err) {
+              Logger.error("Failed to connect to OpenAI Realtime", err);
+              const errorMessage: ServerMessage = {
+                type: "error",
+                code: "OPENAI_CONNECTION_ERROR",
+                message: "Failed to connect to OpenAI Realtime API",
               };
-              ws.send(JSON.stringify(response));
-            }, 2000);
+              ws.send(JSON.stringify(errorMessage));
+            }
 
             break;
           }
 
           case "audio-chunk": {
-            // TODO: Forward audio chunk to OpenAI Realtime API
-            Logger.debug("websocket", "Received audio chunk", {
-              userId: user?.id,
-              size: message.data.byteLength,
-              timestamp: message.timestampMs,
-            });
-
-            // For now, simulate periodic transcript updates
-            if (Math.random() > 0.95) {
-              const mockSegment: TranscriptSegment = {
-                startMs: message.timestampMs - 1000,
-                endMs: message.timestampMs,
-                speaker: `Speaker ${Math.floor(Math.random() * 2) + 1}`,
-                text: "This is a simulated transcript segment.",
-              };
-
-              transcriptSegments.push(mockSegment);
-
-              const response: ServerMessage = {
-                type: "partial-transcript",
-                segments: [mockSegment],
-              };
-              ws.send(JSON.stringify(response));
+            // Forward audio chunk to OpenAI Realtime API
+            if (openAIClient && message.data) {
+              openAIClient.sendAudioChunk(message.data, message.timestampMs);
+            } else {
+              Logger.warn(
+                "Received audio chunk but OpenAI client not initialized"
+              );
             }
 
             break;
@@ -171,21 +172,40 @@ export default function init(
               totalSegments: transcriptSegments.length,
             });
 
-            // Close OpenAI connection if exists
-            if (openAIWs) {
-              openAIWs.close();
-              openAIWs = null;
+            // Commit any pending audio and close OpenAI connection
+            if (openAIClient) {
+              openAIClient.commitAudio();
+
+              // Wait a bit for final transcription
+              setTimeout(() => {
+                const finalSegments =
+                  openAIClient?.getFinalTranscript() || transcriptSegments;
+
+                // Send final transcript
+                const response: ServerMessage = {
+                  type: "final-transcript",
+                  segments: finalSegments,
+                };
+                ws.send(JSON.stringify(response));
+
+                const stoppedMessage: ServerMessage = { type: "stopped" };
+                ws.send(JSON.stringify(stoppedMessage));
+
+                // Close OpenAI connection
+                openAIClient?.close();
+                openAIClient = null;
+              }, 500);
+            } else {
+              // No OpenAI client, just send what we have
+              const response: ServerMessage = {
+                type: "final-transcript",
+                segments: transcriptSegments,
+              };
+              ws.send(JSON.stringify(response));
+
+              const stoppedMessage: ServerMessage = { type: "stopped" };
+              ws.send(JSON.stringify(stoppedMessage));
             }
-
-            // Send final transcript
-            const response: ServerMessage = {
-              type: "final-transcript",
-              segments: transcriptSegments,
-            };
-            ws.send(JSON.stringify(response));
-
-            const stoppedMessage: ServerMessage = { type: "stopped" };
-            ws.send(JSON.stringify(stoppedMessage));
 
             break;
           }
@@ -218,9 +238,9 @@ export default function init(
       Metrics.increment("websockets.meeting_ai.disconnected");
 
       // Clean up OpenAI connection
-      if (openAIWs) {
-        openAIWs.close();
-        openAIWs = null;
+      if (openAIClient) {
+        openAIClient.close();
+        openAIClient = null;
       }
     });
 
