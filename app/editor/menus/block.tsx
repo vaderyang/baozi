@@ -46,6 +46,13 @@ export default function blockMenuItems(
 
   return [
     {
+      name: "text_ai_card",
+      title: "Text AI",
+      icon: <StarredIcon />,
+      keywords: "text ai generate llm gpt assistant",
+      priority: 1000,
+    },
+    {
       name: "heading",
       title: dictionary.h1,
       keywords: "h1 heading1 title",
@@ -184,12 +191,6 @@ export default function blockMenuItems(
     },
     {
       name: "separator",
-    },
-    {
-      name: "text_ai_card",
-      title: "Text AI",
-      icon: <StarredIcon />,
-      keywords: "text ai generate llm gpt assistant",
     },
     {
       name: "container_notice",
