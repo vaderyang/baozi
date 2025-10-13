@@ -109,6 +109,31 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       }
 
       const caretPosition = () => {
+        // Prefer DOM selection range for accurate coordinates inside NodeViews
+        const root = (view as unknown as { root?: Document | ShadowRoot }).root;
+        const sel: Selection | null =
+          (root && "getSelection" in root
+            ? (root as Document | ShadowRoot).getSelection?.()
+            : undefined) || window.getSelection();
+
+        if (sel && sel.rangeCount) {
+          try {
+            const range = sel.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+            if (rect) {
+              return {
+                top: rect.top,
+                bottom: rect.bottom,
+                left: rect.left,
+                right: rect.right,
+              };
+            }
+          } catch (_err) {
+            // fall through to coordsAtPos
+          }
+        }
+
+        // Fallback to ProseMirror's coordsAtPos
         let fromPos;
         let toPos;
         try {
@@ -124,7 +149,6 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
           };
         }
 
-        // ensure that start < end for the menu to be positioned correctly
         return {
           top: Math.min(fromPos.top, toPos.top),
           bottom: Math.max(fromPos.bottom, toPos.bottom),
@@ -219,6 +243,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     setPosition(calculatePosition(props));
     setSelectedIndex(0);
     setInsertItem(undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calculatePosition, props.isActive]);
 
   React.useEffect(() => {
