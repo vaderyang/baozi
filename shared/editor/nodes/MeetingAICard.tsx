@@ -1,6 +1,7 @@
 import { Token } from "markdown-it";
 import { NodeSpec, Node as ProsemirrorNode, NodeType } from "prosemirror-model";
 import { Command } from "prosemirror-state";
+import { splitBlock, createParagraphNear } from "prosemirror-commands";
 import { MarkdownSerializerState } from "../lib/markdown/serializer";
 import meetingAICardRule from "../rules/meetingAICard";
 import { ComponentProps } from "../types";
@@ -56,6 +57,7 @@ export default class MeetingAICard extends ReactNode {
       defining: true,
       draggable: true,
       selectable: true,
+      isolating: true,
       parseDOM: [
         {
           tag: "div.meeting-ai-card",
@@ -118,6 +120,33 @@ export default class MeetingAICard extends ReactNode {
           },
           0,
         ];
+      },
+    };
+  }
+
+  // Ensure Enter inside the card never exits/splits the card node
+  keys() {
+    return {
+      Enter: (state, dispatch) => {
+        const { $from } = state.selection;
+        // Determine if selection is inside a meeting_ai_card
+        let inCard = false;
+        for (let d = $from.depth; d >= 0; d--) {
+          const node = $from.node(d);
+          if (node.type.name === this.name) {
+            inCard = true;
+            break;
+          }
+        }
+        if (!inCard) {
+          return false;
+        }
+        // Try splitting current textblock; if not possible, create a paragraph nearby.
+        return (
+          splitBlock(state, dispatch) ||
+          createParagraphNear(state, dispatch) ||
+          true
+        );
       },
     };
   }
