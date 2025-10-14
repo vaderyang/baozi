@@ -42,11 +42,22 @@ export default class BlockMenuExtension extends Suggestion {
               return;
             }
 
-            const isTopLevel = state.selection.$from.depth === 1;
-            const inMeetingAICard = !!findParentNode(
-              (node) => node.type.name === "meeting_ai_card"
-            )(state.selection);
-            if (!isTopLevel && !inMeetingAICard) {
+            const $from = state.selection.$from;
+            const isTopLevel = $from.depth === 1;
+            // Allow the "+" trigger inside AI cards (Text AI and Meeting AI)
+            let insideAICard = false;
+            for (let d = $from.depth; d > 0; d--) {
+              const n = $from.node(d);
+              if (
+                n.type &&
+                (n.type.name === "text_ai_card" ||
+                  n.type.name === "meeting_ai_card")
+              ) {
+                insideAICard = true;
+                break;
+              }
+            }
+            if (!isTopLevel && !insideAICard) {
               return;
             }
 
@@ -79,12 +90,26 @@ export default class BlockMenuExtension extends Suggestion {
       }),
       new PlaceholderPlugin([
         {
-          condition: ({ node, $start, textContent, state, parent }) => {
+          condition: ({ node, $start, textContent, state }) => {
+            const atLineEnd =
+              state.selection.$from.pos === $start.pos + node.content.size;
             const isTopLevel = $start.depth === 1;
-            const inMeetingAICard = parent?.type.name === "meeting_ai_card";
+            // Allow placeholder inside AI cards (Text AI and Meeting AI)
+            let insideAICard = false;
+            for (let d = state.selection.$from.depth; d > 0; d--) {
+              const n = state.selection.$from.node(d);
+              if (
+                n.type &&
+                (n.type.name === "text_ai_card" ||
+                  n.type.name === "meeting_ai_card")
+              ) {
+                insideAICard = true;
+                break;
+              }
+            }
             return (
-              (isTopLevel || inMeetingAICard) &&
-              state.selection.$from.pos === $start.pos + node.content.size &&
+              (isTopLevel || insideAICard) &&
+              atLineEnd &&
               !!textContent &&
               node.childCount === 0 &&
               node.textContent === ""
@@ -93,12 +118,26 @@ export default class BlockMenuExtension extends Suggestion {
           text: this.options.dictionary.newLineEmpty,
         },
         {
-          condition: ({ node, $start, state, parent }) => {
+          condition: ({ node, $start, state }) => {
+            const atLineEnd =
+              state.selection.$from.pos === $start.pos + node.content.size;
             const isTopLevel = $start.depth === 1;
-            const inMeetingAICard = parent?.type.name === "meeting_ai_card";
+            // Allow placeholder inside AI cards (Text AI and Meeting AI)
+            let insideAICard = false;
+            for (let d = state.selection.$from.depth; d > 0; d--) {
+              const n = state.selection.$from.node(d);
+              if (
+                n.type &&
+                (n.type.name === "text_ai_card" ||
+                  n.type.name === "meeting_ai_card")
+              ) {
+                insideAICard = true;
+                break;
+              }
+            }
             return (
-              (isTopLevel || inMeetingAICard) &&
-              state.selection.$from.pos === $start.pos + node.content.size &&
+              (isTopLevel || insideAICard) &&
+              atLineEnd &&
               node.textContent === "/"
             );
           },
