@@ -131,7 +131,9 @@ export default function MeetingAICard({
       const SMOOTH = 0.6; // EMA smoothing
       audioLevelIntervalRef.current = window.setInterval(() => {
         const a = analyserRef.current;
-        if (!a) {return;}
+        if (!a) {
+          return;
+        }
         a.getByteTimeDomainData(timeData);
         let sumSquares = 0;
         for (let i = 0; i < timeData.length; i++) {
@@ -992,9 +994,7 @@ const IconButton = styled.button`
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 32px;
-  height: 32px;
-  padding: 0 8px;
+  padding: 6px 12px; /* match Generate Summary vertical rhythm */
   border: 1px solid ${(props) => props.theme.divider};
   background: ${(props) => props.theme.background};
   border-radius: 4px;
