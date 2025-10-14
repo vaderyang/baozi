@@ -17,12 +17,15 @@ export default function MeetingAICard({
   getPos,
   view,
   contentDOM,
+  pasteParser,
 }: MeetingAICardProps) {
   const [isHover, setIsHover] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<TabType>("notes");
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
+  const [showLangMenu, setShowLangMenu] = React.useState(false);
+  const [showTemplateMenu, setShowTemplateMenu] = React.useState(false);
   const [audioLevel, setAudioLevel] = React.useState(0);
 
   const contentRef = React.useRef<HTMLDivElement>(null);
@@ -37,7 +40,7 @@ export default function MeetingAICard({
   const transcript: TranscriptSegment[] = node.attrs.transcript || [];
   const isListening = node.attrs.listening || false;
 
-  // Mount ProseMirror's contentDOM when available
+  // Mount ProseMirror's contentDOM when available (and keep it mounted)
   React.useEffect(() => {
     if (!contentRef.current || !contentDOM) {
       return;
@@ -198,50 +201,93 @@ export default function MeetingAICard({
         return;
       }
 
-      // Attempt to connect real WebSocket
+      // Attempt to connect real WebSocket and stream PCM16 audio
       try {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const ws = new WebSocket(
           `${protocol}//${window.location.host}/meeting-ai`
         );
+        ws.binaryType = "arraybuffer";
         wsRef.current = ws;
+
+        // Helper to convert Float32 [-1,1] to 16-bit PCM little-endian
+        const floatTo16BitPCM = (input: Float32Array) => {
+          const output = new Int16Array(input.length);
+          for (let i = 0; i < input.length; i++) {
+            const s = Math.max(-1, Math.min(1, input[i]));
+            output[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          }
+          return output;
+        };
+
+        let processor: ScriptProcessorNode | null = null;
 
         ws.onopen = () => {
           ws.send(JSON.stringify({ type: "start" }));
+
+          // Begin capturing and streaming audio frames
+          if (audioContextRef.current && mediaStreamRef.current) {
+            const sourceNode = audioContextRef.current.createMediaStreamSource(
+              mediaStreamRef.current
+            );
+            processor = audioContextRef.current.createScriptProcessor(
+              4096,
+              1,
+              1
+            );
+            processor.onaudioprocess = (e) => {
+              const channelData = e.inputBuffer.getChannelData(0);
+              const pcm = floatTo16BitPCM(channelData);
+              try {
+                if (
+                  wsRef.current &&
+                  wsRef.current.readyState === WebSocket.OPEN
+                ) {
+                  // Send as binary frame
+                  wsRef.current.send(pcm.buffer);
+                }
+              } catch (_sendErr) {
+                // Swallow send errors and rely on onerror to fallback
+              }
+            };
+            // Keep the processor active
+            sourceNode.connect(processor);
+            processor.connect(audioContextRef.current.destination);
+          }
         };
 
         ws.onmessage = (event) => {
-          const message = JSON.parse(event.data);
-          switch (message.type) {
-            case "partial-transcript":
-            case "final-transcript": {
-              appendTranscriptSegments(message.segments as TranscriptSegment[]);
-              break;
+          try {
+            const message = JSON.parse(event.data);
+            switch (message.type) {
+              case "partial-transcript":
+              case "final-transcript": {
+                appendTranscriptSegments(
+                  message.segments as TranscriptSegment[]
+                );
+                break;
+              }
+              case "error":
+                setError(message.message || "WebSocket error occurred");
+                break;
+              case "stopped":
+                break;
             }
-            case "error":
-              setError(message.message || "WebSocket error occurred");
-              break;
-            case "stopped":
-              break;
+          } catch (_e) {
+            // Ignore non-JSON frames (binary audio echoes won't be sent from server)
           }
         };
 
         ws.onerror = () => {
+          // Cleanup processor if created
+          try {
+            processor?.disconnect();
+          } catch (_err) {
+            /* ignore disconnect error */
+          }
+          processor = null;
           startMockStreaming();
         };
-
-        audioChunkIntervalRef.current = window.setInterval(() => {
-          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            const elapsedMs = Date.now() - startedAt;
-            wsRef.current.send(
-              JSON.stringify({
-                type: "audio-chunk",
-                data: new ArrayBuffer(512),
-                timestampMs: elapsedMs,
-              })
-            );
-          }
-        }, 200);
       } catch {
         startMockStreaming();
       }
@@ -258,7 +304,7 @@ export default function MeetingAICard({
   };
 
   const handleStopListening = () => {
-    // Stop audio chunk streaming
+    // Stop any periodic timers
     if (audioChunkIntervalRef.current) {
       window.clearInterval(audioChunkIntervalRef.current);
       audioChunkIntervalRef.current = null;
@@ -272,7 +318,11 @@ export default function MeetingAICard({
 
     // Send stop message to WebSocket
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "stop" }));
+      try {
+        wsRef.current.send(JSON.stringify({ type: "stop" }));
+      } catch (_err) {
+        /* ignore send on close */
+      }
       wsRef.current.close();
       wsRef.current = null;
     }
@@ -289,7 +339,11 @@ export default function MeetingAICard({
     }
 
     if (audioContextRef.current) {
-      void audioContextRef.current.close();
+      try {
+        void audioContextRef.current.close();
+      } catch (_err) {
+        /* ignore close error */
+      }
       audioContextRef.current = null;
     }
 
@@ -366,7 +420,7 @@ export default function MeetingAICard({
       setError(null);
       setIsLoading(true);
 
-      // Format transcript as plain text
+      // Compose transcript as plain text
       const transcriptText = transcript
         .map((seg) => {
           const time = new Date(seg.startMs).toISOString().substr(11, 8);
@@ -379,6 +433,42 @@ export default function MeetingAICard({
         setIsLoading(false);
         return;
       }
+
+      // Extract Notes text (content before the summary divider, if present)
+      const getNotesPlain = () => {
+        const host = contentRef.current;
+        if (!host) {return "";}
+        const pmRoot = (host.firstElementChild as HTMLElement) || host;
+        const blocks = Array.from(pmRoot.children) as HTMLElement[];
+        const textParts: string[] = [];
+        for (const el of blocks) {
+          if (el.tagName === "HR") {break;}
+          const t = el.innerText.trim();
+          if (t) {textParts.push(t);}
+        }
+        return textParts.join("\n\n");
+      };
+
+      const notesText = getNotesPlain();
+
+      // Build an instruction prompt for the summary subject and structure
+      const { summaryLanguage, summaryTemplate } = getCurrentAttrs();
+      const langPart =
+        summaryLanguage && summaryLanguage !== "auto"
+          ? `Write in ${summaryLanguage} language.`
+          : "";
+      const templatePart =
+        summaryTemplate && summaryTemplate !== "auto"
+          ? `Use the ${summaryTemplate} meeting style.`
+          : "";
+
+      const prompt = `You are a meeting assistant. Create a clear, concise meeting summary in Markdown.
+- The first line must be a single H1 Subject that best captures the meeting topic.
+- Then include sections with headings such as: Highlights, Decisions, Action Items (with assignees and due dates), Risks, and Next Steps. Use lists where appropriate.
+- Be concise and avoid repetition. ${langPart} ${templatePart}
+
+Use the following Notes and Transcript as context:
+Notes:\n${notesText}\n\nTranscript follows:`;
 
       // Get CSRF token from cookie
       const csrfToken = document.cookie
@@ -393,7 +483,7 @@ export default function MeetingAICard({
           "Content-Type": "application/json",
           ...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
         },
-        body: JSON.stringify({ transcript: transcriptText }),
+        body: JSON.stringify({ transcript: transcriptText, prompt }),
       });
 
       if (!response.ok) {
@@ -401,35 +491,78 @@ export default function MeetingAICard({
       }
 
       const data = await response.json();
-      const summary = data.data?.summary || "";
+      const summaryMd = data.data?.summary || "";
 
-      if (!summary) {
+      if (!summaryMd) {
         throw new Error("No summary returned from API");
       }
 
-      // Insert summary into Notes content, and persist summary in attrs
+      // Prepare parsed nodes for summary
       const pos = getPos();
       const { tr } = view.state;
 
-      // Create paragraphs for the summary (keep original Notes behavior)
-      const summaryHeader = view.state.schema.nodes.paragraph.create(
-        null,
-        view.state.schema.text("## Meeting Summary\n\n")
-      );
-      const summaryParagraph = view.state.schema.nodes.paragraph.create(
-        null,
-        view.state.schema.text(summary + "\n\n")
-      );
+      const nodes: any[] = [];
+      const { paragraph, hr } = view.state.schema.nodes as any;
 
-      const endPos = pos + node.nodeSize - 1;
-      const currentAttrs = getCurrentAttrs();
-      const transaction = tr
-        .insert(endPos, [summaryHeader, summaryParagraph])
-        .setNodeMarkup(pos, undefined, {
-          ...currentAttrs,
-          generated: true,
-          summary,
+      // Parse markdown into nodes if a pasteParser is available; fallback to paragraphs
+      let parsedNodes: any[] = [];
+      if (pasteParser && typeof (pasteParser as any).parse === "function") {
+        try {
+          const parsed = (pasteParser as any).parse(summaryMd);
+          parsedNodes = parsed.content.content as any[];
+        } catch (_e) {
+          parsedNodes = [];
+        }
+      }
+
+      if (parsedNodes.length === 0) {
+        const blocks = summaryMd
+          .split(/\n\n+/)
+          .map((b) => b.trim())
+          .filter(Boolean);
+        for (const b of blocks) {
+          nodes.push(paragraph.create(null, view.state.schema.text(b)));
+        }
+      } else {
+        nodes.push(...parsedNodes);
+      }
+
+      // Replace existing Summary (content after the divider) if present; otherwise append divider + summary
+      const startContent = pos + 1;
+      const endContent = pos + node.nodeSize - 1;
+
+      const cardNode = view.state.doc.nodeAt(pos);
+      let dividerAbsPos = -1;
+      if (cardNode) {
+        cardNode.forEach((child, offset) => {
+          if (child.type.name === "hr" && dividerAbsPos === -1) {
+            dividerAbsPos = startContent + offset;
+          }
         });
+      }
+
+      let transaction;
+      if (dividerAbsPos !== -1) {
+        // Delete everything after divider and insert new parsed summary
+        const insertAt = dividerAbsPos + 1;
+        transaction = tr
+          .replaceWith(insertAt, endContent, nodes)
+          .setNodeMarkup(pos, undefined, {
+            ...getCurrentAttrs(),
+            generated: true,
+          })
+          .setMeta("addToHistory", true);
+      } else {
+        // No divider yet: insert divider + summary at end
+        const insertNodes = hr ? [hr.create(), ...nodes] : nodes;
+        transaction = tr
+          .replaceWith(endContent, endContent, insertNodes)
+          .setNodeMarkup(pos, undefined, {
+            ...getCurrentAttrs(),
+            generated: true,
+          })
+          .setMeta("addToHistory", true);
+      }
 
       view.dispatch(transaction);
       setActiveTab("summary");
@@ -452,11 +585,12 @@ export default function MeetingAICard({
   };
 
   const handleSelectNode: React.MouseEventHandler<HTMLDivElement> = (ev) => {
-    // Only select when clicking the card chrome, not the inner editor content
-    const inContent = (ev.target as HTMLElement)?.closest(
-      "[data-prosemirror-content]"
-    );
-    if (inContent) {
+    // Do not select when clicking any interactive elements or editor content
+    const targetEl = ev.target as HTMLElement;
+    if (
+      targetEl.closest("[data-prosemirror-content]") ||
+      targetEl.closest("[data-stop-prosemirror]")
+    ) {
       return;
     }
     const { state, dispatch } = view;
@@ -475,6 +609,46 @@ export default function MeetingAICard({
       })
       .join("");
 
+  // Toggle visible region between Notes and Summary using a horizontal rule divider
+  React.useEffect(() => {
+    if (!contentRef.current) {return;}
+    const root = contentRef.current;
+    const pmRoot = (root.firstElementChild as HTMLElement) || root;
+    const blocks = Array.from(pmRoot.children) as HTMLElement[];
+
+    // Reset: show all by default
+    blocks.forEach((el) => (el.style.display = ""));
+
+    if (activeTab === "transcript") {
+      blocks.forEach((el) => (el.style.display = "none"));
+      return;
+    }
+
+    // Find divider (hr)
+    let dividerIndex = -1;
+    for (let i = 0; i < blocks.length; i++) {
+      if (blocks[i].tagName === "HR") {
+        dividerIndex = i;
+        break;
+      }
+    }
+
+    if (dividerIndex === -1) {
+      // No divider yet; show all for Notes and Summary
+      return;
+    }
+
+    if (activeTab === "notes") {
+      for (let i = dividerIndex; i < blocks.length; i++) {
+        blocks[i].style.display = "none";
+      }
+    } else if (activeTab === "summary") {
+      for (let i = 0; i < dividerIndex; i++) {
+        blocks[i].style.display = "none";
+      }
+    }
+  }, [activeTab]);
+
   return (
     <Wrapper
       onMouseEnter={() => setIsHover(true)}
@@ -488,16 +662,6 @@ export default function MeetingAICard({
         <>
           <TopControls>
             <LeftControls>
-              {(isHover || isSelected) && (
-                <IconButton
-                  type="button"
-                  onClick={handleDelete}
-                  title="Delete this card"
-                  data-stop-prosemirror
-                >
-                  <TrashIcon />
-                </IconButton>
-              )}
               {isListening ? (
                 <ActionButton
                   type="button"
@@ -544,6 +708,7 @@ export default function MeetingAICard({
                   data-stop-prosemirror
                 >
                   <ShapesIcon />
+                  <span style={{ marginLeft: 6 }}>Generate Summary</span>
                 </IconButton>
                 <IconButton
                   type="button"
@@ -556,55 +721,108 @@ export default function MeetingAICard({
                 {menuOpen && (
                   <MenuPopover onMouseDown={(e) => e.stopPropagation()}>
                     <MenuGroup>
-                      <MenuLabel>Language</MenuLabel>
-                      <Select
-                        value={getCurrentAttrs().summaryLanguage || "auto"}
-                        onChange={(e) => {
-                          const pos = getPos();
-                          const { tr } = view.state;
-                          const current = getCurrentAttrs();
-                          view.dispatch(
-                            tr.setNodeMarkup(pos, undefined, {
-                              ...current,
-                              summaryLanguage: e.target.value,
-                            })
-                          );
+                      <MenuRow
+                        onClick={() => {
+                          setShowLangMenu(!showLangMenu);
+                          setShowTemplateMenu(false);
                         }}
                       >
-                        <option value="auto">Auto</option>
-                        <option value="en">English</option>
-                        <option value="zh">Chinese</option>
-                        <option value="ar">Arabic</option>
-                        <option value="fr">French</option>
-                        <option value="es">Spanish</option>
-                        <option value="de">German</option>
-                        <option value="ja">Japanese</option>
-                      </Select>
+                        <MenuIcon>🌐</MenuIcon>
+                        <MenuText>Language</MenuText>
+                        <MenuArrow>›</MenuArrow>
+                      </MenuRow>
+                      {showLangMenu && (
+                        <Submenu>
+                          {[
+                            { val: "auto", label: "Auto" },
+                            { val: "en", label: "English" },
+                            { val: "zh", label: "Chinese" },
+                            { val: "ar", label: "Arabic" },
+                            { val: "fr", label: "French" },
+                            { val: "es", label: "Spanish" },
+                            { val: "de", label: "German" },
+                            { val: "ja", label: "Japanese" },
+                          ].map((opt) => (
+                            <MenuRow
+                              key={opt.val}
+                              onClick={() => {
+                                const pos = getPos();
+                                const { tr } = view.state;
+                                const current = getCurrentAttrs();
+                                view.dispatch(
+                                  tr.setNodeMarkup(pos, undefined, {
+                                    ...current,
+                                    summaryLanguage: opt.val,
+                                  })
+                                );
+                                setShowLangMenu(false);
+                                setMenuOpen(true);
+                              }}
+                            >
+                              <MenuCheck>
+                                {getCurrentAttrs().summaryLanguage === opt.val
+                                  ? "✓"
+                                  : ""}
+                              </MenuCheck>
+                              <MenuText>{opt.label}</MenuText>
+                            </MenuRow>
+                          ))}
+                        </Submenu>
+                      )}
                     </MenuGroup>
+
                     <MenuGroup>
-                      <MenuLabel>Meeting Template</MenuLabel>
-                      <Select
-                        value={getCurrentAttrs().summaryTemplate || "auto"}
-                        onChange={(e) => {
-                          const pos = getPos();
-                          const { tr } = view.state;
-                          const current = getCurrentAttrs();
-                          view.dispatch(
-                            tr.setNodeMarkup(pos, undefined, {
-                              ...current,
-                              summaryTemplate: e.target.value,
-                            })
-                          );
+                      <MenuRow
+                        onClick={() => {
+                          setShowTemplateMenu(!showTemplateMenu);
+                          setShowLangMenu(false);
                         }}
                       >
-                        <option value="auto">Auto</option>
-                        <option value="general">General Meeting</option>
-                        <option value="1on1">1:1 Meeting</option>
-                        <option value="sales">Sales Call</option>
-                      </Select>
+                        <MenuIcon>
+                          <ShapesIcon />
+                        </MenuIcon>
+                        <MenuText>Template</MenuText>
+                        <MenuArrow>›</MenuArrow>
+                      </MenuRow>
+                      {showTemplateMenu && (
+                        <Submenu>
+                          {[
+                            { val: "auto", label: "Auto" },
+                            { val: "general", label: "General" },
+                            { val: "1on1", label: "1:1" },
+                            { val: "sales", label: "Sales" },
+                          ].map((opt) => (
+                            <MenuRow
+                              key={opt.val}
+                              onClick={() => {
+                                const pos = getPos();
+                                const { tr } = view.state;
+                                const current = getCurrentAttrs();
+                                view.dispatch(
+                                  tr.setNodeMarkup(pos, undefined, {
+                                    ...current,
+                                    summaryTemplate: opt.val,
+                                  })
+                                );
+                                setShowTemplateMenu(false);
+                                setMenuOpen(true);
+                              }}
+                            >
+                              <MenuCheck>
+                                {getCurrentAttrs().summaryTemplate === opt.val
+                                  ? "✓"
+                                  : ""}
+                              </MenuCheck>
+                              <MenuText>{opt.label}</MenuText>
+                            </MenuRow>
+                          ))}
+                        </Submenu>
+                      )}
                     </MenuGroup>
+
                     <MenuDivider />
-                    <MenuItem
+
+                    <MenuRow
                       onClick={async () => {
                         try {
                           await navigator.clipboard.writeText(
@@ -617,9 +835,11 @@ export default function MeetingAICard({
                         }
                       }}
                     >
-                      Copy Transcript
-                    </MenuItem>
-                    <MenuItem
+                      <MenuIcon>📋</MenuIcon>
+                      <MenuText>Copy Transcript</MenuText>
+                    </MenuRow>
+
+                    <MenuRow
                       onClick={async () => {
                         try {
                           const text = await navigator.clipboard.readText();
@@ -637,9 +857,11 @@ export default function MeetingAICard({
                         }
                       }}
                     >
-                      Paste Transcript
-                    </MenuItem>
-                    <MenuItem
+                      <MenuIcon>📥</MenuIcon>
+                      <MenuText>Paste Transcript</MenuText>
+                    </MenuRow>
+
+                    <MenuRow
                       onClick={() => {
                         const pos = getPos();
                         const { tr } = view.state;
@@ -653,8 +875,9 @@ export default function MeetingAICard({
                         setMenuOpen(false);
                       }}
                     >
-                      Clear Transcript
-                    </MenuItem>
+                      <MenuIcon>🧹</MenuIcon>
+                      <MenuText>Clear Transcript</MenuText>
+                    </MenuRow>
                   </MenuPopover>
                 )}
               </SummaryActions>
@@ -677,18 +900,21 @@ export default function MeetingAICard({
 
       <TabBar>
         <Tab
+          data-stop-prosemirror
           active={activeTab === "notes"}
           onClick={() => setActiveTab("notes")}
         >
           Notes
         </Tab>
         <Tab
+          data-stop-prosemirror
           active={activeTab === "transcript"}
           onClick={() => setActiveTab("transcript")}
         >
           Transcript
         </Tab>
         <Tab
+          data-stop-prosemirror
           active={activeTab === "summary"}
           onClick={() => setActiveTab("summary")}
         >
@@ -697,11 +923,12 @@ export default function MeetingAICard({
       </TabBar>
 
       <TabContent>
-        {activeTab === "notes" ? (
-          <ContentSection ref={contentRef} data-prosemirror-content>
-            {/* ProseMirror contentDOM will be mounted here */}
-          </ContentSection>
-        ) : activeTab === "transcript" ? (
+        <ContentSection
+          ref={contentRef}
+          data-prosemirror-content
+          style={{ display: activeTab === "notes" ? "block" : "none" }}
+        />
+        {activeTab === "transcript" && (
           <TranscriptSection>
             {transcript.length > 0 ? (
               <TranscriptText>{formatTranscript()}</TranscriptText>
@@ -710,16 +937,6 @@ export default function MeetingAICard({
                 {isListening
                   ? "Listening... Transcript will appear here."
                   : "No transcript yet. Start listening to record."}
-              </EmptyState>
-            )}
-          </TranscriptSection>
-        ) : (
-          <TranscriptSection>
-            {getCurrentAttrs().summary ? (
-              <TranscriptText>{getCurrentAttrs().summary}</TranscriptText>
-            ) : (
-              <EmptyState>
-                Summary will appear here after generation.
               </EmptyState>
             )}
           </TranscriptSection>
@@ -874,19 +1091,7 @@ const MenuGroup = styled.div`
   flex-direction: column;
   gap: 6px;
   margin-bottom: 8px;
-`;
-
-const MenuLabel = styled.div`
-  font-size: 12px;
-  color: ${(props) => props.theme.textSecondary};
-`;
-
-const Select = styled.select`
-  padding: 6px 8px;
-  border: 1px solid ${(props) => props.theme.divider};
-  border-radius: 4px;
-  background: ${(props) => props.theme.background};
-  color: ${(props) => props.theme.text};
+  position: relative;
 `;
 
 const MenuDivider = styled.div`
@@ -895,7 +1100,10 @@ const MenuDivider = styled.div`
   margin: 8px 0;
 `;
 
-const MenuItem = styled.button`
+const MenuRow = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
   padding: 6px 8px;
@@ -908,6 +1116,42 @@ const MenuItem = styled.button`
   &:hover {
     background: ${(props) => props.theme.secondaryBackground};
   }
+`;
+
+const MenuIcon = styled.span`
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+`;
+
+const MenuText = styled.span`
+  flex: 1;
+`;
+
+const MenuArrow = styled.span`
+  color: ${(props) => props.theme.textSecondary};
+`;
+
+const MenuCheck = styled.span`
+  width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+`;
+
+const Submenu = styled.div`
+  position: absolute;
+  top: 0;
+  left: 100%;
+  min-width: 200px;
+  background: ${(props) => props.theme.menuBackground};
+  color: ${(props) => props.theme.text};
+  border: 1px solid ${(props) => props.theme.divider};
+  border-radius: 6px;
+  box-shadow: ${(props) => props.theme.menuShadow};
+  padding: 6px;
 `;
 
 const ErrorMessage = styled.div`
@@ -950,7 +1194,7 @@ const TabContent = styled.div`
 
 const ContentSection = styled.div`
   /* ProseMirror content will be rendered here */
-  min-height: 80px;
+  min-height: 20px;
 `;
 
 const TranscriptSection = styled.div`

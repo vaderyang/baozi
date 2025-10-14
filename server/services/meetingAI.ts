@@ -65,6 +65,7 @@ export default function init(
     let user: User | null = null;
     let openAIClient: OpenAIRealtimeClient | null = null;
     const transcriptSegments: TranscriptSegment[] = [];
+    let sessionStartedAt = 0;
 
     // Authenticate the connection
     try {
@@ -88,139 +89,159 @@ export default function init(
 
     ws.on("message", async (data: WebSocket.Data) => {
       try {
-        const message: ClientMessage = JSON.parse(data.toString());
+        // Control messages are JSON strings. Binary frames are raw PCM16 audio.
+        if (typeof data === "string") {
+          const message: ClientMessage = JSON.parse(data);
 
-        switch (message.type) {
-          case "start": {
-            Logger.info("Meeting AI session started", {
-              userId: user?.id,
-              language: message.language,
-            });
+          switch (message.type) {
+            case "start": {
+              Logger.info("Meeting AI session started", {
+                userId: user?.id,
+                language: message.language,
+              });
 
-            // Check if OpenAI API key is configured
-            if (!env.OPENAI_API_KEY) {
-              const errorMessage: ServerMessage = {
-                type: "error",
-                code: "CONFIG_ERROR",
-                message: "OpenAI API key not configured",
-              };
-              ws.send(JSON.stringify(errorMessage));
-              return;
+              // Check if OpenAI API key is configured
+              if (!env.OPENAI_API_KEY) {
+                const errorMessage: ServerMessage = {
+                  type: "error",
+                  code: "CONFIG_ERROR",
+                  message: "OpenAI API key not configured",
+                };
+                ws.send(JSON.stringify(errorMessage));
+                return;
+              }
+
+              // Initialize OpenAI Realtime client
+              try {
+                openAIClient = new OpenAIRealtimeClient(user?.id || "unknown", {
+                  onTranscript: (segments) => {
+                    // Store segments
+                    transcriptSegments.push(...segments);
+
+                    // Send to client
+                    const response: ServerMessage = {
+                      type: "partial-transcript",
+                      segments,
+                    };
+                    ws.send(JSON.stringify(response));
+                  },
+                  onError: (error) => {
+                    Logger.error("OpenAI Realtime error", error);
+                    const errorMessage: ServerMessage = {
+                      type: "error",
+                      code: "OPENAI_ERROR",
+                      message: error.message || "OpenAI Realtime API error",
+                    };
+                    ws.send(JSON.stringify(errorMessage));
+                  },
+                  onClose: () => {
+                    Logger.info("OpenAI Realtime connection closed");
+                  },
+                });
+
+                await openAIClient.connect();
+                sessionStartedAt = Date.now();
+                Logger.info("OpenAI Realtime client connected", {
+                  userId: user?.id,
+                });
+              } catch (err) {
+                Logger.error("Failed to connect to OpenAI Realtime", err);
+                const errorMessage: ServerMessage = {
+                  type: "error",
+                  code: "OPENAI_CONNECTION_ERROR",
+                  message: "Failed to connect to OpenAI Realtime API",
+                };
+                ws.send(JSON.stringify(errorMessage));
+              }
+
+              break;
             }
 
-            // Initialize OpenAI Realtime client
-            try {
-              openAIClient = new OpenAIRealtimeClient(user?.id || "unknown", {
-                onTranscript: (segments) => {
-                  // Store segments
-                  transcriptSegments.push(...segments);
+            case "stop": {
+              Logger.info("Meeting AI session stopped", {
+                userId: user?.id,
+                totalSegments: transcriptSegments.length,
+              });
 
-                  // Send to client
+              // Commit any pending audio and close OpenAI connection
+              if (openAIClient) {
+                openAIClient.commitAudio();
+
+                // Wait a bit for final transcription
+                setTimeout(() => {
+                  const finalSegments =
+                    openAIClient?.getFinalTranscript() || transcriptSegments;
+
+                  // Send final transcript
                   const response: ServerMessage = {
-                    type: "partial-transcript",
-                    segments,
+                    type: "final-transcript",
+                    segments: finalSegments,
                   };
                   ws.send(JSON.stringify(response));
-                },
-                onError: (error) => {
-                  Logger.error("OpenAI Realtime error", error);
-                  const errorMessage: ServerMessage = {
-                    type: "error",
-                    code: "OPENAI_ERROR",
-                    message: error.message || "OpenAI Realtime API error",
-                  };
-                  ws.send(JSON.stringify(errorMessage));
-                },
-                onClose: () => {
-                  Logger.info("OpenAI Realtime connection closed");
-                },
-              });
 
-              await openAIClient.connect();
-              Logger.info("OpenAI Realtime client connected", {
-                userId: user?.id,
-              });
-            } catch (err) {
-              Logger.error("Failed to connect to OpenAI Realtime", err);
-              const errorMessage: ServerMessage = {
-                type: "error",
-                code: "OPENAI_CONNECTION_ERROR",
-                message: "Failed to connect to OpenAI Realtime API",
-              };
-              ws.send(JSON.stringify(errorMessage));
-            }
+                  const stoppedMessage: ServerMessage = { type: "stopped" };
+                  ws.send(JSON.stringify(stoppedMessage));
 
-            break;
-          }
-
-          case "audio-chunk": {
-            // Forward audio chunk to OpenAI Realtime API
-            if (openAIClient && message.data) {
-              openAIClient.sendAudioChunk(message.data, message.timestampMs);
-            } else {
-              Logger.warn(
-                "Received audio chunk but OpenAI client not initialized"
-              );
-            }
-
-            break;
-          }
-
-          case "stop": {
-            Logger.info("Meeting AI session stopped", {
-              userId: user?.id,
-              totalSegments: transcriptSegments.length,
-            });
-
-            // Commit any pending audio and close OpenAI connection
-            if (openAIClient) {
-              openAIClient.commitAudio();
-
-              // Wait a bit for final transcription
-              setTimeout(() => {
-                const finalSegments =
-                  openAIClient?.getFinalTranscript() || transcriptSegments;
-
-                // Send final transcript
+                  // Close OpenAI connection
+                  openAIClient?.close();
+                  openAIClient = null;
+                }, 500);
+              } else {
+                // No OpenAI client, just send what we have
                 const response: ServerMessage = {
                   type: "final-transcript",
-                  segments: finalSegments,
+                  segments: transcriptSegments,
                 };
                 ws.send(JSON.stringify(response));
 
                 const stoppedMessage: ServerMessage = { type: "stopped" };
                 ws.send(JSON.stringify(stoppedMessage));
+              }
 
-                // Close OpenAI connection
-                openAIClient?.close();
-                openAIClient = null;
-              }, 500);
-            } else {
-              // No OpenAI client, just send what we have
-              const response: ServerMessage = {
-                type: "final-transcript",
-                segments: transcriptSegments,
-              };
-              ws.send(JSON.stringify(response));
-
-              const stoppedMessage: ServerMessage = { type: "stopped" };
-              ws.send(JSON.stringify(stoppedMessage));
+              break;
             }
 
-            break;
+            case "mark": {
+              Logger.info("Meeting AI mark created", {
+                userId: user?.id,
+                timestamp: message.timestampMs,
+              });
+              // Mark events are handled client-side for now
+              break;
+            }
+
+            default:
+              Logger.warn("Unknown Meeting AI message type", { message });
+          }
+        } else {
+          // Binary audio frame received
+          if (!openAIClient) {
+            Logger.warn("Received binary audio before session start");
+            return;
           }
 
-          case "mark": {
-            Logger.info("Meeting AI mark created", {
-              userId: user?.id,
-              timestamp: message.timestampMs,
-            });
-            // Mark events are handled client-side for now
-            break;
+          let arrayBuffer: ArrayBuffer | null = null;
+          if (data instanceof ArrayBuffer) {
+            arrayBuffer = data as ArrayBuffer;
+          } else if (Array.isArray(data)) {
+            // ws may provide Buffer[]
+            const buf = Buffer.concat(data as Buffer[]);
+            arrayBuffer = buf.buffer.slice(
+              buf.byteOffset,
+              buf.byteOffset + buf.byteLength
+            );
+          } else if (Buffer.isBuffer(data)) {
+            const buf = data as Buffer;
+            arrayBuffer = buf.buffer.slice(
+              buf.byteOffset,
+              buf.byteOffset + buf.byteLength
+            );
           }
 
-          default:
-            Logger.warn("Unknown Meeting AI message type", { message });
+          if (arrayBuffer) {
+            const elapsed = Math.max(0, Date.now() - sessionStartedAt);
+            openAIClient.sendAudioChunk(arrayBuffer, elapsed);
+          }
         }
       } catch (err) {
         Logger.error("Error processing Meeting AI message", err);
