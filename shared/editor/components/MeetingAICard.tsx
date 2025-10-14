@@ -28,6 +28,9 @@ export default function MeetingAICard({
   const [showTemplateMenu, setShowTemplateMenu] = React.useState(false);
   const [audioLevel, setAudioLevel] = React.useState(0);
 
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
+  const menuButtonRef = React.useRef<HTMLButtonElement | null>(null);
+
   const contentRef = React.useRef<HTMLDivElement>(null);
   const audioContextRef = React.useRef<AudioContext | null>(null);
   const analyserRef = React.useRef<AnalyserNode | null>(null);
@@ -577,9 +580,50 @@ The following is the meeting transcript:`;
       })
       .join("");
 
+  // Close menu on outside click
+  React.useEffect(() => {
+    if (!menuOpen) {return;}
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const inMenu = !!target.closest("[data-meeting-ai-menu]");
+      const inButton = !!target.closest("[data-meeting-ai-menu-button]");
+      if (!inMenu && !inButton) {
+        setMenuOpen(false);
+        setShowLangMenu(false);
+        setShowTemplateMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
+  // Helpers to show current selections in labels
+  const langMap: Record<string, string> = {
+    auto: "Auto",
+    en: "English",
+    zh: "Chinese",
+    ar: "Arabic",
+    fr: "French",
+    es: "Spanish",
+    de: "German",
+    ja: "Japanese",
+  };
+  const templateMap: Record<string, string> = {
+    auto: "Auto",
+    general: "General",
+    "1on1": "1:1",
+    sales: "Sales",
+  };
+  const currentLangLabel =
+    langMap[getCurrentAttrs().summaryLanguage || "auto"] || "Auto";
+  const currentTemplateLabel =
+    templateMap[getCurrentAttrs().summaryTemplate || "auto"] || "Auto";
+
   // Show editor content only in Summary tab
   React.useEffect(() => {
-    if (!contentRef.current) {return;}
+    if (!contentRef.current) {
+      return;
+    }
     const root = contentRef.current;
     const pmRoot = (root.firstElementChild as HTMLElement) || root;
     const blocks = Array.from(pmRoot.children).filter(
@@ -641,25 +685,33 @@ The following is the meeting transcript:`;
                 </>
               )}
               <SummaryActions>
-                <ActionButton
+                <IconButton
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={handleGenerateSummary}
                   title="Generate summary"
                   data-stop-prosemirror
                 >
                   <ShapesIcon />
-                  {"Generate Summary"}
-                </ActionButton>
-                <ActionButton
+                  <span style={{ marginLeft: 6 }}>Generate Summary</span>
+                </IconButton>
+                <IconButton
+                  ref={menuButtonRef}
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => setMenuOpen((v) => !v)}
                   title="Summary settings"
                   data-stop-prosemirror
+                  data-meeting-ai-menu-button
                 >
                   ⋯
-                </ActionButton>
+                </IconButton>
                 {menuOpen && (
-                  <MenuPopover onMouseDown={(e) => e.stopPropagation()}>
+                  <MenuPopover
+                    ref={menuRef}
+                    data-meeting-ai-menu
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
                     <MenuGroup>
                       <MenuRow
                         onClick={() => {
@@ -668,7 +720,7 @@ The following is the meeting transcript:`;
                         }}
                       >
                         <MenuIcon>A</MenuIcon>
-                        <MenuText>Language</MenuText>
+                        <MenuText>{`Language (${currentLangLabel})`}</MenuText>
                         <MenuArrow>›</MenuArrow>
                       </MenuRow>
                       {showLangMenu && (
@@ -721,7 +773,7 @@ The following is the meeting transcript:`;
                         <MenuIcon>
                           <ShapesIcon />
                         </MenuIcon>
-                        <MenuText>Template</MenuText>
+                        <MenuText>{`Template (${currentTemplateLabel})`}</MenuText>
                         <MenuArrow>›</MenuArrow>
                       </MenuRow>
                       {showTemplateMenu && (
@@ -841,6 +893,7 @@ The following is the meeting transcript:`;
       <TabBar>
         <Tab
           data-stop-prosemirror
+          onMouseDown={(e) => e.preventDefault()}
           active={activeTab === "transcript"}
           onClick={() => setActiveTab("transcript")}
         >
@@ -848,6 +901,7 @@ The following is the meeting transcript:`;
         </Tab>
         <Tab
           data-stop-prosemirror
+          onMouseDown={(e) => e.preventDefault()}
           active={activeTab === "summary"}
           onClick={() => setActiveTab("summary")}
         >
@@ -1065,6 +1119,7 @@ const MenuText = styled.span`
 
 const MenuArrow = styled.span`
   color: ${(props) => props.theme.textSecondary};
+  margin-right: 10px;
 `;
 
 const MenuCheck = styled.span`
