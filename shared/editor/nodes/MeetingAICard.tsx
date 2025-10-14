@@ -141,7 +141,27 @@ export default class MeetingAICard extends ReactNode {
         if (!inCard) {
           return false;
         }
-        // Try splitting current textblock; if not possible, create a paragraph nearby.
+        // If the slash Suggestions menu is open (typing "/...") then allow
+        // the Suggestions plugin to handle Enter without inserting a newline.
+        try {
+          const parent = $from.parent;
+          const textBefore = parent.textBetween(
+            Math.max(0, $from.parentOffset - 200),
+            $from.parentOffset,
+            undefined,
+            "\ufffc"
+          );
+          const slashOpen = /(?:^|\s|\()\/[\w\p{L}\p{M}\-–_]*$/u.test(
+            textBefore
+          );
+          if (slashOpen) {
+            return false; // defer to Suggestions plugin
+          }
+        } catch (_e) {
+          // ignore
+        }
+        // Otherwise, standard behavior inside the card: split the block to
+        // create a blank line (stay within the card).
         return (
           splitBlock(state, dispatch) ||
           createParagraphNear(state, dispatch) ||
