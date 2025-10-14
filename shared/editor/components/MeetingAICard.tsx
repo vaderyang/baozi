@@ -35,7 +35,6 @@ export default function MeetingAICard({
 
   const transcript: TranscriptSegment[] = node.attrs.transcript || [];
   const isListening = node.attrs.listening || false;
-  const hasGenerated = node.attrs.generated || false;
 
   // Mount ProseMirror's contentDOM when available
   React.useEffect(() => {
@@ -52,7 +51,7 @@ export default function MeetingAICard({
     const pos = getPos();
     const nodeAtPos = view.state.doc.nodeAt(pos);
     // Fallback to props if not found (shouldn't happen in normal flow)
-    return (nodeAtPos?.attrs as any) || node.attrs;
+    return (nodeAtPos?.attrs as unknown) || node.attrs;
   };
 
   // Helper: append transcript segments while preserving other attrs
@@ -359,6 +358,9 @@ export default function MeetingAICard({
   };
 
   const handleGenerateSummary = async () => {
+    if (isLoading) {
+      return;
+    }
     try {
       setError(null);
       setIsLoading(true);
@@ -532,18 +534,14 @@ export default function MeetingAICard({
                 </IconButton>
               </>
             )}
-            {!isListening && transcript.length > 0 && (
-              <ActionButton
-                type="button"
-                onClick={handleGenerateSummary}
-                disabled={isLoading || hasGenerated}
-                title="Generate summary by AI"
-                data-stop-prosemirror
-              >
-                <ShapesIcon />
-                Generate summary
-              </ActionButton>
-            )}
+            <IconButton
+              type="button"
+              onClick={handleGenerateSummary}
+              title="Generate summary"
+              data-stop-prosemirror
+            >
+              <ShapesIcon />
+            </IconButton>
           </ButtonGroup>
 
           {error && <ErrorMessage>{error}</ErrorMessage>}
