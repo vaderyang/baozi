@@ -141,27 +141,14 @@ export default class MeetingAICard extends ReactNode {
         if (!inCard) {
           return false;
         }
-        // If the slash Suggestions menu is open (typing "/...") then allow
-        // the Suggestions plugin to handle Enter without inserting a newline.
-        try {
-          const parent = $from.parent;
-          const textBefore = parent.textBetween(
-            Math.max(0, $from.parentOffset - 200),
-            $from.parentOffset,
-            undefined,
-            "\ufffc"
-          );
-          const slashOpen = /(?:^|\s|\()\/[\w\p{L}\p{M}\-–_]*$/u.test(
-            textBefore
-          );
-          if (slashOpen) {
-            return false; // defer to Suggestions plugin
-          }
-        } catch (_e) {
-          // ignore
+        // Only handle Enter ourselves when the current block is empty.
+        // This avoids interfering with the slash (/) formatting menu and
+        // other normal Enter behaviors.
+        const isEmptyBlock = $from.parent.textContent.trim().length === 0;
+        if (!isEmptyBlock) {
+          return false;
         }
-        // Otherwise, standard behavior inside the card: split the block to
-        // create a blank line (stay within the card).
+        // Create a blank paragraph within the card instead of exiting it.
         return (
           splitBlock(state, dispatch) ||
           createParagraphNear(state, dispatch) ||
