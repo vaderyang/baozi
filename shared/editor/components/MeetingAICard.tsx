@@ -437,14 +437,22 @@ export default function MeetingAICard({
       // Extract Notes text (content before the summary divider, if present)
       const getNotesPlain = () => {
         const host = contentRef.current;
-        if (!host) {return "";}
+        if (!host) {
+          return "";
+        }
         const pmRoot = (host.firstElementChild as HTMLElement) || host;
-        const blocks = Array.from(pmRoot.children) as HTMLElement[];
+        const blocks = Array.from(pmRoot.children).filter(
+          (el) => el.nodeType === 1
+        ) as HTMLElement[];
         const textParts: string[] = [];
         for (const el of blocks) {
-          if (el.tagName === "HR") {break;}
+          if (el.tagName === "HR") {
+            break;
+          }
           const t = el.innerText.trim();
-          if (t) {textParts.push(t);}
+          if (t) {
+            textParts.push(t);
+          }
         }
         return textParts.join("\n\n");
       };
@@ -611,10 +619,15 @@ Notes:\n${notesText}\n\nTranscript follows:`;
 
   // Toggle visible region between Notes and Summary using a horizontal rule divider
   React.useEffect(() => {
-    if (!contentRef.current) {return;}
+    if (!contentRef.current) {
+      return;
+    }
     const root = contentRef.current;
     const pmRoot = (root.firstElementChild as HTMLElement) || root;
-    const blocks = Array.from(pmRoot.children) as HTMLElement[];
+    // ProseMirror often wraps blocks; treat all direct children as blocks
+    const blocks = Array.from(pmRoot.children).filter(
+      (el) => el.nodeType === 1
+    ) as HTMLElement[];
 
     // Reset: show all by default
     blocks.forEach((el) => (el.style.display = ""));
@@ -701,23 +714,23 @@ Notes:\n${notesText}\n\nTranscript follows:`;
                 </>
               )}
               <SummaryActions>
-                <IconButton
+                <ActionButton
                   type="button"
                   onClick={handleGenerateSummary}
                   title="Generate summary"
                   data-stop-prosemirror
                 >
                   <ShapesIcon />
-                  <span style={{ marginLeft: 6 }}>Generate Summary</span>
-                </IconButton>
-                <IconButton
+                  {"Generate Summary"}
+                </ActionButton>
+                <ActionButton
                   type="button"
                   onClick={() => setMenuOpen((v) => !v)}
                   title="Summary settings"
                   data-stop-prosemirror
                 >
                   ⋯
-                </IconButton>
+                </ActionButton>
                 {menuOpen && (
                   <MenuPopover onMouseDown={(e) => e.stopPropagation()}>
                     <MenuGroup>
@@ -727,7 +740,7 @@ Notes:\n${notesText}\n\nTranscript follows:`;
                           setShowTemplateMenu(false);
                         }}
                       >
-                        <MenuIcon>🌐</MenuIcon>
+                        <MenuIcon>A</MenuIcon>
                         <MenuText>Language</MenuText>
                         <MenuArrow>›</MenuArrow>
                       </MenuRow>
@@ -835,7 +848,7 @@ Notes:\n${notesText}\n\nTranscript follows:`;
                         }
                       }}
                     >
-                      <MenuIcon>📋</MenuIcon>
+                      <MenuIcon>⧉</MenuIcon>
                       <MenuText>Copy Transcript</MenuText>
                     </MenuRow>
 
@@ -857,7 +870,7 @@ Notes:\n${notesText}\n\nTranscript follows:`;
                         }
                       }}
                     >
-                      <MenuIcon>📥</MenuIcon>
+                      <MenuIcon>⤶</MenuIcon>
                       <MenuText>Paste Transcript</MenuText>
                     </MenuRow>
 
@@ -875,7 +888,7 @@ Notes:\n${notesText}\n\nTranscript follows:`;
                         setMenuOpen(false);
                       }}
                     >
-                      <MenuIcon>🧹</MenuIcon>
+                      <MenuIcon>⌫</MenuIcon>
                       <MenuText>Clear Transcript</MenuText>
                     </MenuRow>
                   </MenuPopover>
@@ -952,7 +965,7 @@ const Wrapper = styled.div<{ showBorder: boolean }>`
   margin: 8px 0;
   border-radius: 8px;
   transition: all 0.2s ease;
-  overflow: hidden;
+  overflow: visible;
 
   ${(props) =>
     props.showBorder &&
@@ -1083,7 +1096,7 @@ const MenuPopover = styled.div`
   border-radius: 6px;
   box-shadow: ${(props) => props.theme.menuShadow};
   padding: 8px;
-  z-index: 10;
+  z-index: 2000;
 `;
 
 const MenuGroup = styled.div`
