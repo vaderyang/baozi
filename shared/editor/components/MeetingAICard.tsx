@@ -845,6 +845,28 @@ The following is the meeting transcript:`;
                     <MenuRow
                       onClick={async () => {
                         try {
+                          // Copy Summary text from editor content
+                          const host = contentRef.current;
+                          const pmRoot =
+                            (host?.firstElementChild as HTMLElement) || host;
+                          const text = pmRoot ? pmRoot.innerText : "";
+                          await navigator.clipboard.writeText(text || "");
+                        } catch (_e) {
+                          setError("Failed to copy summary");
+                        } finally {
+                          setMenuOpen(false);
+                        }
+                      }}
+                    >
+                      <MenuIcon>⧉</MenuIcon>
+                      <MenuText>Copy Summary</MenuText>
+                    </MenuRow>
+
+                    <MenuDivider />
+
+                    <MenuRow
+                      onClick={async () => {
+                        try {
                           await navigator.clipboard.writeText(
                             formatTranscript()
                           );
@@ -1007,7 +1029,8 @@ const IconButton = styled.button`
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 12px; /* match Generate Summary vertical rhythm */
+  padding: 6px 12px; /* match Start listening / Generate Summary */
+  font-size: 14px; /* unify height via same font size + padding */
   border: 1px solid ${(props) => props.theme.divider};
   background: ${(props) => props.theme.background};
   border-radius: 4px;
@@ -1064,6 +1087,7 @@ const NeutralButton = styled(ActionButton)`
   background: ${(props) => props.theme.background};
   border: 1px solid ${(props) => props.theme.divider};
   color: ${(props) => props.theme.text};
+  min-height: 32px; /* unify height with icon buttons */
 
   &:hover:not(:disabled) {
     background: ${(props) => props.theme.secondaryBackground};
@@ -1071,8 +1095,8 @@ const NeutralButton = styled(ActionButton)`
 `;
 
 const AudioLevelIndicator = styled.div`
-  width: 10px;
-  height: 36px;
+  width: 8px;
+  height: 20px;
   border: 1px solid ${(props) => props.theme.divider};
   border-radius: 3px;
   overflow: hidden;
