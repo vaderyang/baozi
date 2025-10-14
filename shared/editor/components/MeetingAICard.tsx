@@ -140,7 +140,7 @@ export default function MeetingAICard({
       // Start audio level monitoring (RMS of time domain for more natural levels)
       const timeData = new Uint8Array(analyser.fftSize);
       const levelRef = { current: 0 };
-      const GAIN = 3.0; // makeup gain to better match system indicator
+      const GAIN = 5.0; // increased gain to better match system indicator
       const SMOOTH = 0.6; // EMA smoothing
       audioLevelIntervalRef.current = window.setInterval(() => {
         const a = analyserRef.current;
@@ -154,7 +154,8 @@ export default function MeetingAICard({
           sumSquares += v * v;
         }
         const rms = Math.sqrt(sumSquares / timeData.length);
-        const level = Math.min(1, rms * GAIN);
+        // Apply gain and use a power curve for better visual matching
+        const level = Math.min(1, Math.pow(rms * GAIN, 0.8));
         const smooth = SMOOTH * levelRef.current + (1 - SMOOTH) * level;
         levelRef.current = smooth;
         setAudioLevel(smooth);
@@ -1101,6 +1102,8 @@ const AudioLevelIndicator = styled.div`
   overflow: hidden;
   position: relative;
   background: ${(props) => props.theme.secondaryBackground};
+  cursor: default;
+  user-select: none;
 `;
 
 const AudioLevelBar = styled.div`
