@@ -143,11 +143,14 @@ export default function TextAICard({
   };
 
   const handleSelectNode: React.MouseEventHandler<HTMLDivElement> = (ev) => {
-    // Only select when clicking the card chrome, not the inner editor content
-    const inContent = (ev.target as HTMLElement)?.closest(
-      "[data-prosemirror-content]"
+    // Only select when clicking the card chrome, not the inner editor content or UI controls
+    const target = ev.target as HTMLElement | null;
+    if (!target) {return;}
+    const inContent = target.closest(
+      ".pm-node-content, [data-prosemirror-content]"
     );
-    if (inContent) {
+    const stopPM = target.closest("[data-stop-prosemirror]");
+    if (inContent || stopPM) {
       return;
     }
     const { state, dispatch } = view;
@@ -223,6 +226,17 @@ export default function TextAICard({
             placeholder="Enter your prompt here..."
             rows={3}
             disabled={isLoading}
+            data-stop-prosemirror
+            onKeyDown={(e) => {
+              if (e.key === "Backspace" && !prompt) {
+                // Prevent ProseMirror from receiving backspace when prompt is empty
+                e.stopPropagation();
+              }
+            }}
+            onMouseDown={(e) => {
+              // Prevent ProseMirror from creating a NodeSelection when interacting with the prompt
+              e.stopPropagation();
+            }}
           />
           {error && <ErrorMessage>{error}</ErrorMessage>}
         </PromptSection>

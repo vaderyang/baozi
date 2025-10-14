@@ -30,7 +30,8 @@ export default class TextAICard extends ReactNode {
       group: "block",
       defining: true,
       draggable: true,
-      selectable: true,
+      selectable: false,
+      isolating: true,
       parseDOM: [
         {
           tag: "div.text-ai-card",

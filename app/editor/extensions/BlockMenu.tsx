@@ -42,8 +42,18 @@ export default class BlockMenuExtension extends Suggestion {
               return;
             }
 
-            const isTopLevel = state.selection.$from.depth === 1;
-            if (!isTopLevel) {
+            const $from = state.selection.$from;
+            const isTopLevel = $from.depth === 1;
+            // Allow the "+" trigger inside Text AI Card as well
+            let insideTextAICard = false;
+            for (let d = $from.depth; d > 0; d--) {
+              const n = $from.node(d);
+              if (n.type && n.type.name === "text_ai_card") {
+                insideTextAICard = true;
+                break;
+              }
+            }
+            if (!isTopLevel && !insideTextAICard) {
               return;
             }
 
@@ -76,19 +86,48 @@ export default class BlockMenuExtension extends Suggestion {
       }),
       new PlaceholderPlugin([
         {
-          condition: ({ node, $start, textContent, state }) =>
-            $start.depth === 1 &&
-            state.selection.$from.pos === $start.pos + node.content.size &&
-            !!textContent &&
-            node.childCount === 0 &&
-            node.textContent === "",
+          condition: ({ node, $start, textContent, state }) => {
+            const atLineEnd =
+              state.selection.$from.pos === $start.pos + node.content.size;
+            const isTopLevel = $start.depth === 1;
+            // Allow placeholder inside Text AI Card as well
+            let insideTextAICard = false;
+            for (let d = state.selection.$from.depth; d > 0; d--) {
+              const n = state.selection.$from.node(d);
+              if (n.type && n.type.name === "text_ai_card") {
+                insideTextAICard = true;
+                break;
+              }
+            }
+            return (
+              (isTopLevel || insideTextAICard) &&
+              atLineEnd &&
+              !!textContent &&
+              node.childCount === 0 &&
+              node.textContent === ""
+            );
+          },
           text: this.options.dictionary.newLineEmpty,
         },
         {
-          condition: ({ node, $start, state }) =>
-            $start.depth === 1 &&
-            state.selection.$from.pos === $start.pos + node.content.size &&
-            node.textContent === "/",
+          condition: ({ node, $start, state }) => {
+            const atLineEnd =
+              state.selection.$from.pos === $start.pos + node.content.size;
+            const isTopLevel = $start.depth === 1;
+            let insideTextAICard = false;
+            for (let d = state.selection.$from.depth; d > 0; d--) {
+              const n = state.selection.$from.node(d);
+              if (n.type && n.type.name === "text_ai_card") {
+                insideTextAICard = true;
+                break;
+              }
+            }
+            return (
+              (isTopLevel || insideTextAICard) &&
+              atLineEnd &&
+              node.textContent === "/"
+            );
+          },
           text: `  ${this.options.dictionary.newLineWithSlash}`,
         },
       ]),
