@@ -7,7 +7,7 @@ import type { TranscriptSegment } from "../nodes/MeetingAICard";
 
 type MeetingAICardProps = ComponentProps;
 
-type TabType = "notes" | "transcript" | "summary";
+type TabType = "transcript" | "summary";
 
 export default function MeetingAICard({
   node,
@@ -20,7 +20,7 @@ export default function MeetingAICard({
   pasteParser,
 }: MeetingAICardProps) {
   const [isHover, setIsHover] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState<TabType>("notes");
+  const [activeTab, setActiveTab] = React.useState<TabType>("summary");
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
@@ -434,31 +434,6 @@ export default function MeetingAICard({
         return;
       }
 
-      // Extract Notes text (content before the summary divider, if present)
-      const getNotesPlain = () => {
-        const host = contentRef.current;
-        if (!host) {
-          return "";
-        }
-        const pmRoot = (host.firstElementChild as HTMLElement) || host;
-        const blocks = Array.from(pmRoot.children).filter(
-          (el) => el.nodeType === 1
-        ) as HTMLElement[];
-        const textParts: string[] = [];
-        for (const el of blocks) {
-          if (el.tagName === "HR") {
-            break;
-          }
-          const t = el.innerText.trim();
-          if (t) {
-            textParts.push(t);
-          }
-        }
-        return textParts.join("\n\n");
-      };
-
-      const notesText = getNotesPlain();
-
       // Build an instruction prompt for the summary subject and structure
       const { summaryLanguage, summaryTemplate } = getCurrentAttrs();
       const langPart =
@@ -475,8 +450,7 @@ export default function MeetingAICard({
 - Then include sections with headings such as: Highlights, Decisions, Action Items (with assignees and due dates), Risks, and Next Steps. Use lists where appropriate.
 - Be concise and avoid repetition. ${langPart} ${templatePart}
 
-Use the following Notes and Transcript as context:
-Notes:\n${notesText}\n\nTranscript follows:`;
+The following is the meeting transcript:`;
 
       // Get CSRF token from cookie
       const csrfToken = document.cookie
@@ -509,15 +483,25 @@ Notes:\n${notesText}\n\nTranscript follows:`;
       const pos = getPos();
       const { tr } = view.state;
 
-      const nodes: any[] = [];
-      const { paragraph, hr } = view.state.schema.nodes as any;
+      const nodes: unknown[] = [];
+      const nodesSchema = view.state.schema.nodes as Record<string, unknown>;
+      const paragraph = nodesSchema.paragraph as unknown as {
+        create: (attrs: unknown, content?: unknown) => unknown;
+      };
 
       // Parse markdown into nodes if a pasteParser is available; fallback to paragraphs
-      let parsedNodes: any[] = [];
-      if (pasteParser && typeof (pasteParser as any).parse === "function") {
+      let parsedNodes: unknown[] = [];
+      if (
+        pasteParser &&
+        typeof (pasteParser as unknown as { parse: (s: string) => unknown })
+          .parse === "function"
+      ) {
         try {
-          const parsed = (pasteParser as any).parse(summaryMd);
-          parsedNodes = parsed.content.content as any[];
+          const parser = pasteParser as unknown as {
+            parse: (s: string) => { content: { content: unknown[] } };
+          };
+          const parsed = parser.parse(summaryMd);
+          parsedNodes = parsed.content.content;
         } catch (_e) {
           parsedNodes = [];
         }
@@ -529,48 +513,24 @@ Notes:\n${notesText}\n\nTranscript follows:`;
           .map((b) => b.trim())
           .filter(Boolean);
         for (const b of blocks) {
-          nodes.push(paragraph.create(null, view.state.schema.text(b)));
+          nodes.push(
+            paragraph.create(null, view.state.schema.text(b)) as unknown
+          );
         }
       } else {
         nodes.push(...parsedNodes);
       }
 
-      // Replace existing Summary (content after the divider) if present; otherwise append divider + summary
+      // Replace entire content with new parsed summary (no Notes)
       const startContent = pos + 1;
       const endContent = pos + node.nodeSize - 1;
-
-      const cardNode = view.state.doc.nodeAt(pos);
-      let dividerAbsPos = -1;
-      if (cardNode) {
-        cardNode.forEach((child, offset) => {
-          if (child.type.name === "hr" && dividerAbsPos === -1) {
-            dividerAbsPos = startContent + offset;
-          }
-        });
-      }
-
-      let transaction;
-      if (dividerAbsPos !== -1) {
-        // Delete everything after divider and insert new parsed summary
-        const insertAt = dividerAbsPos + 1;
-        transaction = tr
-          .replaceWith(insertAt, endContent, nodes)
-          .setNodeMarkup(pos, undefined, {
-            ...getCurrentAttrs(),
-            generated: true,
-          })
-          .setMeta("addToHistory", true);
-      } else {
-        // No divider yet: insert divider + summary at end
-        const insertNodes = hr ? [hr.create(), ...nodes] : nodes;
-        transaction = tr
-          .replaceWith(endContent, endContent, insertNodes)
-          .setNodeMarkup(pos, undefined, {
-            ...getCurrentAttrs(),
-            generated: true,
-          })
-          .setMeta("addToHistory", true);
-      }
+      const transaction = tr
+        .replaceWith(startContent, endContent, nodes)
+        .setNodeMarkup(pos, undefined, {
+          ...getCurrentAttrs(),
+          generated: true,
+        })
+        .setMeta("addToHistory", true);
 
       view.dispatch(transaction);
       setActiveTab("summary");
@@ -617,49 +577,16 @@ Notes:\n${notesText}\n\nTranscript follows:`;
       })
       .join("");
 
-  // Toggle visible region between Notes and Summary using a horizontal rule divider
+  // Show editor content only in Summary tab
   React.useEffect(() => {
-    if (!contentRef.current) {
-      return;
-    }
+    if (!contentRef.current) {return;}
     const root = contentRef.current;
     const pmRoot = (root.firstElementChild as HTMLElement) || root;
-    // ProseMirror often wraps blocks; treat all direct children as blocks
     const blocks = Array.from(pmRoot.children).filter(
       (el) => el.nodeType === 1
     ) as HTMLElement[];
-
-    // Reset: show all by default
-    blocks.forEach((el) => (el.style.display = ""));
-
-    if (activeTab === "transcript") {
-      blocks.forEach((el) => (el.style.display = "none"));
-      return;
-    }
-
-    // Find divider (hr)
-    let dividerIndex = -1;
-    for (let i = 0; i < blocks.length; i++) {
-      if (blocks[i].tagName === "HR") {
-        dividerIndex = i;
-        break;
-      }
-    }
-
-    if (dividerIndex === -1) {
-      // No divider yet; show all for Notes and Summary
-      return;
-    }
-
-    if (activeTab === "notes") {
-      for (let i = dividerIndex; i < blocks.length; i++) {
-        blocks[i].style.display = "none";
-      }
-    } else if (activeTab === "summary") {
-      for (let i = 0; i < dividerIndex; i++) {
-        blocks[i].style.display = "none";
-      }
-    }
+    const visible = activeTab === "summary";
+    blocks.forEach((el) => (el.style.display = visible ? "" : "none"));
   }, [activeTab]);
 
   return (
@@ -914,13 +841,6 @@ Notes:\n${notesText}\n\nTranscript follows:`;
       <TabBar>
         <Tab
           data-stop-prosemirror
-          active={activeTab === "notes"}
-          onClick={() => setActiveTab("notes")}
-        >
-          Notes
-        </Tab>
-        <Tab
-          data-stop-prosemirror
           active={activeTab === "transcript"}
           onClick={() => setActiveTab("transcript")}
         >
@@ -936,11 +856,6 @@ Notes:\n${notesText}\n\nTranscript follows:`;
       </TabBar>
 
       <TabContent>
-        <ContentSection
-          ref={contentRef}
-          data-prosemirror-content
-          style={{ display: activeTab === "notes" ? "block" : "none" }}
-        />
         {activeTab === "transcript" && (
           <TranscriptSection>
             {transcript.length > 0 ? (
@@ -954,6 +869,11 @@ Notes:\n${notesText}\n\nTranscript follows:`;
             )}
           </TranscriptSection>
         )}
+        <ContentSection
+          ref={contentRef}
+          data-prosemirror-content
+          style={{ display: activeTab === "summary" ? "block" : "none" }}
+        />
       </TabContent>
     </Wrapper>
   );
