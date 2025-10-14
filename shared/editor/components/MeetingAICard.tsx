@@ -119,20 +119,31 @@ export default function MeetingAICard({
       audioContextRef.current = audioContext;
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.7;
       analyserRef.current = analyser;
       source.connect(analyser);
 
-      // Start audio level monitoring
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      // Start audio level monitoring (RMS of time domain for more natural levels)
+      const timeData = new Uint8Array(analyser.fftSize);
+      const levelRef = { current: 0 };
+      const GAIN = 3.0; // makeup gain to better match system indicator
+      const SMOOTH = 0.6; // EMA smoothing
       audioLevelIntervalRef.current = window.setInterval(() => {
-        if (analyserRef.current) {
-          analyserRef.current.getByteFrequencyData(dataArray);
-          const average =
-            dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
-          setAudioLevel(average / 255);
+        const a = analyserRef.current;
+        if (!a) {return;}
+        a.getByteTimeDomainData(timeData);
+        let sumSquares = 0;
+        for (let i = 0; i < timeData.length; i++) {
+          const v = (timeData[i] - 128) / 128; // -1..1
+          sumSquares += v * v;
         }
-      }, 100);
+        const rms = Math.sqrt(sumSquares / timeData.length);
+        const level = Math.min(1, rms * GAIN);
+        const smooth = SMOOTH * levelRef.current + (1 - SMOOTH) * level;
+        levelRef.current = smooth;
+        setAudioLevel(smooth);
+      }, 80);
 
       // Update node attrs to listening state
       const startedAt = Date.now();
@@ -1048,7 +1059,7 @@ const NeutralButton = styled(ActionButton)`
 
 const AudioLevelIndicator = styled.div`
   width: 10px;
-  height: 28px;
+  height: 36px;
   border: 1px solid ${(props) => props.theme.divider};
   border-radius: 3px;
   overflow: hidden;
@@ -1061,9 +1072,8 @@ const AudioLevelBar = styled.div`
   left: 0;
   right: 0;
   bottom: 0;
-  background: ${(props) =>
-    props.theme.success ? props.theme.success : "#4caf50"};
-  transition: height 0.1s ease;
+  background: #00c853; /* fixed vivid green */
+  transition: height 0.08s ease;
 `;
 
 const MenuPopover = styled.div`
