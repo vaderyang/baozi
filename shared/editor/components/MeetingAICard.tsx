@@ -1087,7 +1087,6 @@ const NeutralButton = styled(ActionButton)`
   background: ${(props) => props.theme.background};
   border: 1px solid ${(props) => props.theme.divider};
   color: ${(props) => props.theme.text};
-  min-height: 32px; /* unify height with icon buttons */
 
   &:hover:not(:disabled) {
     background: ${(props) => props.theme.secondaryBackground};
