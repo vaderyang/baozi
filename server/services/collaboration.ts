@@ -97,6 +97,14 @@ export default function init(
         return;
       }
 
+      // Allow Meeting AI websocket service to handle its own path
+      if (
+        serviceNames.includes("meetingai") &&
+        req.url?.startsWith("/meeting-ai")
+      ) {
+        return;
+      }
+
       // If the collaboration service is running it will close the connection
       socket.end(`HTTP/1.1 400 Bad Request\r\n`);
     }

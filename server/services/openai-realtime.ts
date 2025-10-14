@@ -23,16 +23,19 @@ export class OpenAIRealtimeClient {
   private sessionStartTime = 0;
   private speakerMap = new Map<string, number>();
   private speakerCount = 0;
+  private language: string | undefined;
 
   constructor(
     private userId: string,
     private handler: RealtimeEventHandler
   ) {}
 
-  async connect(): Promise<void> {
+  async connect(language?: string): Promise<void> {
     if (!env.OPENAI_API_KEY) {
       throw new Error("OPENAI_API_KEY not configured");
     }
+
+    this.language = language;
 
     const model = env.OPENAI_REALTIME_MODEL || "gpt-4o-realtime-preview";
     const url = `wss://api.openai.com/v1/realtime?model=${model}`;
@@ -40,6 +43,7 @@ export class OpenAIRealtimeClient {
     Logger.info("Connecting to OpenAI Realtime API", {
       userId: this.userId,
       model,
+      language: this.language,
     });
 
     return new Promise((resolve, reject) => {
@@ -96,7 +100,7 @@ export class OpenAIRealtimeClient {
     }
 
     // Configure session for audio transcription
-    const config = {
+    const config: Record<string, any> = {
       type: "session.update",
       session: {
         modalities: ["text", "audio"],
@@ -116,6 +120,11 @@ export class OpenAIRealtimeClient {
         },
       },
     };
+
+    // If a language was provided by the client, pass it through to Whisper
+    if (this.language) {
+      config.session.input_audio_transcription.language = this.language;
+    }
 
     this.ws.send(JSON.stringify(config));
     Logger.debug("Sent OpenAI Realtime session configuration");

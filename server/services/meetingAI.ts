@@ -40,6 +40,36 @@ export default function init(
   const path = "/meeting-ai";
   const wss = new WebSocket.Server({ noServer: true });
 
+  wss.on("error", (err) => {
+    Logger.error("Meeting AI WebSocket server error", err);
+  });
+
+  // Heartbeat to detect dead connections
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const heartbeatInterval = setInterval(() => {
+    // @ts-expect-error ws.Server#clients is a Set<WebSocket>
+    wss.clients.forEach((ws: any) => {
+      if (ws.isAlive === false) {
+        try {
+          ws.terminate();
+        } catch (_e) {
+          /* ignore */
+        }
+        return;
+      }
+      ws.isAlive = false;
+      try {
+        ws.ping();
+      } catch (_e) {
+        /* ignore */
+      }
+    });
+  }, 30000);
+
+  wss.on("close", () => {
+    clearInterval(heartbeatInterval);
+  });
+
   // Add upgrade handler for /meeting-ai path
   const upgradeListener = (
     req: IncomingMessage,
@@ -47,11 +77,28 @@ export default function init(
     head: Buffer
   ) => {
     if (req.url?.startsWith(path)) {
-      Logger.debug("websocket", `Meeting AI WebSocket upgrade request`);
+      Logger.debug(
+        "websocket",
+        `Meeting AI WebSocket upgrade request, socket destroyed: ${socket.destroyed}, readable: ${socket.readable}`
+      );
 
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit("connection", ws, req);
+      socket.on("error", (err) => {
+        Logger.error("Meeting AI socket error during upgrade", err);
       });
+
+      try {
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          Logger.debug("websocket", `Meeting AI handleUpgrade callback called`);
+          wss.emit("connection", ws, req);
+        });
+        Logger.debug(
+          "websocket",
+          `Meeting AI handleUpgrade called successfully`
+        );
+      } catch (err) {
+        Logger.error("Meeting AI WebSocket upgrade failed", err);
+        socket.end(`HTTP/1.1 500 Internal Server Error\r\n`);
+      }
       return;
     }
   };
@@ -61,6 +108,14 @@ export default function init(
   wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
     Logger.debug("websocket", `Meeting AI WebSocket connection established`);
     Metrics.increment("websockets.meeting_ai.connected");
+
+    // Mark connection alive and set up pong handler for heartbeat
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (ws as any).isAlive = true;
+    ws.on("pong", () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ws as any).isAlive = true;
+    });
 
     let user: User | null = null;
     let openAIClient: OpenAIRealtimeClient | null = null;
@@ -139,7 +194,7 @@ export default function init(
                   },
                 });
 
-                await openAIClient.connect();
+                await openAIClient.connect(message.language);
                 sessionStartedAt = Date.now();
                 Logger.info("OpenAI Realtime client connected", {
                   userId: user?.id,
