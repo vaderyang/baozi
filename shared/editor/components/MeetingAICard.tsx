@@ -22,6 +22,7 @@ export default function MeetingAICard({
   const [activeTab, setActiveTab] = React.useState<TabType>("notes");
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = React.useState(false);
   const [audioLevel, setAudioLevel] = React.useState(0);
 
   const contentRef = React.useRef<HTMLDivElement>(null);
@@ -485,8 +486,180 @@ export default function MeetingAICard({
     >
       {isEditable && (
         <>
-          <ButtonGroup>
-            {(isHover || isSelected) && (
+          <TopControls>
+            <LeftControls>
+              {(isHover || isSelected) && (
+                <IconButton
+                  type="button"
+                  onClick={handleDelete}
+                  title="Delete this card"
+                  data-stop-prosemirror
+                >
+                  <TrashIcon />
+                </IconButton>
+              )}
+              {isListening ? (
+                <ActionButton
+                  type="button"
+                  onClick={handleStopListening}
+                  data-stop-prosemirror
+                >
+                  Stop listening
+                </ActionButton>
+              ) : (
+                <ActionButton
+                  type="button"
+                  onClick={handleStartListening}
+                  disabled={isLoading}
+                  data-stop-prosemirror
+                >
+                  <LightningIcon size={16} />
+                  {isLoading ? "Starting..." : "Start listening"}
+                </ActionButton>
+              )}
+              {isListening && (
+                <>
+                  <AudioLevelIndicator>
+                    <AudioLevelBar
+                      style={{
+                        width: `${Math.min(1, Math.max(0, audioLevel)) * 100}%`,
+                      }}
+                    />
+                  </AudioLevelIndicator>
+                  <IconButton
+                    type="button"
+                    onClick={handleMark}
+                    title="Mark this moment"
+                    data-stop-prosemirror
+                  >
+                    📌
+                  </IconButton>
+                </>
+              )}
+              <SummaryActions>
+                <IconButton
+                  type="button"
+                  onClick={handleGenerateSummary}
+                  title="Generate summary"
+                  data-stop-prosemirror
+                >
+                  <ShapesIcon />
+                </IconButton>
+                <IconButton
+                  type="button"
+                  onClick={() => setMenuOpen((v) => !v)}
+                  title="Summary settings"
+                  data-stop-prosemirror
+                >
+                  ⋯
+                </IconButton>
+                {menuOpen && (
+                  <MenuPopover onMouseDown={(e) => e.stopPropagation()}>
+                    <MenuGroup>
+                      <MenuLabel>Language</MenuLabel>
+                      <Select
+                        value={getCurrentAttrs().summaryLanguage || "auto"}
+                        onChange={(e) => {
+                          const pos = getPos();
+                          const { tr } = view.state;
+                          const current = getCurrentAttrs();
+                          view.dispatch(
+                            tr.setNodeMarkup(pos, undefined, {
+                              ...current,
+                              summaryLanguage: e.target.value,
+                            })
+                          );
+                        }}
+                      >
+                        <option value="auto">Auto</option>
+                        <option value="en">English</option>
+                        <option value="zh">Chinese</option>
+                        <option value="ar">Arabic</option>
+                        <option value="fr">French</option>
+                        <option value="es">Spanish</option>
+                        <option value="de">German</option>
+                        <option value="ja">Japanese</option>
+                      </Select>
+                    </MenuGroup>
+                    <MenuGroup>
+                      <MenuLabel>Meeting Template</MenuLabel>
+                      <Select
+                        value={getCurrentAttrs().summaryTemplate || "auto"}
+                        onChange={(e) => {
+                          const pos = getPos();
+                          const { tr } = view.state;
+                          const current = getCurrentAttrs();
+                          view.dispatch(
+                            tr.setNodeMarkup(pos, undefined, {
+                              ...current,
+                              summaryTemplate: e.target.value,
+                            })
+                          );
+                        }}
+                      >
+                        <option value="auto">Auto</option>
+                        <option value="general">General Meeting</option>
+                        <option value="1on1">1:1 Meeting</option>
+                        <option value="sales">Sales Call</option>
+                      </Select>
+                    </MenuGroup>
+                    <MenuDivider />
+                    <MenuItem
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(
+                            formatTranscript()
+                          );
+                        } catch (_e) {
+                          setError("Failed to copy transcript");
+                        } finally {
+                          setMenuOpen(false);
+                        }
+                      }}
+                    >
+                      Copy Transcript
+                    </MenuItem>
+                    <MenuItem
+                      onClick={async () => {
+                        try {
+                          const text = await navigator.clipboard.readText();
+                          const seg: TranscriptSegment = {
+                            startMs: 0,
+                            endMs: 0,
+                            speaker: "Speaker 1",
+                            text,
+                          };
+                          appendTranscriptSegments([seg]);
+                        } catch (_e) {
+                          setError("Failed to paste transcript");
+                        } finally {
+                          setMenuOpen(false);
+                        }
+                      }}
+                    >
+                      Paste Transcript
+                    </MenuItem>
+                    <MenuItem
+                      onClick={() => {
+                        const pos = getPos();
+                        const { tr } = view.state;
+                        const current = getCurrentAttrs();
+                        view.dispatch(
+                          tr.setNodeMarkup(pos, undefined, {
+                            ...current,
+                            transcript: [],
+                          })
+                        );
+                        setMenuOpen(false);
+                      }}
+                    >
+                      Clear Transcript
+                    </MenuItem>
+                  </MenuPopover>
+                )}
+              </SummaryActions>
+            </LeftControls>
+            <RightControls>
               <IconButton
                 type="button"
                 onClick={handleDelete}
@@ -495,54 +668,8 @@ export default function MeetingAICard({
               >
                 <TrashIcon />
               </IconButton>
-            )}
-            {isListening ? (
-              <ActionButton
-                type="button"
-                onClick={handleStopListening}
-                data-stop-prosemirror
-              >
-                Stop listening
-              </ActionButton>
-            ) : (
-              <ActionButton
-                type="button"
-                onClick={handleStartListening}
-                disabled={isLoading}
-                data-stop-prosemirror
-              >
-                <LightningIcon size={16} />
-                {isLoading ? "Starting..." : "Start listening"}
-              </ActionButton>
-            )}
-            {isListening && (
-              <>
-                <AudioLevelIndicator>
-                  <AudioLevelBar
-                    style={{
-                      width: `${Math.min(1, Math.max(0, audioLevel)) * 100}%`,
-                    }}
-                  />
-                </AudioLevelIndicator>
-                <IconButton
-                  type="button"
-                  onClick={handleMark}
-                  title="Mark this moment"
-                  data-stop-prosemirror
-                >
-                  📌
-                </IconButton>
-              </>
-            )}
-            <IconButton
-              type="button"
-              onClick={handleGenerateSummary}
-              title="Generate summary"
-              data-stop-prosemirror
-            >
-              <ShapesIcon />
-            </IconButton>
-          </ButtonGroup>
+            </RightControls>
+          </TopControls>
 
           {error && <ErrorMessage>{error}</ErrorMessage>}
         </>
@@ -618,11 +745,30 @@ const Wrapper = styled.div<{ showBorder: boolean }>`
   `}
 `;
 
-const ButtonGroup = styled.div`
+const TopControls = styled.div`
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
   align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+`;
+
+const LeftControls = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const RightControls = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const SummaryActions = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
 `;
 
 const IconButton = styled.button`
@@ -707,6 +853,61 @@ const AudioLevelBar = styled.div`
     #f44336 100%
   );
   transition: width 0.1s ease;
+`;
+
+const MenuPopover = styled.div`
+  position: absolute;
+  top: 36px;
+  right: 0;
+  min-width: 220px;
+  background: ${(props) => props.theme.menuBackground};
+  color: ${(props) => props.theme.text};
+  border: 1px solid ${(props) => props.theme.divider};
+  border-radius: 6px;
+  box-shadow: ${(props) => props.theme.menuShadow};
+  padding: 8px;
+  z-index: 10;
+`;
+
+const MenuGroup = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+`;
+
+const MenuLabel = styled.div`
+  font-size: 12px;
+  color: ${(props) => props.theme.textSecondary};
+`;
+
+const Select = styled.select`
+  padding: 6px 8px;
+  border: 1px solid ${(props) => props.theme.divider};
+  border-radius: 4px;
+  background: ${(props) => props.theme.background};
+  color: ${(props) => props.theme.text};
+`;
+
+const MenuDivider = styled.div`
+  height: 1px;
+  background: ${(props) => props.theme.divider};
+  margin: 8px 0;
+`;
+
+const MenuItem = styled.button`
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  color: ${(props) => props.theme.text};
+  border-radius: 4px;
+  cursor: pointer;
+
+  &:hover {
+    background: ${(props) => props.theme.secondaryBackground};
+  }
 `;
 
 const ErrorMessage = styled.div`
