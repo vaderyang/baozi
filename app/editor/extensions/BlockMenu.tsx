@@ -43,7 +43,10 @@ export default class BlockMenuExtension extends Suggestion {
             }
 
             const isTopLevel = state.selection.$from.depth === 1;
-            if (!isTopLevel) {
+            const inMeetingAICard = !!findParentNode(
+              (node) => node.type.name === "meeting_ai_card"
+            )(state.selection);
+            if (!isTopLevel && !inMeetingAICard) {
               return;
             }
 
@@ -76,19 +79,29 @@ export default class BlockMenuExtension extends Suggestion {
       }),
       new PlaceholderPlugin([
         {
-          condition: ({ node, $start, textContent, state }) =>
-            $start.depth === 1 &&
-            state.selection.$from.pos === $start.pos + node.content.size &&
-            !!textContent &&
-            node.childCount === 0 &&
-            node.textContent === "",
+          condition: ({ node, $start, textContent, state, parent }) => {
+            const isTopLevel = $start.depth === 1;
+            const inMeetingAICard = parent?.type.name === "meeting_ai_card";
+            return (
+              (isTopLevel || inMeetingAICard) &&
+              state.selection.$from.pos === $start.pos + node.content.size &&
+              !!textContent &&
+              node.childCount === 0 &&
+              node.textContent === ""
+            );
+          },
           text: this.options.dictionary.newLineEmpty,
         },
         {
-          condition: ({ node, $start, state }) =>
-            $start.depth === 1 &&
-            state.selection.$from.pos === $start.pos + node.content.size &&
-            node.textContent === "/",
+          condition: ({ node, $start, state, parent }) => {
+            const isTopLevel = $start.depth === 1;
+            const inMeetingAICard = parent?.type.name === "meeting_ai_card";
+            return (
+              (isTopLevel || inMeetingAICard) &&
+              state.selection.$from.pos === $start.pos + node.content.size &&
+              node.textContent === "/"
+            );
+          },
           text: `  ${this.options.dictionary.newLineWithSlash}`,
         },
       ]),
