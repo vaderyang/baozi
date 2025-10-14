@@ -252,6 +252,12 @@ export default class AuthStore extends Store<Team> {
         this.suspendedContactEmail = err.data.adminEmail;
         return;
       }
+      // Silently handle auth errors on initial load - user is not authenticated yet
+      // This is expected when visiting the login page or when the session has expired
+      if (err.name === "AuthorizationError") {
+        Logger.debug("User not authenticated", err);
+        return;
+      }
       throw err;
     } finally {
       this.isFetching = false;

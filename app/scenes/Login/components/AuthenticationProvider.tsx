@@ -2,11 +2,13 @@ import { EmailIcon } from "outline-icons";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import styled from "styled-components";
+import { CSRF } from "@shared/constants";
 import { Client } from "@shared/types";
 import { isPWA } from "@shared/utils/browser";
 import ButtonLarge from "~/components/ButtonLarge";
 import InputLarge from "~/components/InputLarge";
 import PluginIcon from "~/components/PluginIcon";
+import { useCsrfToken } from "~/hooks/useCsrfToken";
 import { client } from "~/utils/ApiClient";
 import Desktop from "~/utils/Desktop";
 import { getRedirectUrl } from "../urls";
@@ -29,6 +31,7 @@ function AuthenticationProvider(props: Props) {
   const { isCreate, id, name, authUrl, onEmailSuccess, ...rest } = props;
   const clientType = Desktop.isElectron() ? Client.Desktop : Client.Web;
   const preferOTP = isPWA;
+  const csrfToken = useCsrfToken();
 
   const handleChangeEmail = (event: React.ChangeEvent<HTMLInputElement>) => {
     setEmail(event.target.value);
@@ -43,11 +46,26 @@ function AuthenticationProvider(props: Props) {
       setSubmitting(true);
 
       try {
-        const response = await client.post(event.currentTarget.action, {
-          email,
-          client: clientType,
-          preferOTP,
-        });
+        // Get the full URL from the form action
+        const url = new URL(event.currentTarget.action, window.location.origin);
+        const headers: Record<string, string> = {};
+
+        // Explicitly add CSRF token header for non-API auth routes
+        if (csrfToken) {
+          headers[CSRF.headerName] = csrfToken;
+        }
+
+        const response = await client.post(
+          url.href,
+          {
+            email,
+            client: clientType,
+            preferOTP,
+          },
+          {
+            headers,
+          }
+        );
 
         if (response.redirect) {
           window.location.href = response.redirect;

@@ -48,10 +48,16 @@ export function verifyCSRFToken() {
       return false;
     }
 
-    // If not using cookie-based auth, skip CSRF protection
-    const { transport } = parseAuthentication(ctx);
-    if (transport !== "cookie") {
-      return false;
+    // Authentication routes need CSRF protection even without cookie-based auth
+    // because they establish the session
+    const isAuthRoute = ctx.path.startsWith("/auth/");
+
+    if (!isAuthRoute) {
+      // If not using cookie-based auth, skip CSRF protection for non-auth routes
+      const { transport } = parseAuthentication(ctx);
+      if (transport !== "cookie") {
+        return false;
+      }
     }
 
     // For API routes, use AuthenticationHelper to determine if the operation is read-only
