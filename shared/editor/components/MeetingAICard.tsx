@@ -582,7 +582,9 @@ The following is the meeting transcript:`;
 
   // Close menu on outside click
   React.useEffect(() => {
-    if (!menuOpen) {return;}
+    if (!menuOpen) {
+      return;
+    }
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       const inMenu = !!target.closest("[data-meeting-ai-menu]");
@@ -685,7 +687,7 @@ The following is the meeting transcript:`;
                 </>
               )}
               <SummaryActions>
-                <IconButton
+                <NeutralButton
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={handleGenerateSummary}
@@ -694,7 +696,7 @@ The following is the meeting transcript:`;
                 >
                   <ShapesIcon />
                   <span style={{ marginLeft: 6 }}>Generate Summary</span>
-                </IconButton>
+                </NeutralButton>
                 <IconButton
                   ref={menuButtonRef}
                   type="button"
@@ -1031,6 +1033,16 @@ const ActionButton = styled.button`
   svg {
     width: 16px;
     height: 16px;
+  }
+`;
+
+const NeutralButton = styled(ActionButton)`
+  background: ${(props) => props.theme.background};
+  border: 1px solid ${(props) => props.theme.divider};
+  color: ${(props) => props.theme.text};
+
+  &:hover:not(:disabled) {
+    background: ${(props) => props.theme.secondaryBackground};
   }
 `;
 
