@@ -7,7 +7,7 @@ import type { TranscriptSegment } from "../nodes/MeetingAICard";
 
 type MeetingAICardProps = ComponentProps;
 
-type TabType = "notes" | "transcript";
+type TabType = "notes" | "transcript" | "summary";
 
 export default function MeetingAICard({
   node,
@@ -404,11 +404,11 @@ export default function MeetingAICard({
         throw new Error("No summary returned from API");
       }
 
-      // Insert summary into Notes content
+      // Insert summary into Notes content, and persist summary in attrs
       const pos = getPos();
       const { tr } = view.state;
 
-      // Create paragraphs for the summary
+      // Create paragraphs for the summary (keep original Notes behavior)
       const summaryHeader = view.state.schema.nodes.paragraph.create(
         null,
         view.state.schema.text("## Meeting Summary\n\n")
@@ -419,14 +419,17 @@ export default function MeetingAICard({
       );
 
       const endPos = pos + node.nodeSize - 1;
+      const currentAttrs = getCurrentAttrs();
       const transaction = tr
         .insert(endPos, [summaryHeader, summaryParagraph])
         .setNodeMarkup(pos, undefined, {
-          ...node.attrs,
+          ...currentAttrs,
           generated: true,
+          summary,
         });
 
       view.dispatch(transaction);
+      setActiveTab("summary");
       setIsLoading(false);
     } catch (err) {
       setError(
@@ -530,15 +533,16 @@ export default function MeetingAICard({
               </>
             )}
             {!isListening && transcript.length > 0 && (
-              <IconButton
+              <ActionButton
                 type="button"
                 onClick={handleGenerateSummary}
                 disabled={isLoading || hasGenerated}
-                title="Generate summary"
+                title="Generate summary by AI"
                 data-stop-prosemirror
               >
                 <ShapesIcon />
-              </IconButton>
+                Generate summary
+              </ActionButton>
             )}
           </ButtonGroup>
 
@@ -559,6 +563,12 @@ export default function MeetingAICard({
         >
           Transcript
         </Tab>
+        <Tab
+          active={activeTab === "summary"}
+          onClick={() => setActiveTab("summary")}
+        >
+          Summary
+        </Tab>
       </TabBar>
 
       <TabContent>
@@ -566,7 +576,7 @@ export default function MeetingAICard({
           <ContentSection ref={contentRef} data-prosemirror-content>
             {/* ProseMirror contentDOM will be mounted here */}
           </ContentSection>
-        ) : (
+        ) : activeTab === "transcript" ? (
           <TranscriptSection>
             {transcript.length > 0 ? (
               <TranscriptText>{formatTranscript()}</TranscriptText>
@@ -575,6 +585,16 @@ export default function MeetingAICard({
                 {isListening
                   ? "Listening... Transcript will appear here."
                   : "No transcript yet. Start listening to record."}
+              </EmptyState>
+            )}
+          </TranscriptSection>
+        ) : (
+          <TranscriptSection>
+            {getCurrentAttrs().summary ? (
+              <TranscriptText>{getCurrentAttrs().summary}</TranscriptText>
+            ) : (
+              <EmptyState>
+                Summary will appear here after generation.
               </EmptyState>
             )}
           </TranscriptSection>

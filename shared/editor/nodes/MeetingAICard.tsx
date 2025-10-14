@@ -41,6 +41,9 @@ export default class MeetingAICard extends ReactNode {
         startedAt: {
           default: null,
         },
+        summary: {
+          default: "",
+        },
       },
       content: "block+",
       group: "block",
@@ -63,6 +66,7 @@ export default class MeetingAICard extends ReactNode {
                   transcript: attrs.transcript || [],
                   audioUrl: attrs.audioUrl || "",
                   startedAt: attrs.startedAt || null,
+                  summary: attrs.summary || "",
                 };
               } catch (_e) {
                 return {
@@ -80,6 +84,7 @@ export default class MeetingAICard extends ReactNode {
               transcript: [],
               audioUrl: "",
               startedAt: null,
+              summary: "",
             };
           },
         },
@@ -91,6 +96,7 @@ export default class MeetingAICard extends ReactNode {
           transcript: node.attrs.transcript,
           audioUrl: node.attrs.audioUrl,
           startedAt: node.attrs.startedAt,
+          summary: node.attrs.summary,
         };
         return [
           "div",
@@ -117,6 +123,7 @@ export default class MeetingAICard extends ReactNode {
               transcript: [],
               audioUrl: "",
               startedAt: null,
+              summary: "",
             },
             paragraph
           );
@@ -136,6 +143,7 @@ export default class MeetingAICard extends ReactNode {
       transcript: node.attrs.transcript || [],
       audioUrl: node.attrs.audioUrl || "",
       startedAt: node.attrs.startedAt || null,
+      summary: node.attrs.summary || "",
     };
 
     state.write("\n```meeting-ai " + JSON.stringify(attrs) + "\n");
@@ -160,6 +168,7 @@ export default class MeetingAICard extends ReactNode {
               transcript: attrs.transcript || [],
               audioUrl: attrs.audioUrl || "",
               startedAt: attrs.startedAt || null,
+              summary: attrs.summary || "",
             };
           }
         } catch (_e) {
@@ -171,6 +180,7 @@ export default class MeetingAICard extends ReactNode {
           transcript: [],
           audioUrl: "",
           startedAt: null,
+          summary: "",
         };
       },
     };
