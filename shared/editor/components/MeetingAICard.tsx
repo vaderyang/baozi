@@ -1,6 +1,19 @@
 import { LightningIcon, TrashIcon, ShapesIcon } from "outline-icons";
 import * as React from "react";
 import styled from "styled-components";
+
+// Simple single-color mark icon
+const MarkIcon: React.FC = () => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 16 16"
+    fill="currentColor"
+    aria-hidden="true"
+  >
+    <circle cx="8" cy="8" r="4" />
+  </svg>
+);
 import { ComponentProps } from "../types";
 import { NodeSelection } from "prosemirror-state";
 import type { TranscriptSegment } from "../nodes/MeetingAICard";
@@ -695,7 +708,7 @@ The following is the meeting transcript:`;
                     title="Mark this moment"
                     data-stop-prosemirror
                   >
-                    📌
+                    <MarkIcon />
                   </IconButton>
                 </>
               )}
