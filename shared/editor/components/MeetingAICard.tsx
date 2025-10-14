@@ -672,7 +672,7 @@ The following is the meeting transcript:`;
                   <AudioLevelIndicator>
                     <AudioLevelBar
                       style={{
-                        width: `${Math.min(1, Math.max(0, audioLevel)) * 100}%`,
+                        height: `${Math.min(1, Math.max(0, audioLevel)) * 100}%`,
                       }}
                     />
                   </AudioLevelIndicator>
@@ -1047,10 +1047,10 @@ const NeutralButton = styled(ActionButton)`
 `;
 
 const AudioLevelIndicator = styled.div`
-  width: 60px;
-  height: 24px;
+  width: 10px;
+  height: 28px;
   border: 1px solid ${(props) => props.theme.divider};
-  border-radius: 4px;
+  border-radius: 3px;
   overflow: hidden;
   position: relative;
   background: ${(props) => props.theme.secondaryBackground};
@@ -1059,16 +1059,11 @@ const AudioLevelIndicator = styled.div`
 const AudioLevelBar = styled.div`
   position: absolute;
   left: 0;
-  top: 0;
+  right: 0;
   bottom: 0;
-  background: linear-gradient(
-    90deg,
-    #4caf50 0%,
-    #8bc34a 50%,
-    #ff9800 75%,
-    #f44336 100%
-  );
-  transition: width 0.1s ease;
+  background: ${(props) =>
+    props.theme.success ? props.theme.success : "#4caf50"};
+  transition: height 0.1s ease;
 `;
 
 const MenuPopover = styled.div`
@@ -1111,6 +1106,8 @@ const MenuRow = styled.button`
   color: ${(props) => props.theme.text};
   border-radius: 4px;
   cursor: pointer;
+  font-size: 14px;
+  font-family: inherit;
 
   &:hover {
     background: ${(props) => props.theme.secondaryBackground};
