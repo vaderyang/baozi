@@ -241,9 +241,7 @@ export default function init(
                   },
                 });
 
-                // Assume 48000 Hz for browser captures; fallback to 24000 for tests
-                const assumedSampleRate = 48000;
-                await openAIClient.connect(message.language, assumedSampleRate);
+                await openAIClient.connect(message.language);
                 Logger.info("OpenAI Realtime client connected", {
                   userId: user?.id,
                 });
