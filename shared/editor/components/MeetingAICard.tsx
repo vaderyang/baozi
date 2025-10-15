@@ -51,7 +51,6 @@ export default function MeetingAICard({
   const audioLevelIntervalRef = React.useRef<number | null>(null);
   const wsRef = React.useRef<WebSocket | null>(null);
   const audioChunkIntervalRef = React.useRef<number | null>(null);
-  const mockIntervalRef = React.useRef<number | null>(null);
 
   const transcript: TranscriptSegment[] = node.attrs.transcript || [];
   const isListening = node.attrs.listening || false;
@@ -98,9 +97,6 @@ export default function MeetingAICard({
       if (audioChunkIntervalRef.current) {
         window.clearInterval(audioChunkIntervalRef.current);
       }
-      if (mockIntervalRef.current) {
-        window.clearInterval(mockIntervalRef.current);
-      }
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       }
@@ -119,11 +115,7 @@ export default function MeetingAICard({
       setError(null);
       setIsLoading(true);
 
-      // Decide whether to use mock mode via query param
-      const params = new URLSearchParams(window.location.search);
-      const forceMock = params.get("mockMeetingAI") === "1";
-
-      // Request microphone permission regardless (to drive the level meter UI)
+      // Request microphone permission (to drive the level meter UI and capture audio)
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
 
@@ -175,68 +167,15 @@ export default function MeetingAICard({
         view.dispatch(transaction);
       }
 
-      // Mock streaming fallback (either forced or on ws failure)
-      const startMockStreaming = () => {
-        const script: { speaker: string; text: string; dur: number }[] = [
-          { speaker: "Speaker 1", text: "Welcome to the meeting!", dur: 2500 },
-          { speaker: "Speaker 2", text: "Great to be here.", dur: 1800 },
-          {
-            speaker: "Speaker 1",
-            text: "Let's begin with updates.",
-            dur: 2200,
-          },
-          { speaker: "Speaker 2", text: "Shipping is on track.", dur: 2000 },
-          { speaker: "Speaker 1", text: "Any blockers?", dur: 1600 },
-          {
-            speaker: "Speaker 2",
-            text: "No blockers from my side.",
-            dur: 2200,
-          },
-        ];
-        let idx = 0;
-        let lastEnd = 0;
-        mockIntervalRef.current = window.setInterval(() => {
-          const nowElapsed = Date.now() - startedAt;
-          const line = script[idx % script.length];
-          const start = Math.max(lastEnd, nowElapsed);
-          const end = start + line.dur;
-          lastEnd = end;
-          const seg = [
-            {
-              startMs: start,
-              endMs: end,
-              speaker: line.speaker,
-              text: line.text,
-            },
-          ];
-
-          // Stop mock streaming if listening turned off externally
-          const currentAttrs = getCurrentAttrs();
-          if (!currentAttrs.listening) {
-            if (mockIntervalRef.current) {
-              window.clearInterval(mockIntervalRef.current);
-              mockIntervalRef.current = null;
-            }
-            return;
-          }
-
-          appendTranscriptSegments(seg);
-          idx++;
-        }, 1000);
-      };
-
-      if (forceMock) {
-        startMockStreaming();
-        setIsLoading(false);
-        return;
-      }
-
-      // Attempt to connect real WebSocket and stream PCM16 audio
+      // Connect to real WebSocket and stream PCM16 audio
       try {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const ws = new WebSocket(
-          `${protocol}//${window.location.host}/meeting-ai`
-        );
+        // Prefer server URL from injected env to avoid Vite dev host mismatch
+        const envAny = window as unknown as { env?: { URL?: string } };
+        const serverUrl = envAny.env?.URL || window.location.origin;
+        const target = new URL(serverUrl);
+        const protocol = target.protocol === "https:" ? "wss:" : "ws:";
+        const host = target.host;
+        const ws = new WebSocket(`${protocol}//${host}/meeting-ai`);
         ws.binaryType = "arraybuffer";
         wsRef.current = ws;
 
@@ -297,9 +236,48 @@ export default function MeetingAICard({
                 );
                 break;
               }
-              case "error":
-                setError(message.message || "WebSocket error occurred");
+              case "error": {
+                // Provide user-friendly error messages based on error code
+                let errorMessage =
+                  message.message || "Transcription error occurred";
+
+                switch (message.code) {
+                  case "AUTH_FAILED":
+                    errorMessage =
+                      "Authentication failed. Please refresh the page and try again.";
+                    break;
+                  case "CONFIG_ERROR":
+                    errorMessage =
+                      "Transcription service is not configured. Please contact your administrator to set up the OpenAI API key.";
+                    break;
+                  case "OPENAI_CONNECTION_ERROR":
+                    errorMessage =
+                      "Unable to connect to OpenAI transcription service. Please try again later.";
+                    break;
+                  case "OPENAI_ERROR":
+                    errorMessage = `OpenAI transcription error: ${
+                      message.message || "Unknown error"
+                    }`;
+                    break;
+                  case "PROCESSING_ERROR":
+                    errorMessage = "Error processing audio. Please try again.";
+                    break;
+                }
+
+                setError(errorMessage);
+
+                // Stop listening on critical errors
+                if (
+                  [
+                    "AUTH_FAILED",
+                    "CONFIG_ERROR",
+                    "OPENAI_CONNECTION_ERROR",
+                  ].includes(message.code)
+                ) {
+                  handleStopListening();
+                }
                 break;
+              }
               case "stopped":
                 break;
             }
@@ -316,10 +294,36 @@ export default function MeetingAICard({
             /* ignore disconnect error */
           }
           processor = null;
-          startMockStreaming();
+
+          setError(
+            "Unable to connect to transcription service. Please check your network connection and try again."
+          );
+          setIsLoading(false);
+
+          // Stop listening since we can't transcribe
+          handleStopListening();
         };
-      } catch {
-        startMockStreaming();
+
+        ws.onclose = (event) => {
+          if (event.code !== 1000) {
+            // 1000 is normal closure
+            setError(
+              `Transcription connection closed unexpectedly (code: ${event.code}). ${
+                event.reason || "Please try again."
+              }`
+            );
+          }
+        };
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? `Failed to initialize transcription: ${err.message}`
+            : "Failed to initialize transcription service. Please try again."
+        );
+        setIsLoading(false);
+
+        // Stop listening since we can't transcribe
+        handleStopListening();
       }
 
       setIsLoading(false);
@@ -338,12 +342,6 @@ export default function MeetingAICard({
     if (audioChunkIntervalRef.current) {
       window.clearInterval(audioChunkIntervalRef.current);
       audioChunkIntervalRef.current = null;
-    }
-
-    // Stop mock streaming if active
-    if (mockIntervalRef.current) {
-      window.clearInterval(mockIntervalRef.current);
-      mockIntervalRef.current = null;
     }
 
     // Send stop message to WebSocket
