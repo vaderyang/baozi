@@ -48,18 +48,19 @@ export default function init(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const heartbeatInterval = setInterval(() => {
     // @ts-expect-error ws.Server#clients is a Set<WebSocket>
-    wss.clients.forEach((ws: any) => {
-      if (ws.isAlive === false) {
+    wss.clients.forEach((ws: unknown) => {
+      const sock = ws as WebSocket & { isAlive?: boolean };
+      if (sock.isAlive === false) {
         try {
-          ws.terminate();
+          sock.terminate();
         } catch (_e) {
           /* ignore */
         }
         return;
       }
-      ws.isAlive = false;
+      (sock as any).isAlive = false;
       try {
-        ws.ping();
+        sock.ping();
       } catch (_e) {
         /* ignore */
       }
@@ -246,6 +247,12 @@ export default function init(
                 Logger.info("OpenAI Realtime client connected", {
                   userId: user?.id,
                 });
+                // Notify client that server is ready to receive audio frames
+                try {
+                  ws.send(JSON.stringify({ type: "ready" }));
+                } catch (_e) {
+                  /* ignore */
+                }
 
                 // Begin periodic flushes to produce realtime partial transcripts
                 if (!flushInterval) {

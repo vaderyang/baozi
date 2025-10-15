@@ -194,45 +194,51 @@ export default function MeetingAICard({
         };
 
         let processor: ScriptProcessorNode | null = null;
+        let startStreaming = () => {
+          if (
+            processor ||
+            !audioContextRef.current ||
+            !mediaStreamRef.current
+          ) {
+            return;
+          }
+          const sourceNode = audioContextRef.current.createMediaStreamSource(
+            mediaStreamRef.current
+          );
+          processor = audioContextRef.current.createScriptProcessor(4096, 1, 1);
+          processor.onaudioprocess = (e) => {
+            const channelData = e.inputBuffer.getChannelData(0);
+            const pcm = floatTo16BitPCM(channelData);
+            try {
+              if (
+                wsRef.current &&
+                wsRef.current.readyState === WebSocket.OPEN
+              ) {
+                // Send as binary frame
+                wsRef.current.send(pcm.buffer);
+              }
+            } catch (_sendErr) {
+              /* ignore */
+            }
+          };
+          sourceNode.connect(processor);
+          processor.connect(audioContextRef.current.destination);
+        };
 
         ws.onopen = () => {
+          // Tell server to start session; audio streaming will begin after 'ready'
           ws.send(JSON.stringify({ type: "start" }));
-
-          // Begin capturing and streaming audio frames
-          if (audioContextRef.current && mediaStreamRef.current) {
-            const sourceNode = audioContextRef.current.createMediaStreamSource(
-              mediaStreamRef.current
-            );
-            processor = audioContextRef.current.createScriptProcessor(
-              4096,
-              1,
-              1
-            );
-            processor.onaudioprocess = (e) => {
-              const channelData = e.inputBuffer.getChannelData(0);
-              const pcm = floatTo16BitPCM(channelData);
-              try {
-                if (
-                  wsRef.current &&
-                  wsRef.current.readyState === WebSocket.OPEN
-                ) {
-                  // Send as binary frame
-                  wsRef.current.send(pcm.buffer);
-                }
-              } catch (_sendErr) {
-                // Swallow send errors and rely on onerror to fallback
-              }
-            };
-            // Keep the processor active
-            sourceNode.connect(processor);
-            processor.connect(audioContextRef.current.destination);
-          }
         };
 
         ws.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data);
             switch (message.type) {
+              case "ready": {
+                // Server is ready to accept audio frames
+                startStreaming();
+                break;
+              }
               case "partial-transcript":
               case "final-transcript": {
                 appendTranscriptSegments(
