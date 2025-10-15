@@ -573,6 +573,15 @@ export class Environment {
   );
 
   /**
+   * Enable mock Meeting AI backend (development/testing only).
+   * When true, the /meeting-ai WebSocket emits simulated transcript segments
+   * without calling upstream providers.
+   */
+  @IsOptional()
+  @IsBoolean()
+  public MEETINGAI_MOCK = this.toBoolean(environment.MEETINGAI_MOCK ?? "false");
+
+  /**
    * Set max allowed requests in a given duration for default rate limiter to
    * trigger throttling, per IP address.
    */

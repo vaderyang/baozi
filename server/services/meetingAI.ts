@@ -109,6 +109,12 @@ export default function init(
     Logger.debug("websocket", `Meeting AI WebSocket connection established`);
     Metrics.increment("websockets.meeting_ai.connected");
 
+    // Per-connection mock mode toggle (header wins), primarily for dev/tests
+    const headerMock =
+      req.headers["x-meetingai-mock"] === "1" ||
+      req.headers["x-meeting-ai-mock"] === "1";
+    const mockMode = !!headerMock || !!env.MEETINGAI_MOCK;
+
     // Mark connection alive and set up pong handler for heartbeat
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (ws as any).isAlive = true;
@@ -121,6 +127,10 @@ export default function init(
     let openAIClient: OpenAIRealtimeClient | null = null;
     const transcriptSegments: TranscriptSegment[] = [];
     let sessionStartedAt = 0;
+    let flushInterval: NodeJS.Timeout | null = null;
+    let mockInterval: NodeJS.Timeout | null = null;
+    let mockSpeaker = 1;
+    let mockLastEnd = 0;
 
     // Authenticate the connection
     try {
@@ -153,9 +163,45 @@ export default function init(
               Logger.info("Meeting AI session started", {
                 userId: user?.id,
                 language: message.language,
+                mockMode,
               });
 
-              // Check if OpenAI API key is configured
+              sessionStartedAt = Date.now();
+
+              if (mockMode) {
+                // Mock: emit partial transcript segments periodically
+                const script = [
+                  "Welcome everyone, let's begin the meeting.",
+                  "Today we'll review progress and blockers.",
+                  "Please share your updates briefly.",
+                  "Next, we'll assign action items.",
+                  "Thank you all for your contributions.",
+                ];
+                let idx = 0;
+                mockInterval = setInterval(() => {
+                  const now = Date.now();
+                  const startMs = mockLastEnd;
+                  const endMs = now - sessionStartedAt;
+                  const seg = {
+                    startMs,
+                    endMs,
+                    speaker: `Speaker ${mockSpeaker}`,
+                    text: script[idx % script.length],
+                  } as TranscriptSegment;
+                  transcriptSegments.push(seg);
+                  const response: ServerMessage = {
+                    type: "partial-transcript",
+                    segments: [seg],
+                  };
+                  ws.send(JSON.stringify(response));
+                  mockLastEnd = endMs;
+                  mockSpeaker = mockSpeaker === 1 ? 2 : 1;
+                  idx++;
+                }, 900);
+                break;
+              }
+
+              // Real: Check config
               if (!env.OPENAI_API_KEY) {
                 const errorMessage: ServerMessage = {
                   type: "error",
@@ -194,11 +240,23 @@ export default function init(
                   },
                 });
 
-                await openAIClient.connect(message.language);
-                sessionStartedAt = Date.now();
+                // Assume 48000 Hz for browser captures; fallback to 24000 for tests
+                const assumedSampleRate = 48000;
+                await openAIClient.connect(message.language, assumedSampleRate);
                 Logger.info("OpenAI Realtime client connected", {
                   userId: user?.id,
                 });
+
+                // Begin periodic flushes to produce realtime partial transcripts
+                if (!flushInterval) {
+                  flushInterval = setInterval(() => {
+                    try {
+                      openAIClient?.flush();
+                    } catch (_e) {
+                      // ignore intermittent flush errors
+                    }
+                  }, 1500);
+                }
               } catch (err) {
                 Logger.error("Failed to connect to OpenAI Realtime", err);
                 const errorMessage: ServerMessage = {
@@ -219,8 +277,30 @@ export default function init(
               });
 
               // Commit any pending audio and close OpenAI connection
+              if (mockMode) {
+                if (mockInterval) {
+                  clearInterval(mockInterval);
+                  mockInterval = null;
+                }
+                const response: ServerMessage = {
+                  type: "final-transcript",
+                  segments: transcriptSegments,
+                };
+                ws.send(JSON.stringify(response));
+                const stoppedMessage: ServerMessage = { type: "stopped" };
+                ws.send(JSON.stringify(stoppedMessage));
+                break;
+              }
+
               if (openAIClient) {
-                openAIClient.commitAudio();
+                // Stop periodic flush
+                if (flushInterval) {
+                  clearInterval(flushInterval);
+                  flushInterval = null;
+                }
+
+                // Commit and request final transcription
+                openAIClient.flush();
 
                 // Wait a bit for final transcription
                 setTimeout(() => {
@@ -270,6 +350,11 @@ export default function init(
           }
         } else {
           // Binary audio frame received
+          if (mockMode) {
+            // Ignore audio in mock mode
+            return;
+          }
+
           if (!openAIClient) {
             Logger.warn("Received binary audio before session start");
             return;
@@ -314,6 +399,15 @@ export default function init(
       Metrics.increment("websockets.meeting_ai.disconnected");
 
       // Clean up OpenAI connection
+      if (flushInterval) {
+        clearInterval(flushInterval);
+        flushInterval = null;
+      }
+      if (mockInterval) {
+        clearInterval(mockInterval);
+        mockInterval = null;
+      }
+
       if (openAIClient) {
         openAIClient.close();
         openAIClient = null;
