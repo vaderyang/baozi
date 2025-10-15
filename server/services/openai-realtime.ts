@@ -112,6 +112,7 @@ export class OpenAIRealtimeClient {
         output_audio_format: "pcm16",
         input_audio_transcription: {
           model: "whisper-1",
+          intent: "transcription",
         },
         turn_detection: {
           type: "server_vad",
@@ -221,7 +222,9 @@ export class OpenAIRealtimeClient {
     await new Promise<void>((resolve) => {
       let done = false;
       const maybeResolve = () => {
-        if (done) {return;}
+        if (done) {
+          return;
+        }
         done = true;
         resolve();
       };
@@ -269,7 +272,9 @@ export class OpenAIRealtimeClient {
       case "response.completed": {
         // Resolve any pending waiters
         const resolver = this.pendingResponseResolvers.shift();
-        if (resolver) {resolver();}
+        if (resolver) {
+          resolver();
+        }
         break;
       }
 
@@ -340,12 +345,17 @@ export class OpenAIRealtimeClient {
    * Update language hint for transcription (e.g., 'en' or 'zh').
    */
   updateLanguage(lang: string | undefined): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {return;}
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
     const session: Record<string, unknown> = {
       modalities: ["text", "audio"],
       input_audio_format: "pcm16",
       output_audio_format: "pcm16",
-      input_audio_transcription: { model: "whisper-1" },
+      input_audio_transcription: {
+        model: "whisper-1",
+        intent: "transcription",
+      },
       turn_detection: {
         type: "server_vad",
         threshold: 0.5,
@@ -353,7 +363,9 @@ export class OpenAIRealtimeClient {
         silence_duration_ms: 500,
       },
     };
-    if (lang) {session.input_audio_transcription.language = lang;}
+    if (lang) {
+      session.input_audio_transcription.language = lang;
+    }
     this.ws.send(JSON.stringify({ type: "session.update", session }));
     this.language = lang;
     Logger.debug("Updated OpenAI transcription language", { language: lang });
