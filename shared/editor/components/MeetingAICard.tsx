@@ -51,6 +51,8 @@ export default function MeetingAICard({
   const audioLevelIntervalRef = React.useRef<number | null>(null);
   const wsRef = React.useRef<WebSocket | null>(null);
   const audioChunkIntervalRef = React.useRef<number | null>(null);
+  const stoppingRef = React.useRef<boolean>(false);
+  const stoppedRef = React.useRef<boolean>(false);
 
   const transcript: TranscriptSegment[] = node.attrs.transcript || [];
   const isListening = node.attrs.listening || false;
@@ -281,6 +283,7 @@ export default function MeetingAICard({
                 break;
               }
               case "stopped":
+                stoppedRef.current = true;
                 break;
             }
           } catch (_e) {
@@ -307,14 +310,19 @@ export default function MeetingAICard({
         };
 
         ws.onclose = (event) => {
-          if (event.code !== 1000) {
-            // 1000 is normal closure
-            setError(
-              `Transcription connection closed unexpectedly (code: ${event.code}). ${
-                event.reason || "Please try again."
-              }`
-            );
+          // If the client intentionally stopped or server acknowledged stop, do not show error
+          if (
+            stoppingRef.current ||
+            stoppedRef.current ||
+            event.code === 1000
+          ) {
+            return;
           }
+          setError(
+            `Transcription connection closed unexpectedly (code: ${event.code}). ${
+              event.reason || "Please try again."
+            }`
+          );
         };
       } catch (err) {
         setError(
@@ -349,11 +357,16 @@ export default function MeetingAICard({
     // Send stop message to WebSocket
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
+        stoppingRef.current = true;
         wsRef.current.send(JSON.stringify({ type: "stop" }));
       } catch (_err) {
         /* ignore send on close */
       }
-      wsRef.current.close();
+      try {
+        wsRef.current.close(1000, "Client stop");
+      } catch (_e) {
+        /* ignore */
+      }
       wsRef.current = null;
     }
 
@@ -378,6 +391,10 @@ export default function MeetingAICard({
     }
 
     setAudioLevel(0);
+
+    // Reset flags
+    stoppingRef.current = false;
+    stoppedRef.current = false;
 
     // Update node attrs to stopped state
     const pos = getPos();
