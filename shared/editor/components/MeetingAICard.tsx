@@ -165,6 +165,8 @@ export default function MeetingAICard({
           startedAt,
         });
         view.dispatch(transaction);
+        // Ensure the user sees incoming transcript immediately
+        setActiveTab("transcript");
       }
 
       // Connect to real WebSocket and stream PCM16 audio
