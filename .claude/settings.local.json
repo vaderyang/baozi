@@ -8,7 +8,14 @@
       "mcp__chrome-devtools__navigate_page",
       "Bash(curl:*)",
       "Bash(lsof:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(wait)",
+      "Bash(echo $?)",
+      "Read(//Users/vader/**)",
+      "Bash(yarn build:server:*)",
+      "Bash(awk:*)",
+      "Bash(cat:*)",
+      "Bash(ps:*)"
     ],
     "deny": [],
     "ask": []

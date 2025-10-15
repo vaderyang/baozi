@@ -58,7 +58,7 @@ export default function init(
         }
         return;
       }
-      (sock as any).isAlive = false;
+      (sock as { isAlive?: boolean }).isAlive = false;
       try {
         sock.ping();
       } catch (_e) {
@@ -161,9 +161,13 @@ export default function init(
 
           switch (message.type) {
             case "start": {
+              const normalizedLang =
+                message.language && message.language !== "auto"
+                  ? message.language
+                  : undefined;
               Logger.info("Meeting AI session started", {
                 userId: user?.id,
-                language: message.language,
+                language: normalizedLang || "(auto)",
                 mockMode,
               });
 
@@ -241,7 +245,7 @@ export default function init(
                   },
                 });
 
-                await openAIClient.connect(message.language);
+                await openAIClient.connect(normalizedLang);
                 Logger.info("OpenAI Realtime client connected", {
                   userId: user?.id,
                 });
@@ -252,16 +256,7 @@ export default function init(
                   /* ignore */
                 }
 
-                // Begin periodic flushes to produce realtime partial transcripts
-                if (!flushInterval) {
-                  flushInterval = setInterval(() => {
-                    try {
-                      openAIClient?.flush();
-                    } catch (_e) {
-                      // ignore intermittent flush errors
-                    }
-                  }, 1500);
-                }
+                // VAD-driven commits enabled in OpenAIRealtimeClient; no periodic flush needed
               } catch (err) {
                 Logger.error("Failed to connect to OpenAI Realtime", err);
                 const errorMessage: ServerMessage = {
@@ -304,28 +299,49 @@ export default function init(
                   flushInterval = null;
                 }
 
-                // Commit and request final transcription
-                openAIClient.flush();
+                // Request final response and wait for completion
+                try {
+                  await openAIClient.requestFinal(2500);
+                } catch (_e) {
+                  // noop
+                }
 
-                // Wait a bit for final transcription
-                setTimeout(() => {
-                  const finalSegments =
-                    openAIClient?.getFinalTranscript() || transcriptSegments;
+                let finalSegments =
+                  openAIClient?.getFinalTranscript() || transcriptSegments;
 
-                  // Send final transcript
-                  const response: ServerMessage = {
-                    type: "final-transcript",
-                    segments: finalSegments,
-                  };
-                  ws.send(JSON.stringify(response));
+                // Fallback: if no segments, try English hint, then Chinese hint
+                if (finalSegments.length === 0) {
+                  try {
+                    openAIClient.updateLanguage("en");
+                    await openAIClient.requestFinal(2000);
+                    finalSegments = openAIClient.getFinalTranscript();
+                  } catch (_e) {
+                    // noop
+                  }
+                }
+                if (finalSegments.length === 0) {
+                  try {
+                    openAIClient.updateLanguage("zh");
+                    await openAIClient.requestFinal(2000);
+                    finalSegments = openAIClient.getFinalTranscript();
+                  } catch (_e) {
+                    // noop
+                  }
+                }
 
-                  const stoppedMessage: ServerMessage = { type: "stopped" };
-                  ws.send(JSON.stringify(stoppedMessage));
+                // Send final transcript
+                const response: ServerMessage = {
+                  type: "final-transcript",
+                  segments: finalSegments,
+                };
+                ws.send(JSON.stringify(response));
 
-                  // Close OpenAI connection
-                  openAIClient?.close();
-                  openAIClient = null;
-                }, 500);
+                const stoppedMessage: ServerMessage = { type: "stopped" };
+                ws.send(JSON.stringify(stoppedMessage));
+
+                // Close OpenAI connection
+                openAIClient?.close();
+                openAIClient = null;
               } else {
                 // No OpenAI client, just send what we have
                 const response: ServerMessage = {
