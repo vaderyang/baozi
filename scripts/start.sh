@@ -206,7 +206,7 @@ trap cleanup SIGINT SIGTERM
 case "$MODE" in
     dev)
         info "Starting development server..."
-        info "Services: web, worker, websockets, collaboration, cron, admin"
+        info "Services: backend (all services) + frontend (vite on port 3001)"
         echo ""
 
         if [ "$AUTH_CONFIGURED" = false ]; then
@@ -216,8 +216,8 @@ case "$MODE" in
 
         show_commands
 
-        # Start in development mode
-        yarn dev
+        # Start in development mode with frontend
+        yarn dev:watch
         ;;
 
     watch)
