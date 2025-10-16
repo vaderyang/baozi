@@ -54,13 +54,17 @@ export default function init(
   if (ioHandleUpgrade) {
     server.removeListener(
       "upgrade",
-      ioHandleUpgrade as (...args: any[]) => void
+      ioHandleUpgrade as (...args: unknown[]) => void
     );
   }
 
   server.on(
     "upgrade",
     function (req: IncomingMessage, socket: Duplex, head: Buffer) {
+      Logger.debug(
+        "websockets",
+        `Upgrade request: ${req.url}, serviceNames: ${serviceNames.join(",")}`
+      );
       if (req.url?.startsWith(path) && ioHandleUpgrade) {
         // For on-premise deployments, ensure the websocket origin matches the deployed URL.
         // In cloud-hosted we support any origin for custom domains.
@@ -81,7 +85,15 @@ export default function init(
         return;
       }
 
-      // If the collaboration service isn't running then we need to close the connection
+      if (
+        serviceNames.includes("meetingai") &&
+        req.url?.startsWith("/meeting-ai")
+      ) {
+        // Nothing to do, the meetingai service will handle this request
+        return;
+      }
+
+      // If no service is running to handle this request then we need to close the connection
       socket.end(`HTTP/1.1 400 Bad Request\r\n`);
     }
   );

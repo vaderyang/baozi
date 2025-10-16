@@ -1,7 +1,7 @@
 import admin from "./admin";
 import collaboration from "./collaboration";
 import cron from "./cron";
-import meetingAI from "./meetingAI";
+import meetingai from "./meetingAI";
 import web from "./web";
 import websockets from "./websockets";
 import worker from "./worker";
@@ -9,7 +9,7 @@ import worker from "./worker";
 export default {
   websockets,
   collaboration,
-  meetingAI,
+  meetingai,
   admin,
   web,
   worker,

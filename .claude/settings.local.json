@@ -8,7 +8,17 @@
       "mcp__chrome-devtools__navigate_page",
       "Bash(curl:*)",
       "Bash(lsof:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(wait)",
+      "Bash(echo $?)",
+      "Read(//Users/vader/**)",
+      "Bash(yarn build:server:*)",
+      "Bash(awk:*)",
+      "Bash(cat:*)",
+      "Bash(ps:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat(meeting-ai): add comprehensive testing scripts and documentation\n\n- Add debug scripts for WebSocket connection testing\n- Add backend audio test script for PCM16 audio streaming\n- Add OpenAI Realtime mic test for direct API validation\n- Add comprehensive documentation for real transcription implementation\n- Add test fixtures for audio testing (24kHz mono PCM/WAV)\n- Fix service name from meetingAI to meetingai for consistency\n- Update dev script to include meetingai service\n- Expand Claude settings auto-approval patterns\n\nChanges:\n- New scripts for WebSocket and audio testing\n- Documentation of architecture, changes, and service name fix\n- Test audio fixtures in tests/fixtures/audio/\n- Service name normalization to lowercase convention\n- Enhanced developer tooling for Meeting AI debugging\n\nTesting:\n- Server build completes successfully\n- Service name now matches Outline convention (lowercase)\n- Test scripts ready for WebSocket and audio validation\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat(meeting-ai): add comprehensive testing scripts and documentation\n\n- Add debug scripts for WebSocket connection testing\n- Add backend audio test script for PCM16 audio streaming\n- Add OpenAI Realtime mic test for direct API validation\n- Add comprehensive documentation for real transcription implementation\n- Add test fixtures for audio testing (24kHz mono PCM/WAV)\n- Fix service name from meetingAI to meetingai for consistency\n- Update dev script to include meetingai service\n- Expand Claude settings auto-approval patterns\n\nChanges:\n- New scripts for WebSocket and audio testing\n- Documentation of architecture, changes, and service name fix\n- Test audio fixtures in tests/fixtures/audio/\n- Service name normalization to lowercase convention\n- Enhanced developer tooling for Meeting AI debugging\n\nTesting:\n- Server build completes successfully\n- Service name now matches Outline convention (lowercase)\n- Test scripts ready for WebSocket and audio validation\n- All linting errors resolved\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []

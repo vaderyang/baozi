@@ -21,9 +21,10 @@ export class OpenAIRealtimeClient {
   private transcriptBuffer: TranscriptSegment[] = [];
   private currentSegmentStartMs = 0;
   private sessionStartTime = 0;
-  private speakerMap = new Map<string, number>();
-  private speakerCount = 0;
+  private currentSpeakerNumber = 1;
   private language: string | undefined;
+  private hasPendingAudio = false;
+  private pendingResponseResolvers: Array<() => void> = [];
 
   constructor(
     private userId: string,
@@ -100,7 +101,7 @@ export class OpenAIRealtimeClient {
     }
 
     // Configure session for audio transcription
-    const config: Record<string, any> = {
+    const config: Record<string, unknown> = {
       type: "session.update",
       session: {
         modalities: ["text", "audio"],
@@ -111,6 +112,7 @@ export class OpenAIRealtimeClient {
         output_audio_format: "pcm16",
         input_audio_transcription: {
           model: "whisper-1",
+          intent: "transcription",
         },
         turn_detection: {
           type: "server_vad",
@@ -146,10 +148,16 @@ export class OpenAIRealtimeClient {
     };
 
     this.ws.send(JSON.stringify(event));
+    this.hasPendingAudio = true;
   }
 
   commitAudio(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    if (!this.hasPendingAudio) {
+      // Avoid committing empty buffer; prevents input_audio_buffer_commit_empty
       return;
     }
 
@@ -158,10 +166,77 @@ export class OpenAIRealtimeClient {
     };
 
     this.ws.send(JSON.stringify(event));
+    this.hasPendingAudio = false;
     Logger.debug("Committed audio buffer to OpenAI");
   }
 
-  private handleRealtimeEvent(event: Record<string, any>): void {
+  /**
+   * Request transcription/response from the currently committed input buffer.
+   * The Realtime API processes the committed audio when a response is created.
+   */
+  requestTranscription(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    const event = {
+      type: "response.create",
+      response: {
+        modalities: ["text"],
+        instructions:
+          "Transcribe the latest committed input audio with accurate text and minimal hallucination.",
+      },
+    };
+
+    this.ws.send(JSON.stringify(event));
+    Logger.debug("Requested transcription for committed audio");
+  }
+
+  /**
+   * Convenience: commit any pending audio and immediately request transcription.
+   */
+  flush(): void {
+    if (!this.hasPendingAudio) {
+      return;
+    }
+    this.commitAudio();
+    this.requestTranscription();
+  }
+
+  /**
+   * Commit (if needed), request a response, and wait for response.completed with a timeout.
+   */
+  async requestFinal(timeoutMs = 2000): Promise<void> {
+    // If there is pending audio, commit it before requesting transcript
+    if (this.hasPendingAudio) {
+      this.commitAudio();
+    }
+
+    // Push a resolver and request a response
+    await new Promise<void>((resolve) => {
+      this.pendingResponseResolvers.push(resolve);
+      this.requestTranscription();
+    });
+
+    // Wait for completion or timeout
+    await new Promise<void>((resolve) => {
+      let done = false;
+      const maybeResolve = () => {
+        if (done) {
+          return;
+        }
+        done = true;
+        resolve();
+      };
+      // If a response.completed arrives, pendingResponseResolvers.shift() above resolves it.
+      // Here we set a timeout fallback.
+      setTimeout(maybeResolve, timeoutMs);
+      // Also push an extra resolver in case response.completed fires quickly
+      this.pendingResponseResolvers.push(maybeResolve);
+    });
+  }
+
+  private handleRealtimeEvent(event: Record<string, unknown>): void {
     switch (event.type) {
       case "session.created":
         this.sessionId = event.session?.id;
@@ -176,7 +251,7 @@ export class OpenAIRealtimeClient {
         break;
 
       case "conversation.item.created":
-        // New conversation item (turn) started
+        // Turn started – start time is updated on speech_started too
         this.currentSegmentStartMs = Date.now() - this.sessionStartTime;
         break;
 
@@ -194,13 +269,27 @@ export class OpenAIRealtimeClient {
         // Complete transcript from AI response
         break;
 
+      case "response.completed": {
+        // Resolve any pending waiters
+        const resolver = this.pendingResponseResolvers.shift();
+        if (resolver) {
+          resolver();
+        }
+        break;
+      }
+
       case "input_audio_buffer.speech_started":
         Logger.debug("Speech detected by OpenAI VAD");
         this.currentSegmentStartMs = Date.now() - this.sessionStartTime;
+        // Simple 2-speaker toggle per detected speech start
+        this.currentSpeakerNumber = this.currentSpeakerNumber === 1 ? 2 : 1;
         break;
 
       case "input_audio_buffer.speech_stopped":
         Logger.debug("Speech stopped by OpenAI VAD");
+        // VAD-driven commit: only if audio was appended since last commit
+        this.commitAudio();
+        this.requestTranscription();
         break;
 
       case "error":
@@ -216,7 +305,7 @@ export class OpenAIRealtimeClient {
     }
   }
 
-  private handleTranscription(event: Record<string, any>): void {
+  private handleTranscription(event: Record<string, unknown>): void {
     const transcript = event.transcript;
     if (!transcript || !transcript.trim()) {
       return;
@@ -224,21 +313,11 @@ export class OpenAIRealtimeClient {
 
     const endMs = Date.now() - this.sessionStartTime;
 
-    // Simple speaker identification based on turn-taking
-    // In a real implementation, you might use voice characteristics or external diarization
-    const speakerId = event.item_id || "default";
-    let speakerNumber = this.speakerMap.get(speakerId);
-
-    if (speakerNumber === undefined) {
-      this.speakerCount++;
-      speakerNumber = this.speakerCount;
-      this.speakerMap.set(speakerId, speakerNumber);
-    }
-
+    // Temporary diarization: alternate between Speaker 1 and 2 on VAD speech starts
     const segment: TranscriptSegment = {
       startMs: this.currentSegmentStartMs,
       endMs,
-      speaker: `Speaker ${speakerNumber}`,
+      speaker: `Speaker ${this.currentSpeakerNumber}`,
       text: transcript,
     };
 
@@ -260,6 +339,36 @@ export class OpenAIRealtimeClient {
 
   getFinalTranscript(): TranscriptSegment[] {
     return [...this.transcriptBuffer];
+  }
+
+  /**
+   * Update language hint for transcription (e.g., 'en' or 'zh').
+   */
+  updateLanguage(lang: string | undefined): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const session: Record<string, unknown> = {
+      modalities: ["text", "audio"],
+      input_audio_format: "pcm16",
+      output_audio_format: "pcm16",
+      input_audio_transcription: {
+        model: "whisper-1",
+        intent: "transcription",
+      },
+      turn_detection: {
+        type: "server_vad",
+        threshold: 0.5,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 500,
+      },
+    };
+    if (lang) {
+      session.input_audio_transcription.language = lang;
+    }
+    this.ws.send(JSON.stringify({ type: "session.update", session }));
+    this.language = lang;
+    Logger.debug("Updated OpenAI transcription language", { language: lang });
   }
 
   close(): void {

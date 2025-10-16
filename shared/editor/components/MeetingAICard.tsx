@@ -53,6 +53,7 @@ export default function MeetingAICard({
   const audioChunkIntervalRef = React.useRef<number | null>(null);
   const stoppingRef = React.useRef<boolean>(false);
   const stoppedRef = React.useRef<boolean>(false);
+  const readyTimerRef = React.useRef<number | null>(null);
 
   const transcript: TranscriptSegment[] = node.attrs.transcript || [];
   const isListening = node.attrs.listening || false;
@@ -183,14 +184,31 @@ export default function MeetingAICard({
         ws.binaryType = "arraybuffer";
         wsRef.current = ws;
 
-        // Helper to convert Float32 [-1,1] to 16-bit PCM little-endian
-        const floatTo16BitPCM = (input: Float32Array) => {
-          const output = new Int16Array(input.length);
-          for (let i = 0; i < input.length; i++) {
-            const s = Math.max(-1, Math.min(1, input[i]));
-            output[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        // Convert mic frames to 16‑bit PCM at 24kHz (OpenAI Realtime expects pcm16 ~24k)
+        const toPcm16At24k = (input: Float32Array, inRate: number) => {
+          const targetRate = 24000;
+          if (inRate === targetRate) {
+            const out = new Int16Array(input.length);
+            for (let i = 0; i < input.length; i++) {
+              const s = Math.max(-1, Math.min(1, input[i]));
+              out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+            }
+            return out;
           }
-          return output;
+          // Linear resample to 24kHz then quantize
+          const ratio = inRate / targetRate;
+          const outLen = Math.floor(input.length / ratio);
+          const out = new Int16Array(outLen);
+          for (let i = 0; i < outLen; i++) {
+            const srcPos = i * ratio;
+            const i0 = Math.floor(srcPos);
+            const i1 = Math.min(i0 + 1, input.length - 1);
+            const frac = srcPos - i0;
+            const sample = input[i0] * (1 - frac) + input[i1] * frac;
+            const s = Math.max(-1, Math.min(1, sample));
+            out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          }
+          return out;
         };
 
         let processor: ScriptProcessorNode | null = null;
@@ -205,10 +223,12 @@ export default function MeetingAICard({
           const sourceNode = audioContextRef.current.createMediaStreamSource(
             mediaStreamRef.current
           );
-          processor = audioContextRef.current.createScriptProcessor(4096, 1, 1);
+          // Use a larger buffer so each chunk exceeds 100ms at common sample rates
+          processor = audioContextRef.current.createScriptProcessor(8192, 1, 1);
           processor.onaudioprocess = (e) => {
             const channelData = e.inputBuffer.getChannelData(0);
-            const pcm = floatTo16BitPCM(channelData);
+            const inRate = audioContextRef.current?.sampleRate || 48000;
+            const pcm = toPcm16At24k(channelData, inRate);
             try {
               if (
                 wsRef.current &&
@@ -228,6 +248,11 @@ export default function MeetingAICard({
         ws.onopen = () => {
           // Tell server to start session; audio streaming will begin after 'ready'
           ws.send(JSON.stringify({ type: "start" }));
+          // Fallback: if no 'ready' within 1s, start streaming anyway
+          if (readyTimerRef.current) {window.clearTimeout(readyTimerRef.current);}
+          readyTimerRef.current = window.setTimeout(() => {
+            startStreaming();
+          }, 1000);
         };
 
         ws.onmessage = (event) => {
@@ -236,6 +261,10 @@ export default function MeetingAICard({
             switch (message.type) {
               case "ready": {
                 // Server is ready to accept audio frames
+                if (readyTimerRef.current) {
+                  window.clearTimeout(readyTimerRef.current);
+                  readyTimerRef.current = null;
+                }
                 startStreaming();
                 break;
               }
@@ -247,6 +276,17 @@ export default function MeetingAICard({
                 break;
               }
               case "error": {
+                // Swallow benign buffer-too-small noise from Realtime API
+                if (
+                  message.code === "OPENAI_ERROR" &&
+                  typeof message.message === "string" &&
+                  /buffer too small|input_audio_buffer_commit_empty/i.test(
+                    message.message
+                  )
+                ) {
+                  break;
+                }
+
                 // Provide user-friendly error messages based on error code
                 let errorMessage =
                   message.message || "Transcription error occurred";
@@ -385,6 +425,11 @@ export default function MeetingAICard({
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
+    }
+
+    if (readyTimerRef.current) {
+      window.clearTimeout(readyTimerRef.current);
+      readyTimerRef.current = null;
     }
 
     if (audioContextRef.current) {
