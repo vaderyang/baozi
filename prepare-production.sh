@@ -18,20 +18,32 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Function to read value from existing .env file
+get_env_value() {
+    local key=$1
+    local default=$2
+    if [ -f "$ENVFILE" ]; then
+        # Extract value from .env, handling comments and empty lines
+        local value=$(grep "^${key}=" "$ENVFILE" 2>/dev/null | cut -d '=' -f2- | sed 's/^"\(.*\)"$/\1/' | sed "s/^'\(.*\)'$/\1/")
+        if [ ! -z "$value" ]; then
+            echo "$value"
+            return
+        fi
+    fi
+    echo "$default"
+}
+
 echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║  Outline Production Environment Setup                     ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# Check if .env already exists
+# Check if .env already exists and load existing values
+EXISTING_ENV=false
 if [ -f "$ENVFILE" ]; then
-    echo -e "${YELLOW}⚠ Warning: $ENVFILE already exists!${NC}"
-    read -p "Do you want to overwrite it? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "${RED}✗ Aborted. Existing .env file preserved.${NC}"
-        exit 1
-    fi
+    EXISTING_ENV=true
+    echo -e "${YELLOW}⚠ Found existing $ENVFILE${NC}"
+    echo -e "${BLUE}Current values will be used as defaults. Press Enter to keep existing values.${NC}"
     # Backup existing file
     BACKUP="${ENVFILE}.backup.$(date +%Y%m%d_%H%M%S)"
     cp "$ENVFILE" "$BACKUP"
@@ -46,26 +58,41 @@ if ! command -v openssl &> /dev/null; then
     exit 1
 fi
 
-# Generate secure random keys
-echo -e "${BLUE}[1/4] Generating secure random keys...${NC}"
-SECRET_KEY=$(openssl rand -hex 32)
-UTILS_SECRET=$(openssl rand -hex 32)
-POSTGRES_PASSWORD=$(openssl rand -hex 32)
-echo -e "${GREEN}✓ Generated SECRET_KEY${NC}"
-echo -e "${GREEN}✓ Generated UTILS_SECRET${NC}"
-echo -e "${GREEN}✓ Generated POSTGRES_PASSWORD${NC}"
+# Generate or reuse secure random keys
+echo -e "${BLUE}[1/4] Security keys...${NC}"
+EXISTING_SECRET_KEY=$(get_env_value "SECRET_KEY" "")
+EXISTING_UTILS_SECRET=$(get_env_value "UTILS_SECRET" "")
+EXISTING_POSTGRES_PASSWORD=$(get_env_value "POSTGRES_PASSWORD" "")
+
+if [ "$EXISTING_ENV" = true ] && [ ! -z "$EXISTING_SECRET_KEY" ] && [ ! -z "$EXISTING_UTILS_SECRET" ] && [ ! -z "$EXISTING_POSTGRES_PASSWORD" ]; then
+    echo -e "${GREEN}✓ Reusing existing SECRET_KEY${NC}"
+    echo -e "${GREEN}✓ Reusing existing UTILS_SECRET${NC}"
+    echo -e "${GREEN}✓ Reusing existing POSTGRES_PASSWORD${NC}"
+    SECRET_KEY="$EXISTING_SECRET_KEY"
+    UTILS_SECRET="$EXISTING_UTILS_SECRET"
+    POSTGRES_PASSWORD="$EXISTING_POSTGRES_PASSWORD"
+else
+    SECRET_KEY=$(openssl rand -hex 32)
+    UTILS_SECRET=$(openssl rand -hex 32)
+    POSTGRES_PASSWORD=$(openssl rand -hex 32)
+    echo -e "${GREEN}✓ Generated new SECRET_KEY${NC}"
+    echo -e "${GREEN}✓ Generated new UTILS_SECRET${NC}"
+    echo -e "${GREEN}✓ Generated new POSTGRES_PASSWORD${NC}"
+fi
 echo ""
 
 # Prompt for URL
 echo -e "${BLUE}[2/4] Configuration...${NC}"
-read -p "Enter your public URL (e.g., https://outline.example.com) [http://localhost:6700]: " URL_INPUT
-URL=${URL_INPUT:-http://localhost:6700}
+EXISTING_URL=$(get_env_value "URL" "http://localhost:6700")
+read -p "Enter your public URL (e.g., https://outline.example.com) [$EXISTING_URL]: " URL_INPUT
+URL=${URL_INPUT:-$EXISTING_URL}
 echo -e "${GREEN}✓ URL set to: $URL${NC}"
 echo ""
 
 # Prompt for port
-read -p "Enter port number [6700]: " PORT_INPUT
-PORT=${PORT_INPUT:-6700}
+EXISTING_PORT=$(get_env_value "PORT" "6700")
+read -p "Enter port number [$EXISTING_PORT]: " PORT_INPUT
+PORT=${PORT_INPUT:-$EXISTING_PORT}
 echo -e "${GREEN}✓ Port set to: $PORT${NC}"
 echo ""
 
@@ -73,14 +100,39 @@ echo ""
 echo -e "${BLUE}[3/4] Authentication Setup...${NC}"
 echo "At least one authentication provider is required."
 echo ""
+
+# Auto-detect existing authentication provider
+DEFAULT_AUTH_CHOICE=5
+if [ "$EXISTING_ENV" = true ]; then
+    EXISTING_OIDC_CLIENT_ID=$(get_env_value "OIDC_CLIENT_ID" "")
+    EXISTING_GOOGLE_CLIENT_ID=$(get_env_value "GOOGLE_CLIENT_ID" "")
+    EXISTING_SLACK_CLIENT_ID=$(get_env_value "SLACK_CLIENT_ID" "")
+    EXISTING_AZURE_CLIENT_ID=$(get_env_value "AZURE_CLIENT_ID" "")
+
+    if [ ! -z "$EXISTING_OIDC_CLIENT_ID" ]; then
+        DEFAULT_AUTH_CHOICE=4
+        echo -e "${GREEN}Detected existing OIDC configuration${NC}"
+    elif [ ! -z "$EXISTING_GOOGLE_CLIENT_ID" ]; then
+        DEFAULT_AUTH_CHOICE=1
+        echo -e "${GREEN}Detected existing Google OAuth configuration${NC}"
+    elif [ ! -z "$EXISTING_SLACK_CLIENT_ID" ]; then
+        DEFAULT_AUTH_CHOICE=2
+        echo -e "${GREEN}Detected existing Slack OAuth configuration${NC}"
+    elif [ ! -z "$EXISTING_AZURE_CLIENT_ID" ]; then
+        DEFAULT_AUTH_CHOICE=3
+        echo -e "${GREEN}Detected existing Azure OAuth configuration${NC}"
+    fi
+fi
+
+echo ""
 echo "Select authentication provider:"
 echo "  1) Google OAuth"
 echo "  2) Slack OAuth"
 echo "  3) Microsoft Azure/Entra"
 echo "  4) OIDC (Generic)"
 echo "  5) Skip for now (configure manually later)"
-read -p "Choice [5]: " AUTH_CHOICE
-AUTH_CHOICE=${AUTH_CHOICE:-5}
+read -p "Choice [$DEFAULT_AUTH_CHOICE]: " AUTH_CHOICE
+AUTH_CHOICE=${AUTH_CHOICE:-$DEFAULT_AUTH_CHOICE}
 
 GOOGLE_CLIENT_ID=""
 GOOGLE_CLIENT_SECRET=""
@@ -99,33 +151,79 @@ case $AUTH_CHOICE in
     1)
         echo ""
         echo "Google OAuth Configuration:"
-        read -p "  Google Client ID: " GOOGLE_CLIENT_ID
-        read -p "  Google Client Secret: " GOOGLE_CLIENT_SECRET
+        EXISTING_GOOGLE_CLIENT_ID=$(get_env_value "GOOGLE_CLIENT_ID" "")
+        EXISTING_GOOGLE_CLIENT_SECRET=$(get_env_value "GOOGLE_CLIENT_SECRET" "")
+
+        read -p "  Google Client ID [$EXISTING_GOOGLE_CLIENT_ID]: " GOOGLE_CLIENT_ID_INPUT
+        GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID_INPUT:-$EXISTING_GOOGLE_CLIENT_ID}
+
+        read -p "  Google Client Secret [$EXISTING_GOOGLE_CLIENT_SECRET]: " GOOGLE_CLIENT_SECRET_INPUT
+        GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET_INPUT:-$EXISTING_GOOGLE_CLIENT_SECRET}
+
         echo -e "${GREEN}✓ Google OAuth configured${NC}"
         ;;
     2)
         echo ""
         echo "Slack OAuth Configuration:"
-        read -p "  Slack Client ID: " SLACK_CLIENT_ID
-        read -p "  Slack Client Secret: " SLACK_CLIENT_SECRET
+        EXISTING_SLACK_CLIENT_ID=$(get_env_value "SLACK_CLIENT_ID" "")
+        EXISTING_SLACK_CLIENT_SECRET=$(get_env_value "SLACK_CLIENT_SECRET" "")
+
+        read -p "  Slack Client ID [$EXISTING_SLACK_CLIENT_ID]: " SLACK_CLIENT_ID_INPUT
+        SLACK_CLIENT_ID=${SLACK_CLIENT_ID_INPUT:-$EXISTING_SLACK_CLIENT_ID}
+
+        read -p "  Slack Client Secret [$EXISTING_SLACK_CLIENT_SECRET]: " SLACK_CLIENT_SECRET_INPUT
+        SLACK_CLIENT_SECRET=${SLACK_CLIENT_SECRET_INPUT:-$EXISTING_SLACK_CLIENT_SECRET}
+
         echo -e "${GREEN}✓ Slack OAuth configured${NC}"
         ;;
     3)
         echo ""
         echo "Microsoft Azure/Entra Configuration:"
-        read -p "  Azure Client ID: " AZURE_CLIENT_ID
-        read -p "  Azure Client Secret: " AZURE_CLIENT_SECRET
+        EXISTING_AZURE_CLIENT_ID=$(get_env_value "AZURE_CLIENT_ID" "")
+        EXISTING_AZURE_CLIENT_SECRET=$(get_env_value "AZURE_CLIENT_SECRET" "")
+
+        read -p "  Azure Client ID [$EXISTING_AZURE_CLIENT_ID]: " AZURE_CLIENT_ID_INPUT
+        AZURE_CLIENT_ID=${AZURE_CLIENT_ID_INPUT:-$EXISTING_AZURE_CLIENT_ID}
+
+        read -p "  Azure Client Secret [$EXISTING_AZURE_CLIENT_SECRET]: " AZURE_CLIENT_SECRET_INPUT
+        AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET_INPUT:-$EXISTING_AZURE_CLIENT_SECRET}
+
         echo -e "${GREEN}✓ Azure OAuth configured${NC}"
         ;;
     4)
         echo ""
         echo "OIDC Configuration:"
-        read -p "  OIDC Client ID: " OIDC_CLIENT_ID
-        read -p "  OIDC Client Secret: " OIDC_CLIENT_SECRET
-        read -p "  OIDC Auth URI: " OIDC_AUTH_URI
-        read -p "  OIDC Token URI: " OIDC_TOKEN_URI
-        read -p "  OIDC UserInfo URI: " OIDC_USERINFO_URI
-        read -p "  OIDC Logout URI (optional): " OIDC_LOGOUT_URI
+        EXISTING_OIDC_CLIENT_ID=$(get_env_value "OIDC_CLIENT_ID" "")
+        EXISTING_OIDC_CLIENT_SECRET=$(get_env_value "OIDC_CLIENT_SECRET" "")
+        EXISTING_OIDC_AUTH_URI=$(get_env_value "OIDC_AUTH_URI" "")
+        EXISTING_OIDC_TOKEN_URI=$(get_env_value "OIDC_TOKEN_URI" "")
+        EXISTING_OIDC_USERINFO_URI=$(get_env_value "OIDC_USERINFO_URI" "")
+        EXISTING_OIDC_LOGOUT_URI=$(get_env_value "OIDC_LOGOUT_URI" "")
+
+        read -p "  OIDC Client ID [$EXISTING_OIDC_CLIENT_ID]: " OIDC_CLIENT_ID_INPUT
+        OIDC_CLIENT_ID=${OIDC_CLIENT_ID_INPUT:-$EXISTING_OIDC_CLIENT_ID}
+
+        read -p "  OIDC Client Secret [$EXISTING_OIDC_CLIENT_SECRET]: " OIDC_CLIENT_SECRET_INPUT
+        OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET_INPUT:-$EXISTING_OIDC_CLIENT_SECRET}
+
+        read -p "  OIDC Auth URI [$EXISTING_OIDC_AUTH_URI]: " OIDC_AUTH_URI_INPUT
+        OIDC_AUTH_URI=${OIDC_AUTH_URI_INPUT:-$EXISTING_OIDC_AUTH_URI}
+
+        read -p "  OIDC Token URI [$EXISTING_OIDC_TOKEN_URI]: " OIDC_TOKEN_URI_INPUT
+        OIDC_TOKEN_URI=${OIDC_TOKEN_URI_INPUT:-$EXISTING_OIDC_TOKEN_URI}
+
+        read -p "  OIDC UserInfo URI [$EXISTING_OIDC_USERINFO_URI]: " OIDC_USERINFO_URI_INPUT
+        OIDC_USERINFO_URI=${OIDC_USERINFO_URI_INPUT:-$EXISTING_OIDC_USERINFO_URI}
+
+        # For OIDC_LOGOUT_URI, strip the query parameters if exists for display
+        DISPLAY_LOGOUT_URI=$(echo "$EXISTING_OIDC_LOGOUT_URI" | sed 's/?.*$//')
+        if [ ! -z "$DISPLAY_LOGOUT_URI" ]; then
+            read -p "  OIDC Logout URI (base URL) [$DISPLAY_LOGOUT_URI]: " OIDC_LOGOUT_URI_INPUT
+            OIDC_LOGOUT_URI=${OIDC_LOGOUT_URI_INPUT:-$DISPLAY_LOGOUT_URI}
+        else
+            read -p "  OIDC Logout URI (optional): " OIDC_LOGOUT_URI
+        fi
+
         echo -e "${GREEN}✓ OIDC configured${NC}"
         ;;
     5)
