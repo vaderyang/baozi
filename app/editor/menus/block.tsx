@@ -21,6 +21,7 @@ import {
   MathIcon,
   DoneIcon,
   EmbedIcon,
+  BotIcon,
 } from "outline-icons";
 import * as React from "react";
 import styled from "styled-components";
@@ -212,6 +213,12 @@ export default function blockMenuItems(
       icon: <StarredIcon />,
       keywords: "notice card suggestion",
       attrs: { style: "tip" },
+    },
+    {
+      name: "text_ai",
+      title: dictionary.textAI || "Text AI Assistant",
+      icon: <BotIcon />,
+      keywords: "ai assistant bot text generate",
     },
     {
       name: "separator",
