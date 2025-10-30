@@ -50,7 +50,7 @@ export default function blockMenuItems(
       name: "ai_generate_text",
       title: dictionary.generateText,
       icon: <SparklesIcon />,
-      keywords: "ai generate text content",
+      keywords: "ai generate text",
       skipCommandCheck: true,
     },
     {
