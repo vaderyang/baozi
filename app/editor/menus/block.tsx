@@ -47,6 +47,16 @@ export default function blockMenuItems(
 
   return [
     {
+      name: "ai_generate_text",
+      title: dictionary.generateText,
+      icon: <SparklesIcon />,
+      keywords: "ai generate text content",
+      skipCommandCheck: true,
+    },
+    {
+      name: "separator",
+    },
+    {
       name: "heading",
       title: dictionary.h1,
       keywords: "h1 heading1 title",
@@ -100,13 +110,7 @@ export default function blockMenuItems(
       icon: <OrderedListIcon />,
       shortcut: "^ ⇧ 9",
     },
-    {
-      name: "ai_generate_text",
-      title: dictionary.generateText,
-      icon: <SparklesIcon />,
-      keywords: "ai generate text content",
-      skipCommandCheck: true,
-    },
+
     {
       name: "separator",
     },

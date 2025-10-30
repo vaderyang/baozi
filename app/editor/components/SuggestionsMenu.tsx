@@ -268,13 +268,14 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
   );
 
   const triggerAiPrompt = React.useCallback(() => {
+    handleClearSearch();
     setInsertItem({
       name: "ai_generate_text",
       title: dictionary.generateText,
     });
     setInsertMode("ai");
     setIsGenerating(false);
-  }, [dictionary.generateText]);
+  }, [dictionary.generateText, handleClearSearch]);
 
   const handleClickItem = React.useCallback(
     (item) => {
