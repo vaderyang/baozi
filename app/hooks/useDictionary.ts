@@ -110,6 +110,13 @@ export default function useDictionary() {
       none: t("None"),
       deleteEmbed: t("Delete embed"),
       uploadImage: t("Upload an image"),
+      generateText: t("Generate Text"),
+      aiPromptPlaceholder: t("Describe what you’d like to generate"),
+      aiGenerateButton: t("Generate"),
+      aiGenerating: t("Generating…"),
+      aiPromptRequired: t("Please enter a prompt"),
+      aiGenerationFailed: t("Sorry, something went wrong while generating"),
+      aiMissingConfiguration: t("AI configuration is incomplete"),
     }),
     [t]
   );

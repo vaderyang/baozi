@@ -21,6 +21,7 @@ import {
   MathIcon,
   DoneIcon,
   EmbedIcon,
+  SparklesIcon,
 } from "outline-icons";
 import * as React from "react";
 import styled from "styled-components";
@@ -98,6 +99,13 @@ export default function blockMenuItems(
       title: dictionary.orderedList,
       icon: <OrderedListIcon />,
       shortcut: "^ ⇧ 9",
+    },
+    {
+      name: "ai_generate_text",
+      title: dictionary.generateText,
+      icon: <SparklesIcon />,
+      keywords: "ai generate text content",
+      skipCommandCheck: true,
     },
     {
       name: "separator",
