@@ -133,7 +133,7 @@ router.post(
         context
           ? {
               role: "assistant",
-              content: `Context:\n${context}`,
+              content: context,
             }
           : undefined,
         {

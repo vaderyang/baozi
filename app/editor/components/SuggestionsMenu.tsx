@@ -457,8 +457,6 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       "Finish any partial sentence first, then extend the idea in the same tone. Don't repeat the last line in context.",
       "Mirror the existing structure—use headings, lists, code, mermaid, table, or checkboxes when they fit, and avoid restating instructions.",
       "Return Markdown only with no surrounding commentary.",
-      "",
-      `Context:\n${context}`,
     ]
       .join("\n")
       .trim();
