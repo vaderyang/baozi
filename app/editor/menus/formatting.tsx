@@ -19,6 +19,7 @@ import {
   Heading3Icon,
   TableMergeCellsIcon,
   TableSplitCellsIcon,
+  SparklesIcon,
 } from "outline-icons";
 import { EditorState } from "prosemirror-state";
 import styled from "styled-components";
@@ -273,6 +274,14 @@ export default function formattingMenuItems(
         { exact: true }
       ),
       visible: !isMobile || !isEmpty,
+    },
+    {
+      name: "ai_edit_text",
+      tooltip: dictionary.aiEdit,
+      icon: <SparklesIcon />,
+      skipCommandCheck: true,
+      visible:
+        !isCodeBlock && !state.selection.empty && (!isMobile || !isEmpty),
     },
     {
       name: "separator",
