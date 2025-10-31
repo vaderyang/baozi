@@ -123,7 +123,10 @@ export const renderApp = async (
     .toString()
     .replace(/\{env\}/g, environment)
     .replace(/\{lang\}/g, unicodeCLDRtoISO639(env.DEFAULT_LANGUAGE))
-    .replace(/\{title\}/g, escape(title))
+    .replace(
+      /\{title\}/g,
+      escape(title + (env.BUILD_TIME ? ` – ${env.BUILD_TIME}` : ""))
+    )
     .replace(/\{description\}/g, escape(description))
     .replace(/\{content\}/g, content)
     .replace(/\{noindex\}/g, noIndexTag)
@@ -195,7 +198,8 @@ export const renderShare = async (ctx: Context, next: Next) => {
   }
 
   // Allow shares to be embedded in iframes on other websites unless prevented by team preference
-  const preventEmbedding = team?.getPreference(TeamPreference.PreventDocumentEmbedding) ?? false;
+  const preventEmbedding =
+    team?.getPreference(TeamPreference.PreventDocumentEmbedding) ?? false;
   if (!preventEmbedding) {
     ctx.remove("X-Frame-Options");
   }

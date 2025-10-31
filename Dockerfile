@@ -1,8 +1,9 @@
 ARG APP_PATH=/opt/outline
-ARG BASE_IMAGE=outlinewiki/outline-base
+ARG BASE_IMAGE=netis/house-outline-base:1.0.1
 FROM ${BASE_IMAGE} AS base
 
 ARG APP_PATH
+ARG BUILD_TIME
 WORKDIR $APP_PATH
 
 # ---
@@ -11,6 +12,7 @@ FROM node:22.21.0-slim AS runner
 LABEL org.opencontainers.image.source="https://github.com/outline/outline"
 
 ARG APP_PATH
+ARG BUILD_TIME
 WORKDIR $APP_PATH
 ENV NODE_ENV=production
 
@@ -45,3 +47,4 @@ HEALTHCHECK --interval=1m CMD wget -qO- "http://localhost:${PORT:-3000}/_health"
 
 EXPOSE 3000
 CMD ["yarn", "start"]
+ENV BUILD_TIME=${BUILD_TIME}

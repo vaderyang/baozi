@@ -785,6 +785,13 @@ export class Environment {
   }
 
   /**
+   * Build timestamp, used to append to page titles. Optional and exposed client-side.
+   */
+  @Public
+  @IsOptional()
+  public BUILD_TIME = this.toOptionalString(environment.BUILD_TIME);
+
+  /**
    * Returns true if the current installation is running in production.
    */
   public get isProduction() {
