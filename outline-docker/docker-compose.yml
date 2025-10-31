@@ -31,10 +31,7 @@ services:
 
   postgres:
     image: postgres:16
-    environment:
-      POSTGRES_USER: "user"
-      POSTGRES_PASSWORD: "pass"
-      POSTGRES_DB: "outline"
+    env_file: ./docker.env
     expose: [ "5432" ]
     volumes:
       - database-data:/var/lib/postgresql/data
