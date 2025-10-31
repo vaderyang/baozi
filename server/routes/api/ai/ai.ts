@@ -79,7 +79,7 @@ router.post(
   validate(T.AiGenerateSchema),
   async (ctx: APIContext<T.AiGenerateReq>) => {
     const prompt = trim(ctx.input.body.prompt ?? "");
-    const context = trim(ctx.input.body.context ?? "");
+    // const context = trim(ctx.input.body.context ?? "");
 
     if (!prompt) {
       ctx.throw(InvalidRequestError("Prompt is required"));
@@ -130,12 +130,12 @@ router.post(
           role: "system",
           content: instructions,
         },
-        context
-          ? {
-              role: "system",
-              content: `Context:\n${context}`,
-            }
-          : undefined,
+        // context
+        //   ? {
+        //       role: "assistant",
+        //       content: `Context:\n${context}`,
+        //     }
+        //   : undefined,
         {
           role: "user",
           content: prompt,
