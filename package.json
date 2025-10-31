@@ -262,6 +262,7 @@
     "ukkonen": "^2.2.0",
     "umzug": "^3.8.2",
     "utility-types": "^3.11.0",
+    "uuid": "^11.1.0",
     "validator": "13.15.20",
     "vaul": "^1.1.2",
     "vite": "npm:rolldown-vite@latest",
@@ -381,6 +382,6 @@
     "qs": "6.9.7",
     "prismjs": "1.30.0"
   },
-  "version": "1.0.0",
+  "version": "1.0.1",
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
