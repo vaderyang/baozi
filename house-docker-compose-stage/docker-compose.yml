@@ -1,0 +1,38 @@
+services:
+  outline:
+    image: netis/house-outline:stage
+    env_file: ./docker.env
+    # 不需要再把 3000 暴露给宿主
+    expose:
+      - "3000"
+    volumes:
+      - storage-data:/var/lib/outline/data
+    depends_on:
+      - postgres
+      - redis
+
+  https-portal:
+    image: steveltn/https-portal
+    restart: always
+    links:
+      - outline
+    env_file: ./docker.env
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+
+  redis:
+    image: redis:7
+    expose: [ "6379" ]
+
+  postgres:
+    image: postgres:16
+    env_file: ./docker.env
+    expose: [ "5432" ]
+    volumes:
+      - database-data:/var/lib/postgresql/data
+
+volumes:
+  storage-data:
+  database-data:
+
