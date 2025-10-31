@@ -5,14 +5,14 @@ set -euo pipefail
 BUILD_TIME=$(date +"%Y%m%d%H%M")
 echo "Building images with BUILD_TIME=${BUILD_TIME}"
 
-docker build --pull --no-cache \
+docker build --pull \
   -f Dockerfile.base \
   -t netis/house-outline-base:1.0.1 \
   --build-arg APP_PATH=/opt/outline \
   --build-arg BUILD_TIME="${BUILD_TIME}" \
   .
 
-docker build --no-cache \
+docker build \
   -t netis/house-outline:1.0.1 \
   --build-arg APP_PATH=/opt/outline \
   --build-arg BUILD_TIME="${BUILD_TIME}" \
