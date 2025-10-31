@@ -13,6 +13,7 @@ import apiKeys from "./apiKeys";
 import attachments from "./attachments";
 import auth from "./auth";
 import authenticationProviders from "./authenticationProviders";
+import ai from "./ai";
 import collections from "./collections";
 import comments from "./comments/comments";
 import cron from "./cron";
@@ -79,6 +80,7 @@ PluginManager.getHooks(Hook.API).forEach((hook) =>
 // routes
 router.use("/", auth.routes());
 router.use("/", authenticationProviders.routes());
+router.use("/", ai.routes());
 router.use("/", events.routes());
 router.use("/", users.routes());
 router.use("/", collections.routes());

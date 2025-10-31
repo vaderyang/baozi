@@ -8,6 +8,7 @@ import { EditorStyleHelper } from "@shared/editor/styles/EditorStyleHelper";
 import { IconType, ProsemirrorData } from "@shared/types";
 import { determineIconType } from "@shared/utils/icon";
 import { parser, serializer, schema } from "@server/editor";
+import Logger from "@server/logging/Logger";
 import { addTags } from "@server/logging/tracer";
 import { trace } from "@server/logging/tracing";
 import { Collection, Document, Revision } from "@server/models";
@@ -47,21 +48,48 @@ export class DocumentHelper {
   static toProsemirror(
     document: Document | Revision | Collection | ProsemirrorData
   ) {
+    const fallback = () => {
+      const text =
+        document instanceof Collection ? document.description : document.text;
+      try {
+        return parser.parse(text ?? "") || Node.fromJSON(schema, {});
+      } catch (error) {
+        Logger.error(
+          "Failed parsing Markdown fallback for document content",
+          error
+        );
+        return Node.fromJSON(schema, {});
+      }
+    };
+
     if ("type" in document && document.type === "doc") {
-      return Node.fromJSON(schema, document);
-    }
-    if ("content" in document && document.content) {
-      return Node.fromJSON(schema, document.content);
-    }
-    if ("state" in document && document.state) {
-      const ydoc = new Y.Doc();
-      Y.applyUpdate(ydoc, document.state);
-      return Node.fromJSON(schema, yDocToProsemirrorJSON(ydoc, "default"));
+      const node = DocumentHelper.safeNodeFromJSON(document, "document data");
+      return node ?? fallback();
     }
 
-    const text =
-      document instanceof Collection ? document.description : document.text;
-    return parser.parse(text ?? "") || Node.fromJSON(schema, {});
+    if ("content" in document && document.content) {
+      const node = DocumentHelper.safeNodeFromJSON(
+        document.content,
+        "document.content"
+      );
+      return node ?? fallback();
+    }
+
+    if ("state" in document && document.state) {
+      try {
+        const ydoc = new Y.Doc();
+        Y.applyUpdate(ydoc, document.state);
+        return Node.fromJSON(schema, yDocToProsemirrorJSON(ydoc, "default"));
+      } catch (error) {
+        Logger.warn(
+          "Failed parsing Yjs state for document, falling back to Markdown",
+          error
+        );
+        return fallback();
+      }
+    }
+
+    return fallback();
   }
 
   /**
@@ -97,11 +125,25 @@ export class DocumentHelper {
       ) {
         return document.content;
       }
-      doc = Node.fromJSON(schema, document.content);
+      doc = DocumentHelper.safeNodeFromJSON(
+        document.content,
+        "document.content"
+      );
+      if (!doc) {
+        doc = parser.parse(document.text ?? "");
+      }
     } else if ("state" in document && document.state) {
-      const ydoc = new Y.Doc();
-      Y.applyUpdate(ydoc, document.state);
-      doc = Node.fromJSON(schema, yDocToProsemirrorJSON(ydoc, "default"));
+      try {
+        const ydoc = new Y.Doc();
+        Y.applyUpdate(ydoc, document.state);
+        doc = Node.fromJSON(schema, yDocToProsemirrorJSON(ydoc, "default"));
+      } catch (error) {
+        Logger.warn(
+          "Failed parsing Yjs state for document during JSON conversion, falling back to Markdown",
+          error
+        );
+        doc = parser.parse(document.text ?? "");
+      }
     } else if (document instanceof Collection) {
       doc = parser.parse(document.description ?? "");
     } else {
@@ -520,5 +562,20 @@ export class DocumentHelper {
     const second = after.title + this.toPlainText(after);
     const distance = ukkonen(first, second, threshold + 1);
     return distance > threshold;
+  }
+
+  private static safeNodeFromJSON(
+    data: ProsemirrorData,
+    context: string
+  ): Node | null {
+    try {
+      return Node.fromJSON(schema, data);
+    } catch (error) {
+      Logger.warn(
+        `Failed parsing Prosemirror JSON for ${context}, falling back to Markdown`,
+        error
+      );
+      return null;
+    }
   }
 }
