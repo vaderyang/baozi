@@ -9,14 +9,18 @@ import styled from "styled-components";
 import insertFiles from "@shared/editor/commands/insertFiles";
 import { EmbedDescriptor } from "@shared/editor/embeds";
 import filterExcessSeparators from "@shared/editor/lib/filterExcessSeparators";
+import normalizePastedMarkdown from "@shared/editor/lib/markdown/normalize";
 import { findParentNode } from "@shared/editor/queries/findParentNode";
 import { MenuItem } from "@shared/editor/types";
 import { depths, s } from "@shared/styles";
 import { getEventFiles } from "@shared/utils/files";
 import { AttachmentValidation } from "@shared/validations";
+import Button from "~/components/Button";
+import { TextSelection } from "prosemirror-state";
 import { Portal } from "~/components/Portal";
 import Scrollable from "~/components/Scrollable";
 import useDictionary from "~/hooks/useDictionary";
+import { client } from "~/utils/ApiClient";
 import Logger from "~/utils/Logger";
 import { useEditor } from "./EditorContext";
 import Input from "./Input";
@@ -80,7 +84,8 @@ export type Props<T extends MenuItem = MenuItem> = {
 };
 
 function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
-  const { view, commands, props: editorProps } = useEditor();
+  const editor = useEditor();
+  const { view, commands, props: editorProps } = editor;
   const dictionary = useDictionary();
   const { t } = useTranslation();
   const hasActivated = React.useRef(false);
@@ -94,7 +99,12 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
   const [insertItem, setInsertItem] = React.useState<
     MenuItem | EmbedDescriptor
   >();
+  const [insertMode, setInsertMode] = React.useState<"none" | "embed" | "ai">(
+    "none"
+  );
+  const [isGenerating, setIsGenerating] = React.useState(false);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
+  const promptInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     if (props.isActive) {
@@ -102,81 +112,79 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     }
   }, [props.isActive]);
 
-  const calculatePosition = React.useCallback(
-    (props: Props) => {
-      if (!props.isActive) {
+  React.useEffect(() => {
+    if (insertMode === "ai") {
+      promptInputRef.current?.focus();
+    }
+  }, [insertMode]);
+
+  const calculatePosition = React.useCallback(() => {
+    if (!props.isActive) {
+      return defaultPosition;
+    }
+
+    const caretPosition = () => {
+      const { selection } = view.state;
+      let fromPos;
+      let toPos;
+      try {
+        fromPos = view.coordsAtPos(selection.from);
+        toPos = view.coordsAtPos(selection.to, -1);
+      } catch (err) {
+        Logger.warn("Unable to calculate caret position", err);
         return defaultPosition;
       }
 
-      const caretPosition = () => {
-        let fromPos;
-        let toPos;
-        try {
-          fromPos = view.coordsAtPos(selection.from);
-          toPos = view.coordsAtPos(selection.to, -1);
-        } catch (err) {
-          Logger.warn("Unable to calculate caret position", err);
-          return {
-            top: 0,
-            bottom: 0,
-            left: 0,
-            right: 0,
-          };
-        }
-
-        // ensure that start < end for the menu to be positioned correctly
-        return {
-          top: Math.min(fromPos.top, toPos.top),
-          bottom: Math.max(fromPos.bottom, toPos.bottom),
-          left: Math.min(fromPos.left, toPos.left),
-          right: Math.max(fromPos.right, toPos.right),
-        };
+      // ensure that start < end for the menu to be positioned correctly
+      return {
+        top: Math.min(fromPos.top, toPos.top),
+        bottom: Math.max(fromPos.bottom, toPos.bottom),
+        left: Math.min(fromPos.left, toPos.left),
+        right: Math.max(fromPos.right, toPos.right),
       };
+    };
 
-      const { selection } = view.state;
-      const ref = menuRef.current;
-      const offsetWidth = ref ? ref.offsetWidth : 0;
-      const offsetHeight = ref ? ref.offsetHeight : 0;
-      const { top, bottom, right, left } = caretPosition();
-      const margin = 12;
+    const ref = menuRef.current;
+    const offsetWidth = ref ? ref.offsetWidth : 0;
+    const offsetHeight = ref ? ref.offsetHeight : 0;
+    const { top, bottom, right, left } = caretPosition();
+    const margin = 12;
 
-      const offsetParent = ref?.offsetParent
-        ? ref.offsetParent.getBoundingClientRect()
-        : ({
-            width: 0,
-            height: 0,
-            top: 0,
-            left: 0,
-          } as DOMRect);
+    const offsetParent = ref?.offsetParent
+      ? ref.offsetParent.getBoundingClientRect()
+      : ({
+          width: 0,
+          height: 0,
+          top: 0,
+          left: 0,
+        } as DOMRect);
 
-      let leftPos = Math.min(
-        left - offsetParent.left,
-        window.innerWidth - offsetParent.left - offsetWidth - margin
-      );
-      if (props.rtl) {
-        leftPos = right - offsetWidth;
-      }
+    let leftPos = Math.min(
+      left - offsetParent.left,
+      window.innerWidth - offsetParent.left - offsetWidth - margin
+    );
+    if (props.rtl) {
+      leftPos = right - offsetWidth;
+    }
 
-      if (top - offsetHeight > margin) {
-        return {
-          left: leftPos,
-          top: undefined,
-          bottom: offsetParent.bottom - top,
-          right: undefined,
-          isAbove: false,
-        };
-      } else {
-        return {
-          left: leftPos,
-          top: bottom - offsetParent.top,
-          bottom: undefined,
-          right: undefined,
-          isAbove: true,
-        };
-      }
-    },
-    [view]
-  );
+    if (top - offsetHeight > margin) {
+      return {
+        left: leftPos,
+        top: undefined,
+        bottom: offsetParent.bottom - top,
+        right: undefined,
+        isAbove: false,
+      };
+    } else {
+      return {
+        left: leftPos,
+        top: bottom - offsetParent.top,
+        bottom: undefined,
+        right: undefined,
+        isAbove: true,
+      };
+    }
+  }, [props.isActive, props.rtl, view]);
 
   const handleClearSearch = React.useCallback(() => {
     const { state, dispatch } = view;
@@ -216,14 +224,24 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       menuRef.current.scroll({ top: 0 });
     }
 
-    setPosition(calculatePosition(props));
+    setPosition(calculatePosition());
     setSelectedIndex(0);
     setInsertItem(undefined);
+    setInsertMode("none");
+    setIsGenerating(false);
   }, [calculatePosition, props.isActive]);
 
   React.useEffect(() => {
     setSelectedIndex(0);
   }, [props.search]);
+
+  const close = React.useCallback(() => {
+    setInsertItem(undefined);
+    setInsertMode("none");
+    setIsGenerating(false);
+    props.onClose();
+    view.focus();
+  }, [props, view]);
 
   const insertNode = React.useCallback(
     (item: MenuItem | EmbedDescriptor) => {
@@ -245,10 +263,241 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         dispatch(view.state.tr.insertText(" "));
       }
 
-      props.onClose();
+      close();
     },
-    [commands, handleClearSearch, props, view]
+    [close, commands, handleClearSearch, view]
   );
+
+  const triggerAiPrompt = React.useCallback(() => {
+    handleClearSearch();
+    setInsertItem({
+      name: "ai_generate_text",
+      title: dictionary.generateText,
+    });
+    setInsertMode("ai");
+    setIsGenerating(false);
+  }, [dictionary.generateText, handleClearSearch]);
+
+  const generateAiText = React.useCallback(
+    async ({
+      prompt,
+      context,
+      requirePrompt = true,
+      placeholderRange,
+      skipClearSearch = false,
+    }: {
+      prompt: string;
+      context?: string;
+      requirePrompt?: boolean;
+      placeholderRange?: { from: number; to: number };
+      skipClearSearch?: boolean;
+    }) => {
+      const trimmedPrompt = prompt.trim();
+
+      const cleanupPlaceholder = () => {
+        if (!placeholderRange) {
+          return;
+        }
+
+        try {
+          const cleanupState = view.state;
+          const clampedTo = Math.min(
+            placeholderRange.to,
+            cleanupState.doc.content.size
+          );
+
+          if (
+            placeholderRange.from <= clampedTo &&
+            placeholderRange.from >= 0
+          ) {
+            view.dispatch(
+              cleanupState.tr.deleteRange(placeholderRange.from, clampedTo)
+            );
+          }
+        } catch (cleanupError) {
+          Logger.warn(
+            "Failed cleaning up AI placeholder after error",
+            cleanupError
+          );
+        }
+      };
+
+      if (requirePrompt && !trimmedPrompt) {
+        toast.error(dictionary.aiPromptRequired);
+        return;
+      }
+
+      if (!skipClearSearch) {
+        handleClearSearch();
+      }
+
+      setIsGenerating(true);
+
+      try {
+        const result = await client.post<{ data: { text?: string } }>(
+          "/ai.generate",
+          { prompt: trimmedPrompt, context },
+          { retry: false }
+        );
+
+        const normalized = (result?.data?.text ?? "").replace(/\r/g, "").trim();
+
+        if (!normalized) {
+          cleanupPlaceholder();
+          toast.error(dictionary.aiGenerationFailed);
+          return;
+        }
+
+        const stateForInsert = view.state;
+        const { dispatch } = view;
+        const markdownContent = editor.pasteParser.parse(
+          normalizePastedMarkdown(normalized)
+        );
+
+        if (markdownContent) {
+          const slice = markdownContent.slice(0);
+          let tr = stateForInsert.tr;
+
+          if (placeholderRange) {
+            tr = tr.replaceRange(
+              placeholderRange.from,
+              placeholderRange.to,
+              slice
+            );
+            const insertionEnd = Math.min(
+              tr.doc.content.size,
+              placeholderRange.from + slice.content.size
+            );
+            tr = tr.setSelection(
+              TextSelection.near(tr.doc.resolve(insertionEnd), -1)
+            );
+          } else {
+            tr = tr.replaceSelection(slice);
+          }
+
+          dispatch(
+            tr
+              .scrollIntoView()
+              .setMeta("paste", true)
+              .setMeta("uiEvent", "paste")
+          );
+        } else {
+          const insertTextValue = normalized.endsWith("\n")
+            ? normalized
+            : `${normalized}\n`;
+
+          if (placeholderRange) {
+            dispatch(
+              stateForInsert.tr.insertText(
+                insertTextValue,
+                placeholderRange.from,
+                placeholderRange.to
+              )
+            );
+          } else {
+            dispatch(
+              stateForInsert.tr.insertText(
+                insertTextValue,
+                stateForInsert.selection.from,
+                stateForInsert.selection.to
+              )
+            );
+          }
+        }
+
+        close();
+      } catch (error) {
+        cleanupPlaceholder();
+
+        const wrappedError =
+          error instanceof Error ? error : new Error(String(error));
+        Logger.error("AI text generation failed", wrappedError);
+        const message = wrappedError.message || dictionary.aiGenerationFailed;
+        toast.error(message);
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [
+      close,
+      dictionary.aiGenerationFailed,
+      dictionary.aiPromptRequired,
+      editor,
+      handleClearSearch,
+      view,
+    ]
+  );
+
+  const handleContinueWriting = React.useCallback(async () => {
+    if (isGenerating) {
+      return;
+    }
+
+    const initialState = view.state;
+    const { selection } = initialState;
+    const textBeforeCursor = initialState.doc.textBetween(
+      0,
+      selection.from,
+      "\n\n"
+    );
+    const triggerSuffix = `${props.trigger}${props.search ?? ""}`;
+    const sanitizedContext = triggerSuffix
+      ? textBeforeCursor.endsWith(triggerSuffix)
+        ? textBeforeCursor.slice(
+            0,
+            Math.max(0, textBeforeCursor.length - triggerSuffix.length)
+          )
+        : textBeforeCursor
+      : textBeforeCursor;
+    const context = sanitizedContext.slice(
+      Math.max(0, sanitizedContext.length - 2000)
+    );
+    const prompt = [
+      "Continue writing the document in Markdown so it flows naturally from the provided context.",
+      "Finish any partial sentence first, then extend the idea in the same tone. Don't repeat the last line in context.",
+      "Mirror the existing structure—use headings, lists, code, mermaid, table, or checkboxes when they fit, and avoid restating instructions.",
+      "Return Markdown only with no surrounding commentary.",
+      "",
+      `Context:\n${context}`,
+    ]
+      .join("\n")
+      .trim();
+
+    handleClearSearch();
+
+    const placeholderLabel =
+      dictionary.continueWritingPlaceholder ?? dictionary.aiGenerating;
+    const placeholderState = view.state;
+    const { from } = placeholderState.selection;
+    const placeholderTransaction = placeholderState.tr.insertText(
+      placeholderLabel,
+      from,
+      from
+    );
+    view.dispatch(placeholderTransaction);
+
+    const placeholderRange = {
+      from,
+      to: from + placeholderLabel.length,
+    };
+
+    await generateAiText({
+      prompt,
+      context,
+      requirePrompt: false,
+      placeholderRange,
+      skipClearSearch: true,
+    });
+  }, [
+    dictionary.aiGenerating,
+    dictionary.continueWritingPlaceholder,
+    generateAiText,
+    handleClearSearch,
+    isGenerating,
+    props.search,
+    props.trigger,
+    view,
+  ]);
 
   const handleClickItem = React.useCallback(
     (item) => {
@@ -275,17 +524,17 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
           return triggerFilePick("*");
         case "embed":
           return triggerLinkInput(item);
+        case "ai_generate_text":
+          return triggerAiPrompt();
+        case "ai_continue_writing":
+          void handleContinueWriting();
+          return;
         default:
           insertNode(item);
       }
     },
-    [editorProps, props, insertNode]
+    [editorProps, handleContinueWriting, insertNode, props, triggerAiPrompt]
   );
-
-  const close = React.useCallback(() => {
-    props.onClose();
-    view.focus();
-  }, [props, view]);
 
   const handleLinkInputKeydown = (
     event: React.KeyboardEvent<HTMLInputElement>
@@ -321,8 +570,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     }
 
     if (event.key === "Escape") {
-      props.onClose();
-      view.focus();
+      close();
     }
   };
 
@@ -363,6 +611,84 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
 
   const triggerLinkInput = (item: MenuItem) => {
     setInsertItem(item);
+    setInsertMode("embed");
+  };
+
+  const handlePromptSubmit = React.useCallback(
+    async (promptValue: string) => {
+      const trimmedPrompt = promptValue.trim();
+
+      if (!trimmedPrompt) {
+        toast.error(dictionary.aiPromptRequired);
+        return;
+      }
+
+      const initialState = view.state;
+      const docText = initialState.doc.textBetween(
+        0,
+        initialState.doc.content.size,
+        "\n\n"
+      );
+      const triggerSuffix = `${props.trigger}${props.search ?? ""}`;
+      const sanitizedDocText = triggerSuffix
+        ? docText.endsWith(triggerSuffix)
+          ? docText.slice(0, docText.length - triggerSuffix.length)
+          : docText
+        : docText;
+      const context = sanitizedDocText.slice(
+        Math.max(0, sanitizedDocText.length - 2000)
+      );
+
+      await generateAiText({
+        prompt: trimmedPrompt,
+        context,
+        requirePrompt: false,
+      });
+    },
+    [
+      dictionary.aiPromptRequired,
+      generateAiText,
+      props.search,
+      props.trigger,
+      view,
+    ]
+  );
+
+  const handlePromptFormSubmit = React.useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+
+      if (isGenerating) {
+        return;
+      }
+
+      if (promptInputRef.current) {
+        void handlePromptSubmit(promptInputRef.current.value);
+      }
+    },
+    [handlePromptSubmit, isGenerating]
+  );
+
+  const handlePromptKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (event.nativeEvent.isComposing) {
+      return;
+    }
+
+    if (!props.isActive) {
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.stopPropagation();
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    }
   };
 
   const handleFilesPicked = async (
@@ -434,11 +760,16 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       }
 
       // Some extensions may be disabled, remove corresponding menu items
+      const commandName = item.name;
+      const skipCommandValidation =
+        "skipCommandCheck" in item && !!item.skipCommandCheck;
+
       if (
-        item.name &&
-        !commands[item.name] &&
-        !commands[`create${capitalize(item.name)}`] &&
-        item.name !== "noop"
+        commandName &&
+        commandName !== "noop" &&
+        !skipCommandValidation &&
+        !commands[commandName] &&
+        !commands[`create${capitalize(commandName)}`]
       ) {
         return false;
       }
@@ -493,7 +824,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         return;
       }
 
-      props.onClose();
+      close();
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -501,6 +832,14 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         return;
       }
       if (!props.isActive) {
+        return;
+      }
+
+      if (insertMode !== "none") {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          close();
+        }
         return;
       }
 
@@ -577,7 +916,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         capture: true,
       });
     };
-  }, [close, filtered, handleClickItem, props, selectedIndex]);
+  }, [close, filtered, handleClickItem, insertMode, props, selectedIndex]);
 
   const { isActive, uploadFile } = props;
   const items = filtered;
@@ -588,7 +927,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       <Wrapper active={isActive} ref={menuRef} hiddenScrollbars {...position}>
         {(isActive || hasActivated.current) && (
           <>
-            {insertItem ? (
+            {insertMode === "embed" && insertItem ? (
               <LinkInputWrapper>
                 <LinkInput
                   type="text"
@@ -604,6 +943,23 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
                   autoFocus
                 />
               </LinkInputWrapper>
+            ) : insertMode === "ai" && insertItem ? (
+              <PromptWrapper>
+                <PromptForm onSubmit={handlePromptFormSubmit}>
+                  <PromptInput
+                    ref={promptInputRef}
+                    placeholder={dictionary.aiPromptPlaceholder}
+                    onKeyDown={handlePromptKeyDown}
+                    disabled={isGenerating}
+                    autoFocus
+                  />
+                  <PromptButton type="submit" disabled={isGenerating}>
+                    {isGenerating
+                      ? dictionary.aiGenerating
+                      : dictionary.aiGenerateButton}
+                  </PromptButton>
+                </PromptForm>
+              </PromptWrapper>
             ) : (
               <List>
                 {items.map((item, index) => {
@@ -659,7 +1015,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
                         onPointerMove={handlePointerMove}
                         onPointerDown={handlePointerDown}
                       >
-                        {props.renderMenuItem(item as any, index, {
+                        {props.renderMenuItem(item as MenuItem, index, {
                           selected: index === selectedIndex,
                           onClick: handleOnClick,
                         })}
@@ -705,6 +1061,29 @@ const LinkInput = styled(Input)`
   height: 32px;
   width: 100%;
   color: ${s("textSecondary")};
+`;
+
+const PromptWrapper = styled.div`
+  margin: 8px;
+`;
+
+const PromptForm = styled.form`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+`;
+
+const PromptInput = styled(Input)`
+  flex: 1;
+  height: 36px;
+  font-size: 15px;
+  padding: 0 14px;
+`;
+
+const PromptButton = styled(Button)`
+  height: 36px;
+  padding: 0 14px;
+  white-space: nowrap;
 `;
 
 const List = styled.ol`
@@ -760,7 +1139,7 @@ export const Wrapper = styled(Scrollable)<{
   box-sizing: border-box;
   pointer-events: none;
   white-space: nowrap;
-  width: 280px;
+  width: 460px;
   height: auto;
   max-height: 324px;
 
