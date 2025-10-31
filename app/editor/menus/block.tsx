@@ -54,6 +54,13 @@ export default function blockMenuItems(
       skipCommandCheck: true,
     },
     {
+      name: "ai_continue_writing",
+      title: dictionary.continueWriting,
+      icon: <SparklesIcon />,
+      keywords: "ai continue writing",
+      skipCommandCheck: true,
+    },
+    {
       name: "separator",
     },
     {

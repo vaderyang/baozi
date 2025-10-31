@@ -111,6 +111,8 @@ export default function useDictionary() {
       deleteEmbed: t("Delete embed"),
       uploadImage: t("Upload an image"),
       generateText: t("Generate Text"),
+      continueWriting: t("Continue Writing..."),
+      continueWritingPlaceholder: t("Continuing writing…"),
       aiPromptPlaceholder: t("Describe what you’d like to generate"),
       aiGenerateButton: t("Generate"),
       aiGenerating: t("Generating…"),

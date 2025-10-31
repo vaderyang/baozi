@@ -16,6 +16,7 @@ import { depths, s } from "@shared/styles";
 import { getEventFiles } from "@shared/utils/files";
 import { AttachmentValidation } from "@shared/validations";
 import Button from "~/components/Button";
+import { TextSelection } from "prosemirror-state";
 import { Portal } from "~/components/Portal";
 import Scrollable from "~/components/Scrollable";
 import useDictionary from "~/hooks/useDictionary";
@@ -277,6 +278,227 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     setIsGenerating(false);
   }, [dictionary.generateText, handleClearSearch]);
 
+  const generateAiText = React.useCallback(
+    async ({
+      prompt,
+      context,
+      requirePrompt = true,
+      placeholderRange,
+      skipClearSearch = false,
+    }: {
+      prompt: string;
+      context?: string;
+      requirePrompt?: boolean;
+      placeholderRange?: { from: number; to: number };
+      skipClearSearch?: boolean;
+    }) => {
+      const trimmedPrompt = prompt.trim();
+
+      const cleanupPlaceholder = () => {
+        if (!placeholderRange) {
+          return;
+        }
+
+        try {
+          const cleanupState = view.state;
+          const clampedTo = Math.min(
+            placeholderRange.to,
+            cleanupState.doc.content.size
+          );
+
+          if (
+            placeholderRange.from <= clampedTo &&
+            placeholderRange.from >= 0
+          ) {
+            view.dispatch(
+              cleanupState.tr.deleteRange(placeholderRange.from, clampedTo)
+            );
+          }
+        } catch (cleanupError) {
+          Logger.warn(
+            "Failed cleaning up AI placeholder after error",
+            cleanupError
+          );
+        }
+      };
+
+      if (requirePrompt && !trimmedPrompt) {
+        toast.error(dictionary.aiPromptRequired);
+        return;
+      }
+
+      if (!skipClearSearch) {
+        handleClearSearch();
+      }
+
+      setIsGenerating(true);
+
+      try {
+        const result = await client.post<{ data: { text?: string } }>(
+          "/ai.generate",
+          { prompt: trimmedPrompt, context },
+          { retry: false }
+        );
+
+        const normalized = (result?.data?.text ?? "").replace(/\r/g, "").trim();
+
+        if (!normalized) {
+          cleanupPlaceholder();
+          toast.error(dictionary.aiGenerationFailed);
+          return;
+        }
+
+        const stateForInsert = view.state;
+        const { dispatch } = view;
+        const markdownContent = editor.pasteParser.parse(
+          normalizePastedMarkdown(normalized)
+        );
+
+        if (markdownContent) {
+          const slice = markdownContent.slice(0);
+          let tr = stateForInsert.tr;
+
+          if (placeholderRange) {
+            tr = tr.replaceRange(
+              placeholderRange.from,
+              placeholderRange.to,
+              slice
+            );
+            const insertionEnd = Math.min(
+              tr.doc.content.size,
+              placeholderRange.from + slice.content.size
+            );
+            tr = tr.setSelection(
+              TextSelection.near(tr.doc.resolve(insertionEnd), -1)
+            );
+          } else {
+            tr = tr.replaceSelection(slice);
+          }
+
+          dispatch(
+            tr
+              .scrollIntoView()
+              .setMeta("paste", true)
+              .setMeta("uiEvent", "paste")
+          );
+        } else {
+          const insertTextValue = normalized.endsWith("\n")
+            ? normalized
+            : `${normalized}\n`;
+
+          if (placeholderRange) {
+            dispatch(
+              stateForInsert.tr.insertText(
+                insertTextValue,
+                placeholderRange.from,
+                placeholderRange.to
+              )
+            );
+          } else {
+            dispatch(
+              stateForInsert.tr.insertText(
+                insertTextValue,
+                stateForInsert.selection.from,
+                stateForInsert.selection.to
+              )
+            );
+          }
+        }
+
+        close();
+      } catch (error) {
+        cleanupPlaceholder();
+
+        const wrappedError =
+          error instanceof Error ? error : new Error(String(error));
+        Logger.error("AI text generation failed", wrappedError);
+        const message = wrappedError.message || dictionary.aiGenerationFailed;
+        toast.error(message);
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [
+      close,
+      dictionary.aiGenerationFailed,
+      dictionary.aiPromptRequired,
+      editor,
+      handleClearSearch,
+      view,
+    ]
+  );
+
+  const handleContinueWriting = React.useCallback(async () => {
+    if (isGenerating) {
+      return;
+    }
+
+    const initialState = view.state;
+    const { selection } = initialState;
+    const textBeforeCursor = initialState.doc.textBetween(
+      0,
+      selection.from,
+      "\n\n"
+    );
+    const triggerSuffix = `${props.trigger}${props.search ?? ""}`;
+    const sanitizedContext = triggerSuffix
+      ? textBeforeCursor.endsWith(triggerSuffix)
+        ? textBeforeCursor.slice(
+            0,
+            Math.max(0, textBeforeCursor.length - triggerSuffix.length)
+          )
+        : textBeforeCursor
+      : textBeforeCursor;
+    const context = sanitizedContext.slice(
+      Math.max(0, sanitizedContext.length - 2000)
+    );
+    const prompt = [
+      "Continue writing the document in Markdown so it flows naturally from the provided context.",
+      "Finish any partial sentence first, then extend the idea in the same tone. Don't repeat the last line in context.",
+      "Mirror the existing structure—use headings, lists, code, mermaid, table, or checkboxes when they fit, and avoid restating instructions.",
+      "Return Markdown only with no surrounding commentary.",
+      "",
+      `Context:\n${context}`,
+    ]
+      .join("\n")
+      .trim();
+
+    handleClearSearch();
+
+    const placeholderLabel =
+      dictionary.continueWritingPlaceholder ?? dictionary.aiGenerating;
+    const placeholderState = view.state;
+    const { from } = placeholderState.selection;
+    const placeholderTransaction = placeholderState.tr.insertText(
+      placeholderLabel,
+      from,
+      from
+    );
+    view.dispatch(placeholderTransaction);
+
+    const placeholderRange = {
+      from,
+      to: from + placeholderLabel.length,
+    };
+
+    await generateAiText({
+      prompt,
+      context,
+      requirePrompt: false,
+      placeholderRange,
+      skipClearSearch: true,
+    });
+  }, [
+    dictionary.aiGenerating,
+    dictionary.continueWritingPlaceholder,
+    generateAiText,
+    handleClearSearch,
+    isGenerating,
+    props.search,
+    props.trigger,
+    view,
+  ]);
+
   const handleClickItem = React.useCallback(
     (item) => {
       props.onSelect?.(item);
@@ -304,11 +526,14 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
           return triggerLinkInput(item);
         case "ai_generate_text":
           return triggerAiPrompt();
+        case "ai_continue_writing":
+          void handleContinueWriting();
+          return;
         default:
           insertNode(item);
       }
     },
-    [editorProps, insertNode, props, triggerAiPrompt]
+    [editorProps, handleContinueWriting, insertNode, props, triggerAiPrompt]
   );
 
   const handleLinkInputKeydown = (
@@ -391,86 +616,40 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
 
   const handlePromptSubmit = React.useCallback(
     async (promptValue: string) => {
-      const prompt = promptValue.trim();
+      const trimmedPrompt = promptValue.trim();
 
-      if (!prompt) {
+      if (!trimmedPrompt) {
         toast.error(dictionary.aiPromptRequired);
         return;
       }
 
-      setIsGenerating(true);
+      const initialState = view.state;
+      const docText = initialState.doc.textBetween(
+        0,
+        initialState.doc.content.size,
+        "\n\n"
+      );
+      const triggerSuffix = `${props.trigger}${props.search ?? ""}`;
+      const sanitizedDocText = triggerSuffix
+        ? docText.endsWith(triggerSuffix)
+          ? docText.slice(0, docText.length - triggerSuffix.length)
+          : docText
+        : docText;
+      const context = sanitizedDocText.slice(
+        Math.max(0, sanitizedDocText.length - 2000)
+      );
 
-      try {
-        const initialState = view.state;
-        const docText = initialState.doc.textBetween(
-          0,
-          initialState.doc.content.size,
-          "\n\n"
-        );
-        const context = docText.slice(Math.max(0, docText.length - 2000));
-
-        const result = await client.post<{ data: { text?: string } }>(
-          "/ai.generate",
-          { prompt, context },
-          { retry: false }
-        );
-
-        const normalized = (result?.data?.text ?? "").replace(/\r/g, "").trim();
-
-        if (!normalized) {
-          toast.error(dictionary.aiGenerationFailed);
-          return;
-        }
-
-        handleClearSearch();
-
-        const stateAfterClear = view.state;
-        const { dispatch } = view;
-        const markdownContent = editor.pasteParser.parse(
-          normalizePastedMarkdown(normalized)
-        );
-
-        if (markdownContent) {
-          const slice = markdownContent.slice(0);
-          const tr = stateAfterClear.tr.replaceSelection(slice);
-
-          dispatch(
-            tr
-              .scrollIntoView()
-              .setMeta("paste", true)
-              .setMeta("uiEvent", "paste")
-          );
-        } else {
-          const insertTextValue = normalized.endsWith("\n")
-            ? normalized
-            : `${normalized}\n`;
-
-          dispatch(
-            stateAfterClear.tr.insertText(
-              insertTextValue,
-              stateAfterClear.selection.from,
-              stateAfterClear.selection.to
-            )
-          );
-        }
-
-        close();
-      } catch (error) {
-        const wrappedError =
-          error instanceof Error ? error : new Error(String(error));
-        Logger.error("AI text generation failed", wrappedError);
-        const message = wrappedError.message || dictionary.aiGenerationFailed;
-        toast.error(message);
-      } finally {
-        setIsGenerating(false);
-      }
+      await generateAiText({
+        prompt: trimmedPrompt,
+        context,
+        requirePrompt: false,
+      });
     },
     [
-      close,
-      dictionary.aiGenerationFailed,
       dictionary.aiPromptRequired,
-      handleClearSearch,
-      editor,
+      generateAiText,
+      props.search,
+      props.trigger,
       view,
     ]
   );
