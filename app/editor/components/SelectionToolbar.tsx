@@ -19,6 +19,7 @@ import useBoolean from "~/hooks/useBoolean";
 import useDictionary from "~/hooks/useDictionary";
 import useEventListener from "~/hooks/useEventListener";
 import useMobile from "~/hooks/useMobile";
+import useStores from "~/hooks/useStores";
 import getAttachmentMenuItems from "../menus/attachment";
 import getCodeMenuItems from "../menus/code";
 import getDividerMenuItems from "../menus/divider";
@@ -73,7 +74,9 @@ export function SelectionToolbar(props: Props) {
   const { readOnly = false } = props;
   const editor = useEditor();
   const { view, commands } = editor;
+  const editorProps = editor.props;
   const dictionary = useDictionary();
+  const { comments } = useStores();
   const menuRef = React.useRef<HTMLDivElement | null>(null);
   const isMobile = useMobile();
   const isActive = props.isActive || isMobile;
@@ -82,6 +85,39 @@ export function SelectionToolbar(props: Props) {
   const [isAiEditing, setIsAiEditing] = React.useState(false);
   const [isAiGenerating, setIsAiGenerating] = React.useState(false);
   const aiPromptRef = React.useRef<HTMLInputElement>(null);
+
+  const recordAiPromptComment = React.useCallback(
+    async (promptValue: string) => {
+      const documentId = editorProps.id;
+      const trimmedPrompt = promptValue.trim();
+
+      if (
+        !comments ||
+        !documentId ||
+        !trimmedPrompt ||
+        editorProps.readOnly ||
+        editorProps.canComment === false
+      ) {
+        return;
+      }
+
+      try {
+        await comments.create({
+          documentId,
+          text: `${dictionary.aiEdit}: ${trimmedPrompt}`,
+        });
+      } catch (error) {
+        Logger.warn("Failed to record AI edit comment", error);
+      }
+    },
+    [
+      comments,
+      dictionary.aiEdit,
+      editorProps.canComment,
+      editorProps.id,
+      editorProps.readOnly,
+    ]
+  );
 
   React.useEffect(() => {
     setIsEditingImgUrl(false);
@@ -270,6 +306,8 @@ export function SelectionToolbar(props: Props) {
           aiPromptRef.current.value = "";
         }
 
+        void recordAiPromptComment(trimmedInstructions);
+
         setIsAiEditing(false);
         view.focus();
       } catch (error) {
@@ -287,6 +325,7 @@ export function SelectionToolbar(props: Props) {
       dictionary.aiPromptRequired,
       editor.pasteParser,
       editor.serializer,
+      recordAiPromptComment,
       view,
     ]
   );

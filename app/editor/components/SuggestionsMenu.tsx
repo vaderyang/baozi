@@ -20,6 +20,7 @@ import { TextSelection } from "prosemirror-state";
 import { Portal } from "~/components/Portal";
 import Scrollable from "~/components/Scrollable";
 import useDictionary from "~/hooks/useDictionary";
+import useStores from "~/hooks/useStores";
 import { client } from "~/utils/ApiClient";
 import Logger from "~/utils/Logger";
 import { useEditor } from "./EditorContext";
@@ -87,6 +88,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
   const editor = useEditor();
   const { view, commands, props: editorProps } = editor;
   const dictionary = useDictionary();
+  const { comments } = useStores();
   const { t } = useTranslation();
   const hasActivated = React.useRef(false);
   const pointerRef = React.useRef<{ clientX: number; clientY: number }>({
@@ -235,6 +237,33 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     setSelectedIndex(0);
   }, [props.search]);
 
+  const recordAiPromptComment = React.useCallback(
+    async (source: string, promptValue: string) => {
+      const documentId = editorProps.id;
+      const trimmedPrompt = promptValue.trim();
+
+      if (
+        !comments ||
+        !documentId ||
+        !trimmedPrompt ||
+        editorProps.readOnly ||
+        editorProps.canComment === false
+      ) {
+        return;
+      }
+
+      try {
+        await comments.create({
+          documentId,
+          text: `${source}: ${trimmedPrompt}`,
+        });
+      } catch (error) {
+        Logger.warn("Failed to record AI prompt comment", error);
+      }
+    },
+    [comments, editorProps.canComment, editorProps.id, editorProps.readOnly]
+  );
+
   const close = React.useCallback(() => {
     setInsertItem(undefined);
     setInsertMode("none");
@@ -291,7 +320,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       requirePrompt?: boolean;
       placeholderRange?: { from: number; to: number };
       skipClearSearch?: boolean;
-    }) => {
+    }): Promise<boolean> => {
       const trimmedPrompt = prompt.trim();
 
       const cleanupPlaceholder = () => {
@@ -324,7 +353,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
 
       if (requirePrompt && !trimmedPrompt) {
         toast.error(dictionary.aiPromptRequired);
-        return;
+        return false;
       }
 
       if (!skipClearSearch) {
@@ -345,7 +374,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         if (!normalized) {
           cleanupPlaceholder();
           toast.error(dictionary.aiGenerationFailed);
-          return;
+          return false;
         }
 
         const stateForInsert = view.state;
@@ -406,6 +435,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         }
 
         close();
+        return true;
       } catch (error) {
         cleanupPlaceholder();
 
@@ -414,6 +444,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         Logger.error("AI text generation failed", wrappedError);
         const message = wrappedError.message || dictionary.aiGenerationFailed;
         toast.error(message);
+        return false;
       } finally {
         setIsGenerating(false);
       }
@@ -637,15 +668,21 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         Math.max(0, sanitizedDocText.length - 2000)
       );
 
-      await generateAiText({
+      const success = await generateAiText({
         prompt: trimmedPrompt,
         context,
         requirePrompt: false,
       });
+
+      if (success) {
+        void recordAiPromptComment(dictionary.generateText, trimmedPrompt);
+      }
     },
     [
       dictionary.aiPromptRequired,
+      dictionary.generateText,
       generateAiText,
+      recordAiPromptComment,
       props.search,
       props.trigger,
       view,
