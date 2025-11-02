@@ -129,6 +129,19 @@ router.post(
         .default;
 
       // Search for relevant documents
+      let documentIds = undefined;
+      if (documentId) {
+        const document = await Document.findByPk(documentId, {
+          userId: user.id,
+        });
+        if (document) {
+          documentIds = [
+            documentId,
+            ...(await document.findAllChildDocumentIds()),
+          ];
+        }
+      }
+
       const searchOptions = {
         query,
         collectionId: collectionId || undefined,
@@ -136,16 +149,16 @@ router.post(
         statusFilter: statusFilter || undefined,
         limit: maxDocuments,
         collaboratorIds: userId ? [userId] : undefined,
-        documentIds: documentId ? [documentId] : undefined,
+        documentIds,
       };
 
       Logger.debug("utils", "AI search options", {
         searchOptions,
-        teamId: user.teamId,
+        userId: user.id,
       });
 
-      const searchResults = await SearchHelper.searchForTeam(
-        user.team,
+      const searchResults = await SearchHelper.searchForUser(
+        user,
         searchOptions
       );
 
@@ -166,12 +179,12 @@ router.post(
       }
 
       // Fetch full document content for top results
-      const documentIds = searchResults.results.map(
+      const resultDocumentIds = searchResults.results.map(
         (r: { document: { id: string } }) => r.document.id
       );
       const documents = await Document.findAll({
         where: {
-          id: documentIds,
+          id: resultDocumentIds,
           teamId: user.teamId,
         },
       });
