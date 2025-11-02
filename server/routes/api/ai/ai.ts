@@ -129,14 +129,29 @@ router.post(
         .default;
 
       // Search for relevant documents
-      const searchResults = await SearchHelper.searchForTeam(user.team, {
+      const searchOptions = {
         query,
-        collectionId,
-        dateFilter,
-        statusFilter,
+        collectionId: collectionId || undefined,
+        dateFilter: dateFilter || undefined,
+        statusFilter: statusFilter || undefined,
         limit: maxDocuments,
         collaboratorIds: userId ? [userId] : undefined,
         documentIds: documentId ? [documentId] : undefined,
+      };
+
+      Logger.debug("utils", "AI search options", {
+        searchOptions,
+        teamId: user.teamId,
+      });
+
+      const searchResults = await SearchHelper.searchForTeam(
+        user.team,
+        searchOptions
+      );
+
+      Logger.debug("utils", "AI search results", {
+        resultCount: searchResults.results.length,
+        total: searchResults.total,
       });
 
       if (!searchResults.results.length) {
