@@ -2,13 +2,19 @@ import { observer } from "mobx-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import styled from "styled-components";
+import MarkdownIt from "markdown-it";
 import { s } from "@shared/styles";
 import Flex from "~/components/Flex";
 import Text from "~/components/Text";
 import { client } from "~/utils/ApiClient";
 import { SearchParams } from "~/stores/DocumentsStore";
 import LoadingIndicator from "./LoadingIndicator";
-import Editor from "./Editor";
+
+const md = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: true,
+});
 
 type AISearchResult = {
   answer: string;
@@ -144,9 +150,11 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
         </Flex>
       </Header>
       <Content>
-        <AnswerContent>
-          <Editor value={processedAnswer} readOnly grow />
-        </AnswerContent>
+        <AnswerContent
+          dangerouslySetInnerHTML={{
+            __html: md.render(processedAnswer),
+          }}
+        />
       </Content>
     </Container>
   );
@@ -187,6 +195,7 @@ const Content = styled.div`
 const AnswerContent = styled.div`
   font-size: 15px;
   line-height: 1.6;
+  color: ${s("text")};
 
   p:first-child {
     margin-top: 0;
@@ -194,6 +203,108 @@ const AnswerContent = styled.div`
 
   p:last-child {
     margin-bottom: 0;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+
+  h1:first-child,
+  h2:first-child,
+  h3:first-child {
+    margin-top: 0;
+  }
+
+  h1 {
+    font-size: 1.8em;
+  }
+
+  h2 {
+    font-size: 1.5em;
+  }
+
+  h3 {
+    font-size: 1.25em;
+  }
+
+  ul,
+  ol {
+    padding-left: 2em;
+    margin: 1em 0;
+  }
+
+  li {
+    margin: 0.5em 0;
+  }
+
+  code {
+    background: ${s("codeBackground")};
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+    font-size: 0.9em;
+    font-family:
+      "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  }
+
+  pre {
+    background: ${s("codeBackground")};
+    padding: 1em;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 1em 0;
+  }
+
+  pre code {
+    background: none;
+    padding: 0;
+  }
+
+  blockquote {
+    border-left: 4px solid ${s("divider")};
+    padding-left: 1em;
+    margin: 1em 0;
+    color: ${s("textSecondary")};
+  }
+
+  a {
+    color: ${s("link")};
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+  }
+
+  th,
+  td {
+    border: 1px solid ${s("divider")};
+    padding: 0.5em 1em;
+    text-align: left;
+  }
+
+  th {
+    background: ${s("sidebarBackground")};
+    font-weight: 600;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid ${s("divider")};
+    margin: 2em 0;
   }
 `;
 
