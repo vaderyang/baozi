@@ -38,6 +38,25 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
+  // Create a stable key for the search parameters to prevent unnecessary re-fetches
+  const searchKey = React.useMemo(
+    () =>
+      JSON.stringify({
+        query: searchParams.query,
+        collectionId: searchParams.collectionId,
+        userId: searchParams.userId,
+        dateFilter: searchParams.dateFilter,
+        statusFilter: searchParams.statusFilter,
+      }),
+    [
+      searchParams.query,
+      searchParams.collectionId,
+      searchParams.userId,
+      searchParams.dateFilter,
+      searchParams.statusFilter,
+    ]
+  );
+
   React.useEffect(() => {
     const fetchAIAnswer = async () => {
       if (!searchParams.query) {
@@ -72,7 +91,8 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
     };
 
     void fetchAIAnswer();
-  }, [searchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchKey]);
 
   if (loading) {
     return (
