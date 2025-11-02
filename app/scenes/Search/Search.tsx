@@ -13,6 +13,7 @@ import {
   DateFilter as TDateFilter,
   StatusFilter as TStatusFilter,
 } from "@shared/types";
+import AISearchAnswer from "~/components/AISearchAnswer";
 import ArrowKeyNavigation from "~/components/ArrowKeyNavigation";
 import DocumentListItem from "~/components/DocumentListItem";
 import Fade from "~/components/Fade";
@@ -65,6 +66,7 @@ function Search() {
     ? (params.getAll("statusFilter") as TStatusFilter[])
     : [TStatusFilter.Published, TStatusFilter.Draft];
   const titleFilter = params.get("titleFilter") === "true";
+  const aiAnswerEnabled = params.get("aiAnswer") === "true";
 
   const isSearchable = !!(query || collectionId || userId);
 
@@ -91,7 +93,7 @@ function Search() {
     }),
     [
       query,
-      JSON.stringify(statusFilter),
+      statusFilter,
       collectionId,
       userId,
       dateFilter,
@@ -146,6 +148,7 @@ function Search() {
     dateFilter?: TDateFilter;
     statusFilter?: TStatusFilter[];
     titleFilter?: boolean | undefined;
+    aiAnswer?: boolean | undefined;
   }) => {
     history.replace({
       pathname: location.pathname,
@@ -277,10 +280,33 @@ function Search() {
                 checked={titleFilter}
               />
             )}
+            {query && !titleFilter && (
+              <AIAnswerToggle
+                width={26}
+                height={14}
+                label={t("AI Answer")}
+                onChange={(checked: boolean) => {
+                  handleFilterChange({ aiAnswer: checked });
+                }}
+                checked={aiAnswerEnabled}
+              />
+            )}
           </Filters>
         </form>
         {isSearchable ? (
           <>
+            {aiAnswerEnabled && query && !titleFilter && (
+              <AISearchAnswer
+                searchParams={{
+                  query,
+                  collectionId,
+                  userId,
+                  dateFilter,
+                  statusFilter,
+                }}
+                onClose={() => handleFilterChange({ aiAnswer: false })}
+              />
+            )}
             {error ? (
               <Fade>
                 <Centered column>
@@ -379,6 +405,14 @@ const Filters = styled(Flex)`
 `;
 
 const SearchTitlesFilter = styled(Switch)`
+  white-space: nowrap;
+  margin-left: 8px;
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 400;
+`;
+
+const AIAnswerToggle = styled(Switch)`
   white-space: nowrap;
   margin-left: 8px;
   margin-top: 4px;
