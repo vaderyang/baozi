@@ -5,6 +5,7 @@ export const AiGenerateSchema = BaseSchema.extend({
   body: z.object({
     prompt: z.string(),
     context: z.string().optional(),
+    mentionedDocumentIds: z.array(z.string()).optional(),
   }),
 });
 

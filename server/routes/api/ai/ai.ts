@@ -47,7 +47,8 @@ const parseAiResponse = (choice: ChatCompletionChoice): string => {
           return segment;
         }
 
-        const segmentText = segment.text ?? segment.content;
+        const segmentObj = segment as Record<string, unknown>;
+        const segmentText = segmentObj.text ?? segmentObj.content;
 
         if (typeof segmentText === "string") {
           return segmentText;
@@ -56,9 +57,9 @@ const parseAiResponse = (choice: ChatCompletionChoice): string => {
         if (
           segmentText &&
           typeof segmentText === "object" &&
-          typeof segmentText.value === "string"
+          typeof (segmentText as Record<string, unknown>).value === "string"
         ) {
-          return segmentText.value;
+          return (segmentText as Record<string, unknown>).value as string;
         }
 
         return "";
@@ -78,8 +79,10 @@ router.post(
   auth(),
   validate(T.AiGenerateSchema),
   async (ctx: APIContext<T.AiGenerateReq>) => {
+    const { user } = ctx.state.auth;
     const prompt = trim(ctx.input.body.prompt ?? "");
     const context = trim(ctx.input.body.context ?? "");
+    const mentionedDocumentIds = ctx.input.body.mentionedDocumentIds ?? [];
 
     if (!prompt) {
       ctx.throw(InvalidRequestError("Prompt is required"));
@@ -120,10 +123,36 @@ router.post(
       : `${trimmedBase}/chat/completions`;
 
     try {
-      const instructions =
+      let instructions =
         "You write Markdown for the Outline editor. " +
         "Always emit valid Markdown that renders correctly, and never wrap all output in triple backticks unless required. " +
         "When asked for a diagram, respond with a fenced mermaid code block using ```mermaid and omit any surrounding text.";
+
+      // Fetch mentioned documents and add them to the system prompt
+      if (mentionedDocumentIds.length > 0) {
+        const { Document } = await import("@server/models");
+        const { DocumentHelper } = await import(
+          "@server/models/helpers/DocumentHelper"
+        );
+
+        const documents = await Document.findAll({
+          where: {
+            id: mentionedDocumentIds,
+            teamId: user.teamId,
+          },
+        });
+
+        if (documents.length > 0) {
+          const mentionedContent = documents
+            .map((doc) => {
+              const markdown = DocumentHelper.toMarkdown(doc);
+              return `## Referenced Document: ${doc.title}\n\n${markdown}`;
+            })
+            .join("\n\n---\n\n");
+
+          instructions += `\n\nThe user has mentioned the following documents for reference:\n\n${mentionedContent}`;
+        }
+      }
 
       const messages = [
         {

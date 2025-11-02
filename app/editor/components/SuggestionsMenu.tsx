@@ -15,7 +15,6 @@ import { MenuItem } from "@shared/editor/types";
 import { depths, s } from "@shared/styles";
 import { getEventFiles } from "@shared/utils/files";
 import { AttachmentValidation } from "@shared/validations";
-import Button from "~/components/Button";
 import { TextSelection } from "prosemirror-state";
 import { Portal } from "~/components/Portal";
 import Scrollable from "~/components/Scrollable";
@@ -26,6 +25,7 @@ import Logger from "~/utils/Logger";
 import { useEditor } from "./EditorContext";
 import Input from "./Input";
 import { MenuHeader } from "~/components/primitives/components/Menu";
+import AiPromptInput from "./AiPromptInput";
 
 type TopAnchor = {
   top: number;
@@ -106,19 +106,12 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
   );
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
-  const promptInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     if (props.isActive) {
       hasActivated.current = true;
     }
   }, [props.isActive]);
-
-  React.useEffect(() => {
-    if (insertMode === "ai") {
-      promptInputRef.current?.focus();
-    }
-  }, [insertMode]);
 
   const calculatePosition = React.useCallback(() => {
     if (!props.isActive) {
@@ -314,12 +307,14 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       requirePrompt = true,
       placeholderRange,
       skipClearSearch = false,
+      mentionedDocumentIds = [],
     }: {
       prompt: string;
       context?: string;
       requirePrompt?: boolean;
       placeholderRange?: { from: number; to: number };
       skipClearSearch?: boolean;
+      mentionedDocumentIds?: string[];
     }): Promise<boolean> => {
       const trimmedPrompt = prompt.trim();
 
@@ -365,7 +360,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       try {
         const result = await client.post<{ data: { text?: string } }>(
           "/ai.generate",
-          { prompt: trimmedPrompt, context },
+          { prompt: trimmedPrompt, context, mentionedDocumentIds },
           { retry: false }
         );
 
@@ -644,7 +639,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
   };
 
   const handlePromptSubmit = React.useCallback(
-    async (promptValue: string) => {
+    async (promptValue: string, mentionedDocumentIds: string[] = []) => {
       const trimmedPrompt = promptValue.trim();
 
       if (!trimmedPrompt) {
@@ -672,6 +667,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         prompt: trimmedPrompt,
         context,
         requirePrompt: false,
+        mentionedDocumentIds,
       });
 
       if (success) {
@@ -689,42 +685,15 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     ]
   );
 
-  const handlePromptFormSubmit = React.useCallback(
-    (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-
+  const handleAiPromptSubmit = React.useCallback(
+    (promptValue: string, mentionedDocumentIds: string[]) => {
       if (isGenerating) {
         return;
       }
-
-      if (promptInputRef.current) {
-        void handlePromptSubmit(promptInputRef.current.value);
-      }
+      void handlePromptSubmit(promptValue, mentionedDocumentIds);
     },
     [handlePromptSubmit, isGenerating]
   );
-
-  const handlePromptKeyDown = (
-    event: React.KeyboardEvent<HTMLInputElement>
-  ) => {
-    if (event.nativeEvent.isComposing) {
-      return;
-    }
-
-    if (!props.isActive) {
-      return;
-    }
-
-    if (event.key === "Enter") {
-      event.stopPropagation();
-    }
-
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      close();
-    }
-  };
 
   const handleFilesPicked = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -979,22 +948,11 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
                 />
               </LinkInputWrapper>
             ) : insertMode === "ai" && insertItem ? (
-              <PromptWrapper>
-                <PromptForm onSubmit={handlePromptFormSubmit}>
-                  <PromptInput
-                    ref={promptInputRef}
-                    placeholder={dictionary.aiPromptPlaceholder}
-                    onKeyDown={handlePromptKeyDown}
-                    disabled={isGenerating}
-                    autoFocus
-                  />
-                  <PromptButton type="submit" disabled={isGenerating}>
-                    {isGenerating
-                      ? dictionary.aiGenerating
-                      : dictionary.aiGenerateButton}
-                  </PromptButton>
-                </PromptForm>
-              </PromptWrapper>
+              <AiPromptInput
+                onSubmit={handleAiPromptSubmit}
+                disabled={isGenerating}
+                autoFocus
+              />
             ) : (
               <List>
                 {items.map((item, index) => {
@@ -1096,29 +1054,6 @@ const LinkInput = styled(Input)`
   height: 32px;
   width: 100%;
   color: ${s("textSecondary")};
-`;
-
-const PromptWrapper = styled.div`
-  margin: 8px;
-`;
-
-const PromptForm = styled.form`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-`;
-
-const PromptInput = styled(Input)`
-  flex: 1;
-  height: 36px;
-  font-size: 15px;
-  padding: 0 14px;
-`;
-
-const PromptButton = styled(Button)`
-  height: 36px;
-  padding: 0 14px;
-  white-space: nowrap;
 `;
 
 const List = styled.ol`
