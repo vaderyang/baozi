@@ -33,7 +33,7 @@ type Props = {
 };
 
 function AISearchAnswer({ searchParams, onClose }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [result, setResult] = React.useState<AISearchResult | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -47,6 +47,7 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
         userId: searchParams.userId,
         dateFilter: searchParams.dateFilter,
         statusFilter: searchParams.statusFilter,
+        language: i18n.language,
       }),
     [
       searchParams.query,
@@ -54,6 +55,7 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
       searchParams.userId,
       searchParams.dateFilter,
       searchParams.statusFilter,
+      i18n.language,
     ]
   );
 
@@ -74,6 +76,7 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
           dateFilter: searchParams.dateFilter || undefined,
           statusFilter: searchParams.statusFilter,
           maxDocuments: 5,
+          language: i18n.language,
         });
 
         if (response?.data) {

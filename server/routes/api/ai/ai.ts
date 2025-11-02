@@ -88,6 +88,7 @@ router.post(
       dateFilter,
       statusFilter,
       maxDocuments,
+      language,
     } = ctx.input.body;
 
     const apiKey = envValue(
@@ -218,10 +219,15 @@ ${markdown}`;
         ? trimmedBase
         : `${trimmedBase}/chat/completions`;
 
+      // Determine the language instruction
+      const languageInstruction = language
+        ? `IMPORTANT: Answer in ${language === "zh_CN" || language === "zh-CN" ? "Chinese (Simplified)" : language === "zh_TW" || language === "zh-TW" ? "Chinese (Traditional)" : language.replace("_", "-")}. `
+        : "";
+
       const systemPrompt = `You are a concise knowledge base assistant. Answer questions ONLY based on the provided documents.
 
 CRITICAL RULES:
-1. Maximum 150 words - be extremely concise
+1. ${languageInstruction}Maximum 150 words - be extremely concise
 2. ONLY use information from the provided documents - do not add external knowledge
 3. If the documents don't contain the answer, clearly state "The provided documents don't contain information about this"
 4. Use simple, clear language - avoid complex formatting

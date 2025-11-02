@@ -45,6 +45,7 @@ export const AiSearchSchema = BaseSchema.extend({
       .transform((val) => (val === "" ? undefined : val)),
     statusFilter: z.nativeEnum(StatusFilter).array().optional(),
     maxDocuments: z.number().min(1).max(10).default(5),
+    language: z.string().optional(),
   }),
 });
 
