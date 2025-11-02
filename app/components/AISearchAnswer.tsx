@@ -1,4 +1,5 @@
 import { observer } from "mobx-react";
+import { SparklesIcon } from "outline-icons";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import styled from "styled-components";
@@ -78,7 +79,9 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
       <Container>
         <Header>
           <Flex align="center" gap={8}>
-            <AIBadge>AI</AIBadge>
+            <AIIcon>
+              <SparklesIcon size={16} />
+            </AIIcon>
             <Text type="secondary" size="small">
               {t("Generating answer")}...
             </Text>
@@ -97,7 +100,9 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
         <Header>
           <Flex align="center" gap={8} justify="space-between">
             <Flex align="center" gap={8}>
-              <AIBadge>AI</AIBadge>
+              <AIIcon>
+                <SparklesIcon size={16} />
+              </AIIcon>
               <Text type="secondary" size="small">
                 {t("AI Answer")}
               </Text>
@@ -137,7 +142,9 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
       <Header>
         <Flex align="center" gap={8} justify="space-between">
           <Flex align="center" gap={8}>
-            <AIBadge>AI</AIBadge>
+            <AIIcon>
+              <SparklesIcon size={16} />
+            </AIIcon>
             <Text type="secondary" size="small">
               {t("AI Answer")}
             </Text>
@@ -174,18 +181,11 @@ const Header = styled.div`
   border-bottom: 1px solid ${s("divider")};
 `;
 
-const AIBadge = styled.span`
+const AIIcon = styled.span`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px 8px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: ${s("textSecondary")};
 `;
 
 const Content = styled.div`
