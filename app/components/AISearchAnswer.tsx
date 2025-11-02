@@ -162,6 +162,18 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
             __html: md.render(processedAnswer),
           }}
         />
+        {result.sources.length > 0 && (
+          <SourcesSection>
+            <SourcesTitle>{t("Referenced documents")}:</SourcesTitle>
+            <SourcesList>
+              {result.sources.map((source) => (
+                <SourceItem key={source.id}>
+                  <SourceLink href={source.url}>{source.title}</SourceLink>
+                </SourceItem>
+              ))}
+            </SourcesList>
+          </SourcesSection>
+        )}
       </Content>
     </Container>
   );
@@ -331,6 +343,54 @@ const CloseButton = styled.button`
   &:hover {
     background: ${s("listItemHoverBackground")};
     color: ${s("text")};
+  }
+`;
+
+const SourcesSection = styled.div`
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid ${s("divider")};
+`;
+
+const SourcesTitle = styled.div`
+  font-size: 12px;
+  font-weight: 500;
+  color: ${s("textSecondary")};
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+`;
+
+const SourcesList = styled.ul`
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`;
+
+const SourceItem = styled.li`
+  font-size: 13px;
+`;
+
+const SourceLink = styled.a`
+  color: ${s("textSecondary")};
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  padding: 4px 0;
+  transition: color 100ms ease-in-out;
+
+  &:hover {
+    color: ${s("text")};
+    text-decoration: underline;
+  }
+
+  &:before {
+    content: "→";
+    margin-right: 8px;
+    color: ${s("textTertiary")};
   }
 `;
 
