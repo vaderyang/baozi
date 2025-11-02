@@ -43,9 +43,9 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
       try {
         const response = await client.post("/ai.search", {
           query: searchParams.query,
-          collectionId: searchParams.collectionId,
-          userId: searchParams.userId,
-          dateFilter: searchParams.dateFilter,
+          collectionId: searchParams.collectionId || undefined,
+          userId: searchParams.userId || undefined,
+          dateFilter: searchParams.dateFilter || undefined,
           statusFilter: searchParams.statusFilter,
           maxDocuments: 5,
         });
