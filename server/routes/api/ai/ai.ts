@@ -152,7 +152,7 @@ router.post(
         documentIds,
       };
 
-      Logger.debug("utils", "AI search options", {
+      Logger.info("utils", "AI search options", {
         searchOptions,
         userId: user.id,
       });
@@ -162,7 +162,7 @@ router.post(
         searchOptions
       );
 
-      Logger.debug("utils", "AI search results", {
+      Logger.info("utils", "AI search results", {
         resultCount: searchResults.results.length,
         total: searchResults.total,
       });

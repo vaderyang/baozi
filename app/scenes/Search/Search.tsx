@@ -93,7 +93,7 @@ function Search() {
     }),
     [
       query,
-      statusFilter,
+      JSON.stringify(statusFilter),
       collectionId,
       userId,
       dateFilter,
