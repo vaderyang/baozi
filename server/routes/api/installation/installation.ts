@@ -54,8 +54,23 @@ router.post(
 
 router.post("installation.info", auth(), async (ctx: APIContext) => {
   const currentVersion = getVersion();
-  const { latestVersion, versionsBehind } =
-    await getVersionInfo(currentVersion);
+
+  // 尝试获取版本信息，如果禁用或失败则返回当前版本
+  let latestVersion = currentVersion;
+  let versionsBehind = -1;
+
+  // 检查是否启用了更新检查（复用 ENABLE_UPDATES 环境变量）
+  const checkEnabled = process.env.ENABLE_UPDATES !== "false";
+
+  if (checkEnabled) {
+    try {
+      const versionInfo = await getVersionInfo(currentVersion);
+      latestVersion = versionInfo.latestVersion;
+      versionsBehind = versionInfo.versionsBehind;
+    } catch (_error) {
+      // 忽略错误，使用默认值
+    }
+  }
 
   ctx.body = {
     data: {
