@@ -12,7 +12,7 @@ import { SearchParams } from "~/stores/DocumentsStore";
 import LoadingIndicator from "./LoadingIndicator";
 
 const md = new MarkdownIt({
-  html: false,
+  html: true,
   linkify: true,
   breaks: true,
 });
@@ -216,13 +216,14 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
     return null;
   }
 
-  // Process the answer to convert document references to proper links
+  // Process the answer to convert "Document N" references to superscript links
   const processedAnswer = result.answer.replace(
-    /\[([^\]]+)\]\(([a-f0-9-]{36})\)/g,
-    (match, title, docId) => {
-      const source = result.sources.find((s) => s.id === docId);
-      if (source) {
-        return `[${title}](${source.url})`;
+    /Document\s+(\d+)/g,
+    (match, num) => {
+      const index = parseInt(num, 10) - 1;
+      if (index >= 0 && index < result.sources.length) {
+        const source = result.sources[index];
+        return `<sup><a href="${source.url}">[${num}]</a></sup>`;
       }
       return match;
     }
@@ -257,8 +258,9 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
           <SourcesSection>
             <SourcesTitle>{t("Referenced documents")}:</SourcesTitle>
             <SourcesList>
-              {result.sources.map((source) => (
+              {result.sources.map((source, index) => (
                 <SourceItem key={source.id}>
+                  <SourceNumber>{index + 1}.</SourceNumber>
                   <SourceLink href={source.url}>{source.title}</SourceLink>
                 </SourceItem>
               ))}
@@ -386,6 +388,18 @@ const AnswerContent = styled.div`
     }
   }
 
+  sup {
+    font-size: 0.75em;
+    vertical-align: super;
+    line-height: 0;
+
+    a {
+      color: ${s("link")};
+      font-weight: 500;
+      padding: 0 2px;
+    }
+  }
+
   table {
     border-collapse: collapse;
     width: 100%;
@@ -463,25 +477,28 @@ const SourcesList = styled.ul`
 
 const SourceItem = styled.li`
   font-size: 13px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+`;
+
+const SourceNumber = styled.span`
+  color: ${s("textTertiary")};
+  font-weight: 500;
+  min-width: 20px;
+  flex-shrink: 0;
 `;
 
 const SourceLink = styled.a`
   color: ${s("textSecondary")};
   text-decoration: none;
-  display: flex;
-  align-items: center;
   padding: 4px 0;
   transition: color 100ms ease-in-out;
+  flex: 1;
 
   &:hover {
     color: ${s("text")};
     text-decoration: underline;
-  }
-
-  &:before {
-    content: "→";
-    margin-right: 8px;
-    color: ${s("textTertiary")};
   }
 `;
 
