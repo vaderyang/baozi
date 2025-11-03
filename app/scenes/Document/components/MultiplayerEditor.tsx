@@ -198,6 +198,10 @@ function MultiplayerEditor({ onSynced, ...props }: Props, ref: any) {
       window.removeEventListener("click", finishObserving);
       window.removeEventListener("wheel", finishObserving);
       window.removeEventListener("scroll", syncScrollPosition);
+      // Disconnect before destroying to avoid WebSocket close errors
+      if (provider?.status === WebSocketStatus.Connected) {
+        provider.disconnect();
+      }
       provider?.destroy();
       void localProvider?.destroy();
       setRemoteProvider(null);

@@ -47,7 +47,8 @@ const parseAiResponse = (choice: ChatCompletionChoice): string => {
           return segment;
         }
 
-        const segmentText = segment.text ?? segment.content;
+        const segmentObj = segment as Record<string, unknown>;
+        const segmentText = segmentObj.text ?? segmentObj.content;
 
         if (typeof segmentText === "string") {
           return segmentText;
@@ -56,9 +57,9 @@ const parseAiResponse = (choice: ChatCompletionChoice): string => {
         if (
           segmentText &&
           typeof segmentText === "object" &&
-          typeof segmentText.value === "string"
+          typeof (segmentText as Record<string, unknown>).value === "string"
         ) {
-          return segmentText.value;
+          return (segmentText as Record<string, unknown>).value as string;
         }
 
         return "";
@@ -73,34 +74,30 @@ const parseAiResponse = (choice: ChatCompletionChoice): string => {
   return "";
 };
 
-router.post(
-  "ai.generate",
-  auth(),
-  validate(T.AiGenerateSchema),
-  async (ctx: APIContext<T.AiGenerateReq>) => {
-    const prompt = trim(ctx.input.body.prompt ?? "");
-    const context = trim(ctx.input.body.context ?? "");
+const getModelConfig = (forAiSearch = false) => {
+  const apiKey = envValue(
+    "LLM_API_KEY",
+    "AI_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENAI_KEY"
+  );
+  const apiBase = envValue(
+    "LLM_API_BASE_URL",
+    "LLM_API_BASE",
+    "AI_API_BASE_URL",
+    "AI_API_BASE",
+    "OPENAI_API_BASE",
+    "OPENAI_API_BASE_URL",
+    "API_BASE"
+  );
 
-    if (!prompt) {
-      ctx.throw(InvalidRequestError("Prompt is required"));
-    }
+  let model: string | undefined;
+  let fallbackModel: string | undefined;
 
-    const apiKey = envValue(
-      "LLM_API_KEY",
-      "AI_API_KEY",
-      "OPENAI_API_KEY",
-      "OPENAI_KEY"
-    );
-    const apiBase = envValue(
-      "LLM_API_BASE_URL",
-      "LLM_API_BASE",
-      "AI_API_BASE_URL",
-      "AI_API_BASE",
-      "OPENAI_API_BASE",
-      "OPENAI_API_BASE_URL",
-      "API_BASE"
-    );
-    const model = envValue(
+  if (forAiSearch) {
+    // For AI Search, prefer AI_SEARCH model, fallback to general model
+    model = envValue("LLM_MODEL_NAME_AI_SEARCH");
+    fallbackModel = envValue(
       "LLM_MODEL_NAME",
       "LLM_MODEL",
       "AI_MODEL_NAME",
@@ -109,6 +106,360 @@ router.post(
       "OPENAI_MODEL",
       "MODEL"
     );
+    // If no AI_SEARCH model specified, use general model
+    if (!model) {
+      model = fallbackModel;
+      fallbackModel = envValue("LLM_MODEL_NAME_AI_SEARCH");
+    }
+  } else {
+    // For general AI, use general model with AI_SEARCH as fallback
+    model = envValue(
+      "LLM_MODEL_NAME",
+      "LLM_MODEL",
+      "AI_MODEL_NAME",
+      "AI_MODEL",
+      "OPENAI_MODEL_NAME",
+      "OPENAI_MODEL",
+      "MODEL"
+    );
+    fallbackModel = envValue("LLM_MODEL_NAME_AI_SEARCH");
+  }
+
+  return { apiKey, apiBase, model, fallbackModel };
+};
+
+const isRateLimitError = (status: number, message: string): boolean =>
+  status === 429 ||
+  message.toLowerCase().includes("rate limit") ||
+  message.toLowerCase().includes("too many requests");
+
+router.post(
+  "ai.search",
+  auth(),
+  validate(T.AiSearchSchema),
+  async (ctx: APIContext<T.AiSearchReq>) => {
+    const { user } = ctx.state.auth;
+    const {
+      query,
+      collectionId,
+      userId,
+      documentId,
+      dateFilter,
+      statusFilter,
+      maxDocuments,
+      language,
+    } = ctx.input.body;
+
+    const { apiKey, apiBase, model, fallbackModel } = getModelConfig(true);
+
+    if (!apiKey || !apiBase || !model) {
+      ctx.throw(InvalidRequestError("AI configuration is incomplete"));
+    }
+
+    try {
+      // Import models dynamically
+      const { Document } = await import("@server/models");
+      const { DocumentHelper } = await import(
+        "@server/models/helpers/DocumentHelper"
+      );
+      const SearchHelper = (await import("@server/models/helpers/SearchHelper"))
+        .default;
+
+      // Search for relevant documents
+      let documentIds = undefined;
+      if (documentId) {
+        const document = await Document.findByPk(documentId, {
+          userId: user.id,
+        });
+        if (document) {
+          documentIds = [
+            documentId,
+            ...(await document.findAllChildDocumentIds()),
+          ];
+        }
+      }
+
+      const searchOptions = {
+        query,
+        collectionId: collectionId || undefined,
+        dateFilter: dateFilter || undefined,
+        statusFilter: statusFilter || undefined,
+        limit: maxDocuments,
+        collaboratorIds: userId ? [userId] : undefined,
+        documentIds,
+      };
+
+      Logger.info("utils", "AI search options", {
+        searchOptions,
+        userId: user.id,
+      });
+
+      const searchResults = await SearchHelper.searchForUser(
+        user,
+        searchOptions
+      );
+
+      Logger.info("utils", "AI search results", {
+        resultCount: searchResults.results.length,
+        total: searchResults.total,
+      });
+
+      if (!searchResults.results.length) {
+        ctx.body = {
+          data: {
+            answer:
+              "I couldn't find any relevant documents to answer your question. Please try a different search query or check if you have access to the documents you're looking for.",
+            sources: [],
+          },
+        };
+        return;
+      }
+
+      // Fetch full document content for top results
+      const resultDocumentIds = searchResults.results.map(
+        (r: { document: { id: string } }) => r.document.id
+      );
+      const documents = await Document.findAll({
+        where: {
+          id: resultDocumentIds,
+          teamId: user.teamId,
+        },
+      });
+
+      // Build context from search results
+      const contextParts = documents.map((doc, index) => {
+        const markdown = DocumentHelper.toMarkdown(doc);
+        const result = searchResults.results[index];
+        return `## Document ${index + 1}: ${doc.title}
+Document ID: ${doc.id}
+Collection: ${doc.collection?.name || "N/A"}
+URL: ${doc.url}
+${result.context ? `\nRelevant excerpt:\n${result.context}\n` : ""}
+Full content:
+${markdown}`;
+      });
+
+      const context = contextParts.join("\n\n---\n\n");
+
+      // Build sources list
+      const sources = documents.map((doc) => ({
+        id: doc.id,
+        title: doc.title,
+        url: doc.url,
+        collectionId: doc.collectionId,
+      }));
+
+      // Generate AI answer
+      const trimmedBase = apiBase.replace(/\/$/, "");
+      const endpoint = /\/chat\/completions$/i.test(trimmedBase)
+        ? trimmedBase
+        : `${trimmedBase}/chat/completions`;
+
+      // Determine the language instruction
+      const languageInstruction = language
+        ? `IMPORTANT: Answer in ${language === "zh_CN" || language === "zh-CN" ? "Chinese (Simplified)" : language === "zh_TW" || language === "zh-TW" ? "Chinese (Traditional)" : language.replace("_", "-")}. `
+        : "";
+
+      const systemPrompt = `You are a concise knowledge base assistant. Answer questions ONLY based on the provided documents.
+
+CRITICAL RULES:
+1. ${languageInstruction}Maximum 150 words - be extremely concise
+2. ONLY use information from the provided documents - do not add external knowledge
+3. If the documents don't contain the answer, clearly state "The provided documents don't contain information about this"
+4. Use simple, clear language - avoid complex formatting
+5. Reference documents using: [Document Title](doc-id)
+6. Use bullet points for lists, but avoid tables and complex structures
+
+The user's question is: "${query}"
+
+Here are the relevant documents:
+
+${context}`;
+
+      const messages = [
+        {
+          role: "system",
+          content: systemPrompt,
+        },
+        {
+          role: "user",
+          content: query,
+        },
+      ];
+
+      let currentModel = model;
+
+      const makeRequest = async (modelToUse: string) => {
+        const requestBody = JSON.stringify({
+          model: modelToUse,
+          messages,
+        });
+
+        Logger.info("utils", "AI Search LLM request", {
+          model: modelToUse,
+          endpoint,
+          requestLength: requestBody.length,
+          messageCount: messages.length,
+          contextLength: context.length,
+          query,
+          userId: user.id,
+        });
+
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: requestBody,
+        });
+
+        let payload: unknown = undefined;
+        const raw = await response.text();
+        try {
+          payload = raw ? JSON.parse(raw) : undefined;
+        } catch (error) {
+          const parseError =
+            error instanceof Error ? error : new Error(String(error));
+          Logger.error("Failed parsing AI provider response", parseError, {
+            raw,
+            model: modelToUse,
+          });
+        }
+
+        if (!response.ok) {
+          const errorPayload = payload as {
+            error?: { message?: string };
+            message?: string;
+          };
+
+          const message =
+            errorPayload?.error?.message ||
+            errorPayload?.message ||
+            `Request failed with status ${response.status}`;
+
+          // Check if it's a rate limit error and we have a fallback model
+          if (
+            fallbackModel &&
+            modelToUse !== fallbackModel &&
+            isRateLimitError(response.status, message)
+          ) {
+            Logger.warn(
+              `Rate limit hit for model ${modelToUse}, retrying with fallback model ${fallbackModel}`,
+              {
+                primaryModel: modelToUse,
+                fallbackModel,
+                status: response.status,
+                userId: user.id,
+              }
+            );
+            return { shouldRetry: true, error: message };
+          }
+
+          Logger.error("AI search request failed", new Error(message), {
+            endpoint,
+            status: response.status,
+            payload,
+            model: modelToUse,
+            userId: user.id,
+          });
+
+          return { shouldRetry: false, error: message };
+        }
+
+        const responseBody = payload as {
+          choices?: ChatCompletionChoice[];
+        };
+
+        if (!responseBody?.choices?.length) {
+          Logger.error(
+            "AI search returned empty response",
+            new Error("No choices"),
+            {
+              model: modelToUse,
+              userId: user.id,
+            }
+          );
+          return {
+            shouldRetry: false,
+            error: "AI provider returned an empty response",
+          };
+        }
+
+        const answer = parseAiResponse(responseBody.choices[0])
+          .replace(/\r/g, "")
+          .trim();
+
+        if (!answer) {
+          Logger.error(
+            "AI search returned empty answer",
+            new Error("Empty answer"),
+            {
+              model: modelToUse,
+              userId: user.id,
+            }
+          );
+          return {
+            shouldRetry: false,
+            error: "AI provider returned an empty response",
+          };
+        }
+
+        Logger.info("utils", "AI Search LLM response", {
+          model: modelToUse,
+          answerLength: answer.length,
+          sourceCount: sources.length,
+          userId: user.id,
+        });
+
+        return { shouldRetry: false, answer };
+      };
+
+      // Try with primary model
+      let result = await makeRequest(currentModel);
+
+      // Retry with fallback if needed
+      if (result.shouldRetry && fallbackModel) {
+        currentModel = fallbackModel;
+        result = await makeRequest(currentModel);
+      }
+
+      if (result.error) {
+        ctx.throw(InvalidRequestError(result.error));
+      }
+
+      ctx.body = {
+        data: {
+          answer: result.answer,
+          sources,
+        },
+      };
+    } catch (error: unknown) {
+      const wrappedError =
+        error instanceof Error ? error : new Error(String(error));
+      Logger.error("AI search failed", wrappedError);
+      ctx.throw(
+        InvalidRequestError("Sorry, something went wrong during AI search")
+      );
+    }
+  }
+);
+
+router.post(
+  "ai.generate",
+  auth(),
+  validate(T.AiGenerateSchema),
+  async (ctx: APIContext<T.AiGenerateReq>) => {
+    const { user } = ctx.state.auth;
+    const prompt = trim(ctx.input.body.prompt ?? "");
+    const context = trim(ctx.input.body.context ?? "");
+    const mentionedDocumentIds = ctx.input.body.mentionedDocumentIds ?? [];
+
+    if (!prompt) {
+      ctx.throw(InvalidRequestError("Prompt is required"));
+    }
+
+    const { apiKey, apiBase, model, fallbackModel } = getModelConfig(false);
 
     if (!apiKey || !apiBase || !model) {
       ctx.throw(InvalidRequestError("AI configuration is incomplete"));
@@ -120,10 +471,36 @@ router.post(
       : `${trimmedBase}/chat/completions`;
 
     try {
-      const instructions =
+      let instructions =
         "You write Markdown for the Outline editor. " +
         "Always emit valid Markdown that renders correctly, and never wrap all output in triple backticks unless required. " +
         "When asked for a diagram, respond with a fenced mermaid code block using ```mermaid and omit any surrounding text.";
+
+      // Fetch mentioned documents and add them to the system prompt
+      if (mentionedDocumentIds.length > 0) {
+        const { Document } = await import("@server/models");
+        const { DocumentHelper } = await import(
+          "@server/models/helpers/DocumentHelper"
+        );
+
+        const documents = await Document.findAll({
+          where: {
+            id: mentionedDocumentIds,
+            teamId: user.teamId,
+          },
+        });
+
+        if (documents.length > 0) {
+          const mentionedContent = documents
+            .map((doc) => {
+              const markdown = DocumentHelper.toMarkdown(doc);
+              return `## Referenced Document: ${doc.title}\n\n${markdown}`;
+            })
+            .join("\n\n---\n\n");
+
+          instructions += `\n\nThe user has mentioned the following documents for reference:\n\n${mentionedContent}`;
+        }
+      }
 
       const messages = [
         {
@@ -133,7 +510,7 @@ router.post(
         context
           ? {
               role: "assistant",
-              content: `Context:\n${context}`,
+              content: context,
             }
           : undefined,
         {
@@ -142,73 +519,150 @@ router.post(
         },
       ].filter(Boolean) as Array<{ role: string; content: string }>;
 
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
+      let currentModel = model;
+
+      const makeRequest = async (modelToUse: string) => {
+        const requestBody = JSON.stringify({
+          model: modelToUse,
           messages,
-        }),
-      });
-
-      let payload: unknown = undefined;
-      const raw = await response.text();
-      try {
-        payload = raw ? JSON.parse(raw) : undefined;
-      } catch (error) {
-        const parseError =
-          error instanceof Error ? error : new Error(String(error));
-        Logger.error("Failed parsing AI provider response", parseError, {
-          raw,
         });
-      }
 
-      if (!response.ok) {
-        const errorPayload = payload as {
-          error?: { message?: string };
-          message?: string;
+        Logger.info("utils", "AI Generate LLM request", {
+          model: modelToUse,
+          endpoint,
+          requestLength: requestBody.length,
+          messageCount: messages.length,
+          promptLength: prompt.length,
+          contextLength: context.length,
+          mentionedDocumentCount: mentionedDocumentIds.length,
+          userId: user.id,
+        });
+
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: requestBody,
+        });
+
+        let payload: unknown = undefined;
+        const raw = await response.text();
+        try {
+          payload = raw ? JSON.parse(raw) : undefined;
+        } catch (error) {
+          const parseError =
+            error instanceof Error ? error : new Error(String(error));
+          Logger.error("Failed parsing AI provider response", parseError, {
+            raw,
+            model: modelToUse,
+          });
+        }
+
+        if (!response.ok) {
+          const errorPayload = payload as {
+            error?: { message?: string };
+            message?: string;
+          };
+
+          const message =
+            errorPayload?.error?.message ||
+            errorPayload?.message ||
+            `Request failed with status ${response.status}`;
+
+          // Check if it's a rate limit error and we have a fallback model
+          if (
+            fallbackModel &&
+            modelToUse !== fallbackModel &&
+            isRateLimitError(response.status, message)
+          ) {
+            Logger.warn(
+              `Rate limit hit for model ${modelToUse}, retrying with fallback model ${fallbackModel}`,
+              {
+                primaryModel: modelToUse,
+                fallbackModel,
+                status: response.status,
+                userId: user.id,
+              }
+            );
+            return { shouldRetry: true, error: message };
+          }
+
+          Logger.error("AI provider request failed", new Error(message), {
+            endpoint,
+            status: response.status,
+            payload,
+            model: modelToUse,
+            userId: user.id,
+          });
+
+          return { shouldRetry: false, error: message };
+        }
+
+        const responseBody = payload as {
+          choices?: ChatCompletionChoice[];
         };
 
-        const message =
-          errorPayload?.error?.message ||
-          errorPayload?.message ||
-          `Request failed with status ${response.status}`;
+        if (!responseBody?.choices?.length) {
+          Logger.error(
+            "AI generate returned empty response",
+            new Error("No choices"),
+            {
+              model: modelToUse,
+              userId: user.id,
+            }
+          );
+          return {
+            shouldRetry: false,
+            error: "AI provider returned an empty response",
+          };
+        }
 
-        Logger.error("AI provider request failed", new Error(message), {
-          endpoint,
-          status: response.status,
-          payload,
+        const normalized = parseAiResponse(responseBody.choices[0])
+          .replace(/\r/g, "")
+          .trim();
+
+        if (!normalized) {
+          Logger.error(
+            "AI generate returned empty text",
+            new Error("Empty text"),
+            {
+              model: modelToUse,
+              userId: user.id,
+            }
+          );
+          return {
+            shouldRetry: false,
+            error: "AI provider returned an empty response",
+          };
+        }
+
+        Logger.info("utils", "AI Generate LLM response", {
+          model: modelToUse,
+          responseLength: normalized.length,
+          userId: user.id,
         });
 
-        ctx.throw(InvalidRequestError(message));
-      }
-
-      const responseBody = payload as {
-        choices?: ChatCompletionChoice[];
+        return { shouldRetry: false, text: normalized };
       };
 
-      if (!responseBody?.choices?.length) {
-        ctx.throw(
-          InvalidRequestError("AI provider returned an empty response")
-        );
+      // Try with primary model
+      let result = await makeRequest(currentModel);
+
+      // Retry with fallback if needed
+      if (result.shouldRetry && fallbackModel) {
+        currentModel = fallbackModel;
+        result = await makeRequest(currentModel);
       }
 
-      const normalized = parseAiResponse(responseBody.choices[0])
-        .replace(/\r/g, "")
-        .trim();
-
-      if (!normalized) {
-        ctx.throw(
-          InvalidRequestError("AI provider returned an empty response")
-        );
+      if (result.error) {
+        ctx.throw(InvalidRequestError(result.error));
       }
 
       ctx.body = {
         data: {
-          text: normalized,
+          text: result.text,
         },
       };
     } catch (error: unknown) {
