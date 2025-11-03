@@ -20,12 +20,14 @@ export async function getVersionInfo(currentVersion: string): Promise<{
 
   // Continue fetching pages until the required versions are found or no more pages
   while (nextUrl) {
-    const response = await fetch(nextUrl);
+    const response = await fetch(nextUrl, {
+      timeout: 5000, // 5 秒超时
+    });
     const data = await response.json();
 
     // Map and filter the versions to keep only full releases
     const pageVersions = data.results
-      .map((result: any) => result.name)
+      .map((result: { name: string }) => result.name)
       .filter(isFullReleaseVersion);
 
     allVersions = allVersions.concat(pageVersions);
