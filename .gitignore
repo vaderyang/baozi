@@ -16,4 +16,6 @@ data/*
 *.cert
 docker.env
 .venv
+**/deploy.log
+**/__pycache__
 

@@ -2,6 +2,7 @@ import json
 import os
 import threading
 import subprocess
+from collections import deque
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -38,8 +39,16 @@ def _log_write(message: str):
         print(message)
 
 
-def _stream_cmd(cmd, cwd=None, env=None, label: str = "cmd") -> int:
+def _stream_cmd(cmd, cwd=None, env=None, label: str = "cmd", collect_tail: int = 0):
+    """
+    Stream command output to deploy.log. Optionally collect the last N lines
+    and include them in the return value for error summarization.
+
+    Returns either an int (returncode) when collect_tail == 0,
+    or a tuple (returncode, tail_lines: list[str]) when collect_tail > 0.
+    """
     _log_write(f"[{label}] starting: {' '.join(cmd)} (cwd={cwd})")
+    tail_buf = deque(maxlen=collect_tail) if collect_tail and collect_tail > 0 else None
     try:
         proc = subprocess.Popen(
             cmd,
@@ -52,12 +61,21 @@ def _stream_cmd(cmd, cwd=None, env=None, label: str = "cmd") -> int:
         )
         assert proc.stdout is not None
         for line in proc.stdout:
-            _log_write(f"[{label}] {line.rstrip()}" )
+            line = line.rstrip()
+            if tail_buf is not None:
+                tail_buf.append(line)
+            _log_write(f"[{label}] {line}")
         proc.wait()
         _log_write(f"[{label}] finished with code {proc.returncode}")
+        if tail_buf is not None:
+            return proc.returncode, list(tail_buf)
         return proc.returncode
     except Exception as e:
-        _log_write(f"[{label}] exception: {e}")
+        msg = str(e)
+        _log_write(f"[{label}] exception: {msg}")
+        if tail_buf is not None:
+            tail_buf.append(f"exception: {msg}")
+            return 1, list(tail_buf)
         return 1
 
 
@@ -73,8 +91,14 @@ def run_deploy():
             "pull",
             "--rebase",
         ]
-        rc = _stream_cmd(git_cmd, cwd=REPO_DIR, env=os.environ, label="git")
+        git_result = _stream_cmd(git_cmd, cwd=REPO_DIR, env=os.environ, label="git", collect_tail=50)
+        if isinstance(git_result, tuple):
+            rc, tail = git_result
+        else:
+            rc, tail = git_result, []
         if rc != 0:
+            last_err = next((l for l in reversed(tail) if l.strip()), "unknown error")
+            _log_write(f"[deploy] git pull failed (rc={rc}): {last_err}")
             _log_write("[deploy] aborting deploy due to git pull failure")
             return
 
@@ -83,11 +107,16 @@ def run_deploy():
             _log_write(f"[deploy] build script not found at {PROD_SCRIPT_PATH}")
             return
 
-        rc = _stream_cmd(["bash", BUILD_SCRIPT_NAME], cwd=COMPOSE_PROJECT_DIR, env=os.environ, label="build")
+        build_result = _stream_cmd(["bash", BUILD_SCRIPT_NAME], cwd=COMPOSE_PROJECT_DIR, env=os.environ, label="build", collect_tail=50)
+        if isinstance(build_result, tuple):
+            rc, tail = build_result
+        else:
+            rc, tail = build_result, []
         if rc == 0:
             _log_write("[deploy] deploy pipeline finished successfully")
         else:
-            _log_write(f"[deploy] build script failed with code {rc}")
+            last_err = next((l for l in reversed(tail) if l.strip()), "unknown error")
+            _log_write(f"[deploy] build failed (rc={rc}): {last_err}")
     finally:
         # 结束部署状态
         with DEPLOY_LOCK:

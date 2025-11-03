@@ -1,6 +1,0 @@
-[2025-11-03T09:04:22.019477Z] [deploy] starting deploy pipeline...
-[2025-11-03T09:04:22.019811Z] [git] starting: git -c core.sshCommand=ssh -i ~/.ssh/id_ed25519_netis -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new pull --rebase (cwd=/home/drill/outline)
-[2025-11-03T09:04:22.048014Z] [git] error: cannot pull with rebase: You have unstaged changes.
-[2025-11-03T09:04:22.049395Z] [git] error: please commit or stash them.
-[2025-11-03T09:04:22.050322Z] [git] finished with code 128
-[2025-11-03T09:04:22.050601Z] [deploy] aborting deploy due to git pull failure
