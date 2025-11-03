@@ -396,6 +396,12 @@ ${context}`;
         Connection: "keep-alive",
       });
 
+      // Tell Koa we're handling the response manually
+      ctx.respond = false;
+
+      // Set status code
+      ctx.status = 200;
+
       // Send sources first
       ctx.res.write(
         `data: ${JSON.stringify({ type: "sources", sources })}\n\n`
