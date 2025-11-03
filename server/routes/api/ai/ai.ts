@@ -290,16 +290,28 @@ ${context}`;
       let currentModel = model;
 
       const makeRequest = async (modelToUse: string) => {
+        const requestBody = JSON.stringify({
+          model: modelToUse,
+          messages,
+        });
+
+        Logger.info("utils", "AI Search LLM request", {
+          model: modelToUse,
+          endpoint,
+          requestLength: requestBody.length,
+          messageCount: messages.length,
+          contextLength: context.length,
+          query,
+          userId: user.id,
+        });
+
         const response = await fetch(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${apiKey}`,
           },
-          body: JSON.stringify({
-            model: modelToUse,
-            messages,
-          }),
+          body: requestBody,
         });
 
         let payload: unknown = undefined;
@@ -311,6 +323,7 @@ ${context}`;
             error instanceof Error ? error : new Error(String(error));
           Logger.error("Failed parsing AI provider response", parseError, {
             raw,
+            model: modelToUse,
           });
         }
 
@@ -332,7 +345,13 @@ ${context}`;
             isRateLimitError(response.status, message)
           ) {
             Logger.warn(
-              `Rate limit hit for model ${modelToUse}, retrying with fallback model ${fallbackModel}`
+              `Rate limit hit for model ${modelToUse}, retrying with fallback model ${fallbackModel}`,
+              {
+                primaryModel: modelToUse,
+                fallbackModel,
+                status: response.status,
+                userId: user.id,
+              }
             );
             return { shouldRetry: true, error: message };
           }
@@ -342,6 +361,7 @@ ${context}`;
             status: response.status,
             payload,
             model: modelToUse,
+            userId: user.id,
           });
 
           return { shouldRetry: false, error: message };
@@ -352,6 +372,14 @@ ${context}`;
         };
 
         if (!responseBody?.choices?.length) {
+          Logger.error(
+            "AI search returned empty response",
+            new Error("No choices"),
+            {
+              model: modelToUse,
+              userId: user.id,
+            }
+          );
           return {
             shouldRetry: false,
             error: "AI provider returned an empty response",
@@ -363,11 +391,26 @@ ${context}`;
           .trim();
 
         if (!answer) {
+          Logger.error(
+            "AI search returned empty answer",
+            new Error("Empty answer"),
+            {
+              model: modelToUse,
+              userId: user.id,
+            }
+          );
           return {
             shouldRetry: false,
             error: "AI provider returned an empty response",
           };
         }
+
+        Logger.info("utils", "AI Search LLM response", {
+          model: modelToUse,
+          answerLength: answer.length,
+          sourceCount: sources.length,
+          userId: user.id,
+        });
 
         return { shouldRetry: false, answer };
       };
@@ -479,16 +522,29 @@ router.post(
       let currentModel = model;
 
       const makeRequest = async (modelToUse: string) => {
+        const requestBody = JSON.stringify({
+          model: modelToUse,
+          messages,
+        });
+
+        Logger.info("utils", "AI Generate LLM request", {
+          model: modelToUse,
+          endpoint,
+          requestLength: requestBody.length,
+          messageCount: messages.length,
+          promptLength: prompt.length,
+          contextLength: context.length,
+          mentionedDocumentCount: mentionedDocumentIds.length,
+          userId: user.id,
+        });
+
         const response = await fetch(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${apiKey}`,
           },
-          body: JSON.stringify({
-            model: modelToUse,
-            messages,
-          }),
+          body: requestBody,
         });
 
         let payload: unknown = undefined;
@@ -500,6 +556,7 @@ router.post(
             error instanceof Error ? error : new Error(String(error));
           Logger.error("Failed parsing AI provider response", parseError, {
             raw,
+            model: modelToUse,
           });
         }
 
@@ -521,7 +578,13 @@ router.post(
             isRateLimitError(response.status, message)
           ) {
             Logger.warn(
-              `Rate limit hit for model ${modelToUse}, retrying with fallback model ${fallbackModel}`
+              `Rate limit hit for model ${modelToUse}, retrying with fallback model ${fallbackModel}`,
+              {
+                primaryModel: modelToUse,
+                fallbackModel,
+                status: response.status,
+                userId: user.id,
+              }
             );
             return { shouldRetry: true, error: message };
           }
@@ -531,6 +594,7 @@ router.post(
             status: response.status,
             payload,
             model: modelToUse,
+            userId: user.id,
           });
 
           return { shouldRetry: false, error: message };
@@ -541,6 +605,14 @@ router.post(
         };
 
         if (!responseBody?.choices?.length) {
+          Logger.error(
+            "AI generate returned empty response",
+            new Error("No choices"),
+            {
+              model: modelToUse,
+              userId: user.id,
+            }
+          );
           return {
             shouldRetry: false,
             error: "AI provider returned an empty response",
@@ -552,11 +624,25 @@ router.post(
           .trim();
 
         if (!normalized) {
+          Logger.error(
+            "AI generate returned empty text",
+            new Error("Empty text"),
+            {
+              model: modelToUse,
+              userId: user.id,
+            }
+          );
           return {
             shouldRetry: false,
             error: "AI provider returned an empty response",
           };
         }
+
+        Logger.info("utils", "AI Generate LLM response", {
+          model: modelToUse,
+          responseLength: normalized.length,
+          userId: user.id,
+        });
 
         return { shouldRetry: false, text: normalized };
       };
