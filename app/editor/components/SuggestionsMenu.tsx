@@ -15,16 +15,17 @@ import { MenuItem } from "@shared/editor/types";
 import { depths, s } from "@shared/styles";
 import { getEventFiles } from "@shared/utils/files";
 import { AttachmentValidation } from "@shared/validations";
-import Button from "~/components/Button";
 import { TextSelection } from "prosemirror-state";
 import { Portal } from "~/components/Portal";
 import Scrollable from "~/components/Scrollable";
 import useDictionary from "~/hooks/useDictionary";
+import useStores from "~/hooks/useStores";
 import { client } from "~/utils/ApiClient";
 import Logger from "~/utils/Logger";
 import { useEditor } from "./EditorContext";
 import Input from "./Input";
 import { MenuHeader } from "~/components/primitives/components/Menu";
+import AiPromptInput from "./AiPromptInput";
 
 type TopAnchor = {
   top: number;
@@ -87,6 +88,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
   const editor = useEditor();
   const { view, commands, props: editorProps } = editor;
   const dictionary = useDictionary();
+  const { comments } = useStores();
   const { t } = useTranslation();
   const hasActivated = React.useRef(false);
   const pointerRef = React.useRef<{ clientX: number; clientY: number }>({
@@ -104,19 +106,12 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
   );
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
-  const promptInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     if (props.isActive) {
       hasActivated.current = true;
     }
   }, [props.isActive]);
-
-  React.useEffect(() => {
-    if (insertMode === "ai") {
-      promptInputRef.current?.focus();
-    }
-  }, [insertMode]);
 
   const calculatePosition = React.useCallback(() => {
     if (!props.isActive) {
@@ -235,6 +230,33 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     setSelectedIndex(0);
   }, [props.search]);
 
+  const recordAiPromptComment = React.useCallback(
+    async (source: string, promptValue: string) => {
+      const documentId = editorProps.id;
+      const trimmedPrompt = promptValue.trim();
+
+      if (
+        !comments ||
+        !documentId ||
+        !trimmedPrompt ||
+        editorProps.readOnly ||
+        editorProps.canComment === false
+      ) {
+        return;
+      }
+
+      try {
+        await comments.create({
+          documentId,
+          text: `${source}: ${trimmedPrompt}`,
+        });
+      } catch (error) {
+        Logger.warn("Failed to record AI prompt comment", error);
+      }
+    },
+    [comments, editorProps.canComment, editorProps.id, editorProps.readOnly]
+  );
+
   const close = React.useCallback(() => {
     setInsertItem(undefined);
     setInsertMode("none");
@@ -285,13 +307,15 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       requirePrompt = true,
       placeholderRange,
       skipClearSearch = false,
+      mentionedDocumentIds = [],
     }: {
       prompt: string;
       context?: string;
       requirePrompt?: boolean;
       placeholderRange?: { from: number; to: number };
       skipClearSearch?: boolean;
-    }) => {
+      mentionedDocumentIds?: string[];
+    }): Promise<boolean> => {
       const trimmedPrompt = prompt.trim();
 
       const cleanupPlaceholder = () => {
@@ -324,7 +348,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
 
       if (requirePrompt && !trimmedPrompt) {
         toast.error(dictionary.aiPromptRequired);
-        return;
+        return false;
       }
 
       if (!skipClearSearch) {
@@ -336,7 +360,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       try {
         const result = await client.post<{ data: { text?: string } }>(
           "/ai.generate",
-          { prompt: trimmedPrompt, context },
+          { prompt: trimmedPrompt, context, mentionedDocumentIds },
           { retry: false }
         );
 
@@ -345,7 +369,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         if (!normalized) {
           cleanupPlaceholder();
           toast.error(dictionary.aiGenerationFailed);
-          return;
+          return false;
         }
 
         const stateForInsert = view.state;
@@ -406,6 +430,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         }
 
         close();
+        return true;
       } catch (error) {
         cleanupPlaceholder();
 
@@ -414,6 +439,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         Logger.error("AI text generation failed", wrappedError);
         const message = wrappedError.message || dictionary.aiGenerationFailed;
         toast.error(message);
+        return false;
       } finally {
         setIsGenerating(false);
       }
@@ -457,8 +483,6 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       "Finish any partial sentence first, then extend the idea in the same tone. Don't repeat the last line in context.",
       "Mirror the existing structure—use headings, lists, code, mermaid, table, or checkboxes when they fit, and avoid restating instructions.",
       "Return Markdown only with no surrounding commentary.",
-      "",
-      `Context:\n${context}`,
     ]
       .join("\n")
       .trim();
@@ -615,7 +639,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
   };
 
   const handlePromptSubmit = React.useCallback(
-    async (promptValue: string) => {
+    async (promptValue: string, mentionedDocumentIds: string[] = []) => {
       const trimmedPrompt = promptValue.trim();
 
       if (!trimmedPrompt) {
@@ -639,57 +663,37 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         Math.max(0, sanitizedDocText.length - 2000)
       );
 
-      await generateAiText({
+      const success = await generateAiText({
         prompt: trimmedPrompt,
         context,
         requirePrompt: false,
+        mentionedDocumentIds,
       });
+
+      if (success) {
+        void recordAiPromptComment(dictionary.generateText, trimmedPrompt);
+      }
     },
     [
       dictionary.aiPromptRequired,
+      dictionary.generateText,
       generateAiText,
+      recordAiPromptComment,
       props.search,
       props.trigger,
       view,
     ]
   );
 
-  const handlePromptFormSubmit = React.useCallback(
-    (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-
+  const handleAiPromptSubmit = React.useCallback(
+    (promptValue: string, mentionedDocumentIds: string[]) => {
       if (isGenerating) {
         return;
       }
-
-      if (promptInputRef.current) {
-        void handlePromptSubmit(promptInputRef.current.value);
-      }
+      void handlePromptSubmit(promptValue, mentionedDocumentIds);
     },
     [handlePromptSubmit, isGenerating]
   );
-
-  const handlePromptKeyDown = (
-    event: React.KeyboardEvent<HTMLInputElement>
-  ) => {
-    if (event.nativeEvent.isComposing) {
-      return;
-    }
-
-    if (!props.isActive) {
-      return;
-    }
-
-    if (event.key === "Enter") {
-      event.stopPropagation();
-    }
-
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      close();
-    }
-  };
 
   const handleFilesPicked = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -944,22 +948,11 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
                 />
               </LinkInputWrapper>
             ) : insertMode === "ai" && insertItem ? (
-              <PromptWrapper>
-                <PromptForm onSubmit={handlePromptFormSubmit}>
-                  <PromptInput
-                    ref={promptInputRef}
-                    placeholder={dictionary.aiPromptPlaceholder}
-                    onKeyDown={handlePromptKeyDown}
-                    disabled={isGenerating}
-                    autoFocus
-                  />
-                  <PromptButton type="submit" disabled={isGenerating}>
-                    {isGenerating
-                      ? dictionary.aiGenerating
-                      : dictionary.aiGenerateButton}
-                  </PromptButton>
-                </PromptForm>
-              </PromptWrapper>
+              <AiPromptInput
+                onSubmit={handleAiPromptSubmit}
+                disabled={isGenerating}
+                autoFocus
+              />
             ) : (
               <List>
                 {items.map((item, index) => {
@@ -1061,29 +1054,6 @@ const LinkInput = styled(Input)`
   height: 32px;
   width: 100%;
   color: ${s("textSecondary")};
-`;
-
-const PromptWrapper = styled.div`
-  margin: 8px;
-`;
-
-const PromptForm = styled.form`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-`;
-
-const PromptInput = styled(Input)`
-  flex: 1;
-  height: 36px;
-  font-size: 15px;
-  padding: 0 14px;
-`;
-
-const PromptButton = styled(Button)`
-  height: 36px;
-  padding: 0 14px;
-  white-space: nowrap;
 `;
 
 const List = styled.ol`
