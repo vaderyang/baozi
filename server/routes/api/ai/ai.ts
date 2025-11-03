@@ -293,6 +293,7 @@ ${context}`;
         const requestBody = JSON.stringify({
           model: modelToUse,
           messages,
+          stream: true,
         });
 
         Logger.info("utils", "AI Search LLM request", {
@@ -314,20 +315,20 @@ ${context}`;
           body: requestBody,
         });
 
-        let payload: unknown = undefined;
-        const raw = await response.text();
-        try {
-          payload = raw ? JSON.parse(raw) : undefined;
-        } catch (error) {
-          const parseError =
-            error instanceof Error ? error : new Error(String(error));
-          Logger.error("Failed parsing AI provider response", parseError, {
-            raw,
-            model: modelToUse,
-          });
-        }
-
         if (!response.ok) {
+          const raw = await response.text();
+          let payload: unknown = undefined;
+          try {
+            payload = raw ? JSON.parse(raw) : undefined;
+          } catch (error) {
+            const parseError =
+              error instanceof Error ? error : new Error(String(error));
+            Logger.error("Failed parsing AI provider response", parseError, {
+              raw,
+              model: modelToUse,
+            });
+          }
+
           const errorPayload = payload as {
             error?: { message?: string };
             message?: string;
@@ -367,52 +368,8 @@ ${context}`;
           return { shouldRetry: false, error: message };
         }
 
-        const responseBody = payload as {
-          choices?: ChatCompletionChoice[];
-        };
-
-        if (!responseBody?.choices?.length) {
-          Logger.error(
-            "AI search returned empty response",
-            new Error("No choices"),
-            {
-              model: modelToUse,
-              userId: user.id,
-            }
-          );
-          return {
-            shouldRetry: false,
-            error: "AI provider returned an empty response",
-          };
-        }
-
-        const answer = parseAiResponse(responseBody.choices[0])
-          .replace(/\r/g, "")
-          .trim();
-
-        if (!answer) {
-          Logger.error(
-            "AI search returned empty answer",
-            new Error("Empty answer"),
-            {
-              model: modelToUse,
-              userId: user.id,
-            }
-          );
-          return {
-            shouldRetry: false,
-            error: "AI provider returned an empty response",
-          };
-        }
-
-        Logger.info("utils", "AI Search LLM response", {
-          model: modelToUse,
-          answerLength: answer.length,
-          sourceCount: sources.length,
-          userId: user.id,
-        });
-
-        return { shouldRetry: false, answer };
+        // Return the stream for the caller to handle
+        return { shouldRetry: false, stream: response.body };
       };
 
       // Try with primary model
@@ -428,12 +385,82 @@ ${context}`;
         ctx.throw(InvalidRequestError(result.error));
       }
 
-      ctx.body = {
-        data: {
-          answer: result.answer,
-          sources,
-        },
-      };
+      if (!result.stream) {
+        ctx.throw(InvalidRequestError("No stream returned from AI provider"));
+      }
+
+      // Set up SSE headers
+      ctx.set({
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+
+      // Send sources first
+      ctx.res.write(
+        `data: ${JSON.stringify({ type: "sources", sources })}\n\n`
+      );
+
+      // Stream the answer
+      const reader = result.stream.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine || trimmedLine === "data: [DONE]") {
+              continue;
+            }
+
+            if (trimmedLine.startsWith("data: ")) {
+              const jsonStr = trimmedLine.slice(6);
+              try {
+                const parsed = JSON.parse(jsonStr);
+                const delta =
+                  parsed.choices?.[0]?.delta?.content ||
+                  parsed.choices?.[0]?.text ||
+                  "";
+
+                if (delta) {
+                  ctx.res.write(
+                    `data: ${JSON.stringify({ type: "content", content: delta })}\n\n`
+                  );
+                }
+              } catch {
+                // Skip invalid JSON
+              }
+            }
+          }
+        }
+
+        // Send completion event
+        ctx.res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+        ctx.res.end();
+
+        Logger.info("utils", "AI Search streaming completed", {
+          model: currentModel,
+          sourceCount: sources.length,
+          userId: user.id,
+        });
+      } catch (streamError) {
+        Logger.error("Stream processing error", streamError as Error);
+        ctx.res.write(
+          `data: ${JSON.stringify({ type: "error", error: "Stream processing failed" })}\n\n`
+        );
+        ctx.res.end();
+      }
     } catch (error: unknown) {
       const wrappedError =
         error instanceof Error ? error : new Error(String(error));

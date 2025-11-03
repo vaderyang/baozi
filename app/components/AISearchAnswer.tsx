@@ -7,7 +7,7 @@ import MarkdownIt from "markdown-it";
 import { s } from "@shared/styles";
 import Flex from "~/components/Flex";
 import Text from "~/components/Text";
-import { client } from "~/utils/ApiClient";
+
 import { SearchParams } from "~/stores/DocumentsStore";
 import LoadingIndicator from "./LoadingIndicator";
 
@@ -67,20 +67,89 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
 
       setLoading(true);
       setError(null);
+      setResult(null);
 
       try {
-        const response = await client.post("/ai.search", {
-          query: searchParams.query,
-          collectionId: searchParams.collectionId || undefined,
-          userId: searchParams.userId || undefined,
-          dateFilter: searchParams.dateFilter || undefined,
-          statusFilter: searchParams.statusFilter,
-          maxDocuments: 5,
-          language: i18n.language,
+        const response = await fetch("/api/ai.search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            query: searchParams.query,
+            collectionId: searchParams.collectionId || undefined,
+            userId: searchParams.userId || undefined,
+            dateFilter: searchParams.dateFilter || undefined,
+            statusFilter: searchParams.statusFilter,
+            maxDocuments: 5,
+            language: i18n.language,
+          }),
         });
 
-        if (response?.data) {
-          setResult(response.data);
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error("No response body");
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let streamingSources: AISearchResult["sources"] = [];
+        let streamingAnswer = "";
+
+        setLoading(false);
+
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine || !trimmedLine.startsWith("data: ")) {
+              continue;
+            }
+
+            const jsonStr = trimmedLine.slice(6);
+            try {
+              const event = JSON.parse(jsonStr);
+
+              if (event.type === "sources") {
+                streamingSources = event.sources;
+                setResult({
+                  answer: "",
+                  sources: streamingSources,
+                });
+              } else if (event.type === "content") {
+                streamingAnswer += event.content;
+                setResult({
+                  answer: streamingAnswer,
+                  sources: streamingSources,
+                });
+              } else if (event.type === "error") {
+                throw new Error(event.error || "Stream error");
+              } else if (event.type === "done") {
+                // Stream complete
+                break;
+              }
+            } catch (e) {
+              if (e instanceof Error && e.message.includes("Stream error")) {
+                throw e;
+              }
+              // Skip invalid JSON
+            }
+          }
         }
       } catch (err) {
         setError(
@@ -88,7 +157,6 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
             ? err.message
             : "Failed to generate AI answer. Please try again."
         );
-      } finally {
         setLoading(false);
       }
     };
