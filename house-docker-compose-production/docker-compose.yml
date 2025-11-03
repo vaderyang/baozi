@@ -1,6 +1,6 @@
 services:
   outline:
-    image: ${OUTLINE_IMAGE}
+    image: netis/house-outline:1.0.1
     env_file: ./docker.env
     # 不需要再把 3000 暴露给宿主
     expose:
@@ -35,4 +35,5 @@ services:
 volumes:
   storage-data:
   database-data:
+
 
