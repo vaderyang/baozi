@@ -66,7 +66,8 @@ function Search() {
     ? (params.getAll("statusFilter") as TStatusFilter[])
     : [TStatusFilter.Published, TStatusFilter.Draft];
   const titleFilter = params.get("titleFilter") === "true";
-  const aiAnswerEnabled = params.get("aiAnswer") === "true";
+  // AI Answer is enabled by default, can be disabled with aiAnswer=false
+  const aiAnswerEnabled = params.get("aiAnswer") !== "false";
 
   const isSearchable = !!(query || collectionId || userId);
 
