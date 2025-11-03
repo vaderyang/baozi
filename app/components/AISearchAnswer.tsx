@@ -216,8 +216,9 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
     return null;
   }
 
-  // Process the answer to convert "Document N" references to superscript links
-  const processedAnswer = result.answer.replace(
+  // First render markdown, then process document references to superscript links
+  const renderedMarkdown = md.render(result.answer);
+  const processedAnswer = renderedMarkdown.replace(
     /Document\s+(\d+)/g,
     (match, num) => {
       const index = parseInt(num, 10) - 1;
@@ -251,7 +252,7 @@ function AISearchAnswer({ searchParams, onClose }: Props) {
       <Content>
         <AnswerContent
           dangerouslySetInnerHTML={{
-            __html: md.render(processedAnswer),
+            __html: processedAnswer,
           }}
         />
         {result.sources.length > 0 && (
@@ -388,16 +389,26 @@ const AnswerContent = styled.div`
     }
   }
 
-  sup {
-    font-size: 0.75em;
-    vertical-align: super;
-    line-height: 0;
+  && sup {
+    font-size: 0.75em !important;
+    vertical-align: super !important;
+    line-height: 0 !important;
+    display: inline !important;
 
     a {
       color: ${s("link")};
       font-weight: 500;
       padding: 0 2px;
     }
+  }
+
+  && p sup,
+  && div sup,
+  && sup {
+    font-size: 0.75em !important;
+    vertical-align: super !important;
+    line-height: 0 !important;
+    display: inline !important;
   }
 
   table {
