@@ -15,3 +15,5 @@ data/*
 *.key
 *.cert
 docker.env
+.venv
+

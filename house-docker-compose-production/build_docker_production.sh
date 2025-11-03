@@ -42,18 +42,42 @@ else
   echo "No running containers found for image ${IMAGE_APP}"
 fi
 
-# If a compose deployment exists, force-recreate the outline service with the new image
-if [ -f "${COMPOSE_FILE}" ]; then
-echo "Compose file detected at ${COMPOSE_FILE}. Recreating service 'outline'..."
-  if docker compose version >/dev/null 2>&1; then
-    (cd "${COMPOSE_DIR}" && docker compose up -d --no-deps --force-recreate outline)
+# Check if other services are running, start all if needed
+if [ -f "${COMPOSE_DIR}/docker-compose.yml" ]; then
+  echo "Checking service status..."
+  
+  # Check if any compose services are running
+  RUNNING_SERVICES=""
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    RUNNING_SERVICES=$(cd "${COMPOSE_DIR}" && docker compose ps --services --filter "status=running" 2>/dev/null || echo "")
   elif command -v docker-compose >/dev/null 2>&1; then
-    (cd "${COMPOSE_DIR}" && docker-compose up -d --no-deps --force-recreate outline)
+    RUNNING_SERVICES=$(cd "${COMPOSE_DIR}" && docker-compose ps --services --filter "status=running" 2>/dev/null || echo "")
+  fi
+  
+  if [ -z "$RUNNING_SERVICES" ]; then
+    echo "No services running. Starting all services..."
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+      (cd "${COMPOSE_DIR}" && docker compose up -d)
+    elif command -v docker-compose >/dev/null 2>&1; then
+      (cd "${COMPOSE_DIR}" && docker-compose up -d)
+    else
+      echo "Warning: docker compose is not available. Skipped compose-based deploy."
+    fi
   else
-    echo "Warning: docker compose is not available. Skipped compose-based redeploy."
+    echo "Other services are running. Restarting outline service only..."
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+      (cd "${COMPOSE_DIR}" && docker compose up -d --no-deps --force-recreate outline)
+    elif command -v docker-compose >/dev/null 2>&1; then
+      (cd "${COMPOSE_DIR}" && docker-compose up -d --no-deps --force-recreate outline)
+    else
+      echo "Warning: docker compose is not available. Skipped compose-based redeploy."
+    fi
   fi
 else
   echo "Compose file not found. If containers were started manually, please restart them using ${IMAGE_APP}."
 fi
+
+echo "Pruning dangling images to remove old, untagged layers..."
+docker image prune -f || true
 
 echo "Replacement finished."
