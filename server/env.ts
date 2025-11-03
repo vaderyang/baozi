@@ -767,6 +767,24 @@ export class Environment {
   );
 
   /**
+   * Audio transcription service endpoint URL.
+   * Defaults to http://172.16.103.100:8000/transcribe if not set.
+   */
+  @IsOptional()
+  public TRANSCRIPTION_ENDPOINT =
+    this.toOptionalString(environment.TRANSCRIPTION_ENDPOINT) ??
+    "http://172.16.103.100:8000/transcribe";
+
+  /**
+   * Whether to delete audio files after successful transcription.
+   * Set to true to save storage space. Defaults to false (keep audio files).
+   */
+  @IsBoolean()
+  public TRANSCRIPTION_DELETE_AUDIO_AFTER = this.toBoolean(
+    environment.TRANSCRIPTION_DELETE_AUDIO_AFTER ?? "false"
+  );
+
+  /**
    * The product name
    */
   @Public

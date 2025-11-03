@@ -107,6 +107,16 @@ export default function useDictionary() {
       indent: t("Indent"),
       outdent: t("Outdent"),
       video: t("Video"),
+      transcript: t("Transcript"),
+      transcribeAudio: t("Transcribe Audio"),
+      transcribing: t("Transcribing…"),
+      transcriptionFailed: t("Transcription failed"),
+      transcriptionServiceNotAvailable: t(
+        "Transcription service is not available"
+      ),
+      audioFileTranscribedSuccessfully: t(
+        "Audio file transcribed successfully"
+      ),
       untitled: t("Untitled"),
       none: t("None"),
       deleteEmbed: t("Delete embed"),

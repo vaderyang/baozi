@@ -61,6 +61,13 @@ export default function blockMenuItems(
       skipCommandCheck: true,
     },
     {
+      name: "transcript",
+      title: dictionary.transcribeAudio,
+      icon: <AttachmentIcon />,
+      keywords: "audio transcribe transcript speech to text",
+      skipCommandCheck: true,
+    },
+    {
       name: "separator",
     },
     {

@@ -546,6 +546,10 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
           return triggerFilePick("video/*");
         case "attachment":
           return triggerFilePick("*");
+        case "transcript":
+          return triggerFilePick(
+            AttachmentValidation.audioContentTypes.join(", ")
+          );
         case "embed":
           return triggerLinkInput(item);
         case "ai_generate_text":
@@ -711,7 +715,119 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       throw new Error("uploadFile prop is required to replace files");
     }
 
-    if (parent) {
+    // Check if this is a transcription request
+    const isTranscription =
+      inputRef.current?.accept &&
+      AttachmentValidation.audioContentTypes.some((type) =>
+        inputRef.current?.accept?.includes(type)
+      );
+
+    if (isTranscription && files.length > 0) {
+      // Handle transcription
+      onFileUploadStart?.();
+
+      try {
+        const file = files[0];
+        const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
+
+        // Show initial upload message
+        toast.message(`Uploading audio file (${fileSizeMB} MB)...`);
+
+        // Upload the audio file first as an attachment
+        const { uploadFile: uploadFileFn } = await import("~/utils/files");
+        const { AttachmentPreset } = await import("@shared/types");
+        const attachment = await uploadFileFn(file, {
+          name: file.name,
+          documentId: editorProps.id,
+          preset: AttachmentPreset.AudioTranscription,
+        });
+
+        if (!attachment || !attachment.id) {
+          throw new Error("Failed to upload audio file");
+        }
+
+        // Show transcription progress message
+        toast.message(
+          `${dictionary.transcribing || "Transcribing…"} This may take several minutes for large files.`,
+          { duration: Infinity }
+        );
+
+        // Call transcription API with extended timeout
+        const response = await client.post(
+          "/transcriptions.create",
+          {
+            attachmentId: attachment.id,
+          },
+          {
+            timeout: 600000, // 10 minutes timeout for large files
+          }
+        );
+
+        const transcriptText = response.data.text || "";
+        const speakerSegments = response.data.speakerSegments || [];
+
+        if (!transcriptText) {
+          throw new Error("No transcription text received");
+        }
+
+        // Format the transcript text with proper line breaks
+        let formattedText = transcriptText.trim();
+
+        // If speaker segments are available, format them with speaker labels
+        if (speakerSegments.length > 0) {
+          formattedText = speakerSegments
+            .map((segment: { spk: number; text: string }) => {
+              const speakerLabel = `Speaker ${segment.spk}`;
+              return `${speakerLabel}: ${segment.text.trim()}`;
+            })
+            .join("\n");
+        } else if (/speaker \d+:/gi.test(formattedText)) {
+          // If the text already contains speaker labels, format them on separate lines
+          formattedText = formattedText.replace(
+            /speaker \d+:/gi,
+            (match: string, offset: number) =>
+              offset === 0 ? match : `\n${match}`
+          );
+        } else {
+          // For transcripts without speaker labels, add line breaks after sentences
+          // This makes long transcripts more readable
+          formattedText = formattedText
+            // Add line break after Chinese/Japanese periods, question marks, and exclamation marks
+            .replace(/([。！？])\s*/g, "$1\n")
+            // Add line break after English periods, question marks, and exclamation marks
+            .replace(/([.!?])\s+/g, "$1\n")
+            // Remove multiple consecutive newlines
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+        }
+
+        // Insert the audio attachment and transcript into the document
+        const { state, dispatch } = view;
+
+        // Create markdown with audio attachment link and transcript
+        const audioLink = `[${attachment.name} ${attachment.size}](${attachment.url})`;
+        const transcriptMarkdown = `${audioLink}\n\n## ${dictionary.transcript || "Transcript"}\n\n\`\`\`\n${formattedText}\n\`\`\`\n\n`;
+
+        const transcriptContent = editor.pasteParser.parse(transcriptMarkdown);
+
+        if (transcriptContent && parent) {
+          const slice = transcriptContent.slice(0);
+          const tr = state.tr.replaceRange(parent.pos, parent.pos, slice);
+          dispatch(tr.scrollIntoView());
+        }
+
+        toast.success(
+          dictionary.audioFileTranscribedSuccessfully ||
+            "Audio file transcribed successfully"
+        );
+      } catch (error) {
+        Logger.error("Transcription failed", error as Error);
+        toast.error(dictionary.transcriptionFailed || "Transcription failed");
+      } finally {
+        onFileUploadStop?.();
+      }
+    } else if (parent) {
+      // Handle regular file upload
       await insertFiles(view, event, parent.pos, files, {
         uploadFile,
         onFileUploadStart,
