@@ -583,6 +583,9 @@
   "Transcription queued": "Transcription started",
   "Transcription service is not available": "Transcription service is not available",
   "Audio file transcribed successfully": "Audio file transcribed successfully",
+  "Queued": "Queued",
+  "Retry": "Retry",
+  "Transcription cancelled": "Transcription cancelled",
   "None": "None",
   "Delete embed": "Delete embed",
   "Upload an image": "Upload an image",
@@ -1389,8 +1392,5 @@
   "Caption": "Caption",
   "Open": "Open",
   "Error loading data": "Error loading data",
-  "Queued": "Queued",
-  "Transcribing": "Transcribing",
-  "Retry": "Retry",
-  "Transcription cancelled": "Transcription cancelled"
+  "Transcribing": "Transcribing"
 }

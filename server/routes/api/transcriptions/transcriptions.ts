@@ -141,6 +141,7 @@ router.post(
         progress: job.progress,
         error: job.error,
         result: job.result,
+        attachmentId: job.attachmentId,
       },
     };
   }
