@@ -3,9 +3,11 @@ import argparse
 import os
 import threading
 import subprocess
+import time
 from collections import deque
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
 
 
 # 静态配置（集中放在文件头部，便于修改）
@@ -25,6 +27,9 @@ HOST = "0.0.0.0"
 DEPLOY_LOCK = threading.Lock()
 DEPLOY_IN_PROGRESS = False
 DEPLOY_START_TIME_ISO = None
+DEPLOY_RUN_ID = 0  # 用于避免并发覆盖 in_progress 状态
+CURRENT_PROC: subprocess.Popen | None = None
+CANCEL_EVENT: threading.Event | None = None
 
 
 def _log_write(message: str):
@@ -37,7 +42,7 @@ def _log_write(message: str):
         print(message)
 
 
-def _stream_cmd(cmd, cwd=None, env=None, label: str = "cmd", collect_tail: int = 0):
+def _stream_cmd(cmd, cwd=None, env=None, label: str = "cmd", collect_tail: int = 0, cancel_event: threading.Event | None = None):
     """
     Stream command output to deploy.log. Optionally collect the last N lines
     and include them in the return value for error summarization.
@@ -57,12 +62,28 @@ def _stream_cmd(cmd, cwd=None, env=None, label: str = "cmd", collect_tail: int =
             text=True,
             bufsize=1,
         )
+        global CURRENT_PROC
+        CURRENT_PROC = proc
         assert proc.stdout is not None
         for line in proc.stdout:
             line = line.rstrip()
             if tail_buf is not None:
                 tail_buf.append(line)
             _log_write(f"[{label}] {line}")
+            # 支持被强制取消
+            if cancel_event is not None and cancel_event.is_set():
+                _log_write(f"[{label}] cancel requested, terminating process...")
+                try:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except Exception:
+                        _log_write(f"[{label}] terminate timed out, killing process...")
+                        proc.kill()
+                        proc.wait(timeout=5)
+                except Exception as e:
+                    _log_write(f"[{label}] error during termination: {e}")
+                break
         proc.wait()
         _log_write(f"[{label}] finished with code {proc.returncode}")
         if tail_buf is not None:
@@ -78,15 +99,21 @@ def _stream_cmd(cmd, cwd=None, env=None, label: str = "cmd", collect_tail: int =
 
 
 def run_deploy():
-    global DEPLOY_IN_PROGRESS, DEPLOY_START_TIME_ISO
+    global DEPLOY_IN_PROGRESS, DEPLOY_START_TIME_ISO, DEPLOY_RUN_ID, CANCEL_EVENT, CURRENT_PROC
     _log_write("[deploy] starting deploy pipeline...")
+    # 为本次运行建立独立的取消事件和 run_id
+    run_id = None
+    with DEPLOY_LOCK:
+        DEPLOY_RUN_ID += 1
+        run_id = DEPLOY_RUN_ID
+        CANCEL_EVENT = threading.Event()
     try:
         # Step: run build script
         if not os.path.isfile(BUILD_SCRIPT_PATH):
             _log_write(f"[deploy] build script not found at {BUILD_SCRIPT_PATH}")
             return
 
-        build_result = _stream_cmd(["bash", BUILD_SCRIPT_NAME, IMAGE_VERSION], cwd=COMPOSE_PROJECT_DIR, env=os.environ, label="build", collect_tail=50)
+        build_result = _stream_cmd(["bash", BUILD_SCRIPT_NAME, IMAGE_VERSION], cwd=COMPOSE_PROJECT_DIR, env=os.environ, label="build", collect_tail=50, cancel_event=CANCEL_EVENT)
         if isinstance(build_result, tuple):
             rc, tail = build_result
         else:
@@ -99,7 +126,11 @@ def run_deploy():
     finally:
         # 结束部署状态
         with DEPLOY_LOCK:
-            DEPLOY_IN_PROGRESS = False
+            # 仅当 run_id 仍是最新时，才清除 in_progress，避免被强制重启时覆盖新任务状态
+            if run_id == DEPLOY_RUN_ID:
+                DEPLOY_IN_PROGRESS = False
+            CANCEL_EVENT = None
+            CURRENT_PROC = None
             # 保留最近一次启动时间供查询，如果需要清理可设为 None
 
 
@@ -138,22 +169,70 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
-        # 读取 payload（可忽略内容）
+        # 读取 payload（兼容 JSON 与表单）
         length = int(self.headers.get("Content-Length", "0"))
-        _ = self.rfile.read(length) if length > 0 else b""
+        body = self.rfile.read(length) if length > 0 else b""
+
+        # 解析是否 force=true（支持 query 参数）
+        try:
+            query = parse_qs(urlparse(self.path).query)
+            force_flag = str(query.get("force", ["false"])[0]).lower() == "true"
+        except Exception:
+            force_flag = False
+
+        # 兼容 body 中的 force 标志
+        if not force_flag and body:
+            try:
+                # 优先 JSON 解析
+                body_json = json.loads(body.decode("utf-8"))
+                fv = body_json.get("force")
+                if isinstance(fv, bool):
+                    force_flag = fv
+                elif isinstance(fv, str):
+                    force_flag = fv.lower() == "true"
+            except Exception:
+                # 简单表单/原始文本包含 force=true
+                if b"force=true" in body:
+                    force_flag = True
 
         # 部署守卫：如果已有部署在进行，返回明确 JSON，不再启动新的部署
-        global DEPLOY_IN_PROGRESS, DEPLOY_START_TIME_ISO
+        global DEPLOY_IN_PROGRESS, DEPLOY_START_TIME_ISO, CANCEL_EVENT, CURRENT_PROC, DEPLOY_RUN_ID
         with DEPLOY_LOCK:
             if DEPLOY_IN_PROGRESS:
-                self._send_json(200, {
-                    "status": "in_progress",
-                    "message": "deployment already running; new request ignored",
-                    "compose_project_name": COMPOSE_PROJECT_NAME,
-                    "compose_project_dir": COMPOSE_PROJECT_DIR,
-                    "deploy_start_time": DEPLOY_START_TIME_ISO,
-                })
-                return
+                if force_flag:
+                    # 请求强制重启：发出取消信号并尝试终止当前子进程
+                    if CANCEL_EVENT is not None:
+                        CANCEL_EVENT.set()
+                    if CURRENT_PROC is not None:
+                        try:
+                            CURRENT_PROC.terminate()
+                            try:
+                                CURRENT_PROC.wait(timeout=3)
+                            except Exception:
+                                CURRENT_PROC.kill()
+                        except Exception:
+                            pass
+                    # 立即启动新一轮部署（更新 run_id，保持 DEPLOY_IN_PROGRESS=True）
+                    DEPLOY_RUN_ID += 1
+                    DEPLOY_START_TIME_ISO = datetime.utcnow().isoformat() + "Z"
+                    threading.Thread(target=run_deploy, daemon=True).start()
+                    self._send_json(200, {
+                        "status": "restarted",
+                        "message": "previous deployment cancelled; new deployment started",
+                        "compose_project_name": COMPOSE_PROJECT_NAME,
+                        "compose_project_dir": COMPOSE_PROJECT_DIR,
+                        "deploy_start_time": DEPLOY_START_TIME_ISO,
+                    })
+                    return
+                else:
+                    self._send_json(200, {
+                        "status": "in_progress",
+                        "message": "deployment already running; new request ignored",
+                        "compose_project_name": COMPOSE_PROJECT_NAME,
+                        "compose_project_dir": COMPOSE_PROJECT_DIR,
+                        "deploy_start_time": DEPLOY_START_TIME_ISO,
+                    })
+                    return
 
             # 标记部署开始
             DEPLOY_IN_PROGRESS = True
@@ -166,6 +245,7 @@ class Handler(BaseHTTPRequestHandler):
             "compose_project_name": COMPOSE_PROJECT_NAME,
             "compose_project_dir": COMPOSE_PROJECT_DIR,
             "deploy_start_time": DEPLOY_START_TIME_ISO,
+            "force": force_flag,
         })
 
     # Avoid noisy logging to stderr
