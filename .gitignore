@@ -19,3 +19,4 @@ docker.env
 **/deploy.log
 **/__pycache__
 .claude
+house-docker-compose/docker-compose.yml

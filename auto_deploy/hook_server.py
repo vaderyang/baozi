@@ -1,4 +1,5 @@
 import json
+import argparse
 import os
 import threading
 import subprocess
@@ -7,26 +8,23 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-REPO_DIR = os.getenv("REPO_DIR", "/home/drill/outline")
+# 静态配置（集中放在文件头部，便于修改）
+PORT = 8000
+CODE_BASE_DIR = "/home/drill/outline"
+COMPOSE_PROJECT_NAME = "house-docker-compose"
+BUILD_SCRIPT_NAME = "build_docker_and_release.sh"
+IMAGE_VERSION = "1.0.1"  # 部署的镜像版本，作为脚本参数传入
 
-# Docker Compose 项目路径与名称（可通过环境变量调整）
-COMPOSE_PROJECT_DIR = os.getenv(
-    "COMPOSE_PROJECT_DIR", "/home/drill/outline/house-docker-compose-production"
-)
-DEFAULT_PROJECT_NAME = os.path.basename(COMPOSE_PROJECT_DIR.rstrip("/")) or "house-docker-compose-production"
-COMPOSE_PROJECT_NAME = os.getenv("COMPOSE_PROJECT_NAME", DEFAULT_PROJECT_NAME)
+COMPOSE_PROJECT_DIR = f"{CODE_BASE_DIR}/{COMPOSE_PROJECT_NAME}"
+BUILD_SCRIPT_PATH = f"{CODE_BASE_DIR}/{COMPOSE_PROJECT_NAME}/{BUILD_SCRIPT_NAME}"
+DEPLOY_LOG_PATH = os.path.join(os.path.dirname(__file__), "deploy.log")
+HOST = "0.0.0.0"
 
-# 构建脚本文件名（默认生产脚本，可通过环境变量调整为 stage 或其他）
-BUILD_SCRIPT_NAME = os.getenv("BUILD_SCRIPT_NAME", "build_docker_production.sh")
-PROD_SCRIPT_PATH = os.path.join(COMPOSE_PROJECT_DIR, BUILD_SCRIPT_NAME)
 
 # 部署状态（线程安全）
 DEPLOY_LOCK = threading.Lock()
 DEPLOY_IN_PROGRESS = False
 DEPLOY_START_TIME_ISO = None
-
-# 部署日志路径
-DEPLOY_LOG_PATH = os.path.join(os.path.dirname(__file__), "deploy.log")
 
 
 def _log_write(message: str):
@@ -83,31 +81,12 @@ def run_deploy():
     global DEPLOY_IN_PROGRESS, DEPLOY_START_TIME_ISO
     _log_write("[deploy] starting deploy pipeline...")
     try:
-        # Step 1: git pull
-        git_cmd = [
-            "git",
-            "-c",
-            "core.sshCommand=ssh -i ~/.ssh/id_ed25519_netis -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new",
-            "pull",
-            "--rebase",
-        ]
-        git_result = _stream_cmd(git_cmd, cwd=REPO_DIR, env=os.environ, label="git", collect_tail=50)
-        if isinstance(git_result, tuple):
-            rc, tail = git_result
-        else:
-            rc, tail = git_result, []
-        if rc != 0:
-            last_err = next((l for l in reversed(tail) if l.strip()), "unknown error")
-            _log_write(f"[deploy] git pull failed (rc={rc}): {last_err}")
-            _log_write("[deploy] aborting deploy due to git pull failure")
+        # Step: run build script
+        if not os.path.isfile(BUILD_SCRIPT_PATH):
+            _log_write(f"[deploy] build script not found at {BUILD_SCRIPT_PATH}")
             return
 
-        # Step 2: run build script
-        if not os.path.isfile(PROD_SCRIPT_PATH):
-            _log_write(f"[deploy] build script not found at {PROD_SCRIPT_PATH}")
-            return
-
-        build_result = _stream_cmd(["bash", BUILD_SCRIPT_NAME], cwd=COMPOSE_PROJECT_DIR, env=os.environ, label="build", collect_tail=50)
+        build_result = _stream_cmd(["bash", BUILD_SCRIPT_NAME, IMAGE_VERSION], cwd=COMPOSE_PROJECT_DIR, env=os.environ, label="build", collect_tail=50)
         if isinstance(build_result, tuple):
             rc, tail = build_result
         else:
@@ -135,7 +114,6 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/":
-            # 始终返回项目名称与路径，以及部署状态
             payload = {
                 "status": "ok",
                 "compose_project_name": COMPOSE_PROJECT_NAME,
@@ -160,7 +138,7 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
-        # Read payload (optional)
+        # 读取 payload（可忽略内容）
         length = int(self.headers.get("Content-Length", "0"))
         _ = self.rfile.read(length) if length > 0 else b""
 
@@ -192,14 +170,33 @@ class Handler(BaseHTTPRequestHandler):
 
     # Avoid noisy logging to stderr
     def log_message(self, format, *args):
-        print("[http]" , format % args)
+        print("[http]", format % args)
 
 
 def main():
-    host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8000"))
-    server = ThreadingHTTPServer((host, port), Handler)
-    print(f"AutoDeploy server listening on http://{host}:{port}/ (project={COMPOSE_PROJECT_NAME}, dir={COMPOSE_PROJECT_DIR})")
+    global CODE_BASE_DIR, IMAGE_VERSION, HOST, PORT, COMPOSE_PROJECT_DIR, BUILD_SCRIPT_PATH
+
+    parser = argparse.ArgumentParser(description="AutoDeploy Hook Server")
+    parser.add_argument("--code_base_dir", default=CODE_BASE_DIR, help="代码根目录（包含 compose 项目目录）")
+    parser.add_argument("--image_version", default=IMAGE_VERSION, help="部署镜像版本标签，例如 1.0.1")
+    parser.add_argument("--host", default=HOST, help="HTTP 监听地址")
+    parser.add_argument("--port", type=int, default=PORT, help="HTTP 监听端口")
+    args = parser.parse_args()
+
+    CODE_BASE_DIR = args.code_base_dir
+    IMAGE_VERSION = args.image_version
+    HOST = args.host
+    PORT = int(args.port)
+
+    # 依赖 CODE_BASE_DIR 的派生路径需要重新计算
+    COMPOSE_PROJECT_DIR = f"{CODE_BASE_DIR}/{COMPOSE_PROJECT_NAME}"
+    BUILD_SCRIPT_PATH = f"{COMPOSE_PROJECT_DIR}/{BUILD_SCRIPT_NAME}"
+
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(
+        f"AutoDeploy server listening on http://{HOST}:{PORT}/ "
+        f"(project={COMPOSE_PROJECT_NAME}, dir={COMPOSE_PROJECT_DIR}, version={IMAGE_VERSION})"
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

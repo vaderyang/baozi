@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+git -c core.sshCommand=ssh -i ~/.ssh/id_ed25519_netis -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new pull
 set -euo pipefail
 
 # Config
@@ -6,9 +7,21 @@ APP_PATH=${APP_PATH:-/opt/outline}
 COMPOSE_DIR="."
 COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
 
+#############################################
+# Version argument
+#############################################
+VERSION_ARG=${1:-}
+if [ -z "$VERSION_ARG" ]; then
+  read -p "请输入版本号（如 1.0.1/stg/prod）: " VERSION_ARG
+fi
+if [ -z "$VERSION_ARG" ]; then
+  echo "未提供版本号，退出。"
+  exit 1
+fi
+
 # Static image definitions (keep in sync with docker-compose.yml)
-IMAGE_APP="netis/house-outline:1.0.1"
-IMAGE_BASE="netis/house-outline-base:1.0.1"
+IMAGE_APP="netis/house-outline:${VERSION_ARG}"
+IMAGE_BASE="netis/house-outline-base:${VERSION_ARG}"
 
 # Format: YYYYMMDDHHmm
 BUILD_TIME=$(date +"%Y%m%d%H%M")
@@ -57,18 +70,18 @@ if [ -f "${COMPOSE_DIR}/docker-compose.yml" ]; then
   if [ -z "$RUNNING_SERVICES" ]; then
     echo "No services running. Starting all services..."
     if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-      (cd "${COMPOSE_DIR}" && docker compose up -d)
+  (cd "${COMPOSE_DIR}" && VERSION=${VERSION_ARG} docker compose up -d)
     elif command -v docker-compose >/dev/null 2>&1; then
-      (cd "${COMPOSE_DIR}" && docker-compose up -d)
+  (cd "${COMPOSE_DIR}" && VERSION=${VERSION_ARG} docker-compose up -d)
     else
       echo "Warning: docker compose is not available. Skipped compose-based deploy."
     fi
   else
     echo "Other services are running. Restarting outline service only..."
     if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-      (cd "${COMPOSE_DIR}" && docker compose up -d --no-deps --force-recreate outline)
+      (cd "${COMPOSE_DIR}" && VERSION=${VERSION_ARG} docker compose up -d --no-deps --force-recreate outline)
     elif command -v docker-compose >/dev/null 2>&1; then
-      (cd "${COMPOSE_DIR}" && docker-compose up -d --no-deps --force-recreate outline)
+      (cd "${COMPOSE_DIR}" && VERSION=${VERSION_ARG} docker-compose up -d --no-deps --force-recreate outline)
     else
       echo "Warning: docker compose is not available. Skipped compose-based redeploy."
     fi
