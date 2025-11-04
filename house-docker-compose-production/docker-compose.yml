@@ -2,24 +2,19 @@ services:
   outline:
     image: netis/house-outline:1.0.1
     env_file: ./docker.env
-    # 不需要再把 3000 暴露给宿主
-    expose:
-      - "3000"
+    ports:
+      - "443:443"
+      - "80:80" # 可选：做 http->https 重定向或排障
+    environment:
+      - PORT=443
+      - FORCE_HTTPS=true
     volumes:
-      - storage-data:/var/lib/outline/data
+      # 把你的证书挂到容器内应用根目录（示例 /opt/outline）
+      - ./certs/public.pem:/opt/outline/public.pem:ro
+      - ./certs/private.pem:/opt/outline/private.pem:ro
     depends_on:
       - postgres
       - redis
-
-  https-portal:
-    image: steveltn/https-portal
-    restart: always
-    links:
-      - outline
-    env_file: ./docker.env
-    ports:
-      - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
 
   redis:
     image: redis:7
