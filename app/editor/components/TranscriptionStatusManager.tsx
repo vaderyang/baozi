@@ -49,13 +49,28 @@ export function TranscriptionStatusManager({ documentId }: Props) {
   const formatTranscriptText = React.useCallback(
     (result: TranscriptionStatusEvent["result"]): string => {
       if (!result || !result.text) {
+        Logger.warn("Cannot format transcript: missing result or text");
         return "";
       }
 
+      const originalTextLength = result.text.length;
       let formattedText = result.text.trim();
+      let formatMethod = "none";
 
       // If speaker segments are available, format them with speaker labels
       if (result.speakerSegments && result.speakerSegments.length > 0) {
+        formatMethod = "speaker_segments";
+        const uniqueSpeakers = new Set(
+          result.speakerSegments.map((seg) => seg.spk)
+        );
+
+        Logger.info("editor", "Formatting transcript with speaker segments", {
+          segmentCount: result.speakerSegments.length,
+          uniqueSpeakerCount: uniqueSpeakers.size,
+          uniqueSpeakers: Array.from(uniqueSpeakers),
+          originalTextLength,
+        });
+
         formattedText = result.speakerSegments
           .map((segment) => {
             // Use the spk number from the segment (e.g., 0, 1, 2)
@@ -64,6 +79,15 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           })
           .join("\n\n");
       } else if (/speaker \d+:/gi.test(formattedText)) {
+        formatMethod = "speaker_labels_in_text";
+        Logger.info(
+          "editor",
+          "Formatting transcript with speaker labels in text",
+          {
+            originalTextLength,
+          }
+        );
+
         // If the text already contains speaker labels, format them on separate lines
         formattedText = formattedText.replace(
           /speaker \d+:/gi,
@@ -71,6 +95,11 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             offset === 0 ? match : `\n\n${match}`
         );
       } else {
+        formatMethod = "sentence_breaks";
+        Logger.info("editor", "Formatting transcript with sentence breaks", {
+          originalTextLength,
+        });
+
         // For transcripts without speaker labels, add line breaks after sentences
         formattedText = formattedText
           // Add line break after Chinese/Japanese periods, question marks, and exclamation marks
@@ -81,6 +110,13 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           .replace(/\n{3,}/g, "\n\n")
           .trim();
       }
+
+      Logger.info("editor", "Transcript formatting completed", {
+        formatMethod,
+        originalLength: originalTextLength,
+        formattedLength: formattedText.length,
+        lineCount: formattedText.split("\n").length,
+      });
 
       return formattedText;
     },
@@ -93,8 +129,18 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       result: TranscriptionStatusEvent["result"],
       attachmentId?: string
     ) => {
+      Logger.info("editor", "Attempting to replace status card", {
+        jobId,
+        hasResult: !!result,
+        hasAttachment: !!attachmentId,
+      });
+
       const { view, pasteParser } = editorRef.current;
       if (!view || !result) {
+        Logger.warn("Cannot replace status card: missing view or result", {
+          hasView: !!view,
+          hasResult: !!result,
+        });
         return;
       }
 
@@ -128,9 +174,18 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       });
 
       if (!cardInfo) {
-        Logger.warn("Status card not found for completed transcription");
+        Logger.warn("Status card not found for completed transcription", {
+          jobId,
+          documentNodeCount: doc.content.childCount,
+        });
         return;
       }
+
+      Logger.info("editor", "Found status card, preparing to replace", {
+        jobId,
+        position: cardInfo.pos,
+        fileName: cardInfo.fileName,
+      });
 
       const { pos: position, node: cardNode, fileName, fileSize } = cardInfo;
       const nodeSize = cardNode.nodeSize;
@@ -139,7 +194,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       const formattedText = formatTranscriptText(result);
 
       if (!formattedText) {
-        Logger.warn("No transcript text to insert");
+        Logger.warn("No transcript text to insert", { jobId });
         return;
       }
 
@@ -151,19 +206,59 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       if (attachmentId && schema.nodes.attachment) {
         const attachmentUrl = `/api/attachments.redirect?id=${attachmentId}`;
         contentMarkdown += `[${fileName} ${fileSize}](${attachmentUrl})\n\n`;
+        Logger.info("editor", "Added audio attachment to markdown", {
+          jobId,
+          attachmentId,
+          fileName,
+          fileSize,
+          attachmentUrl,
+        });
+      } else {
+        Logger.info("editor", "Skipping audio attachment", {
+          jobId,
+          hasAttachmentId: !!attachmentId,
+          hasAttachmentNodeType: !!schema.nodes.attachment,
+        });
       }
 
       // Add transcript heading and code block
       const transcriptHeading = dictionary.transcript || "Transcript";
       contentMarkdown += `## ${transcriptHeading}\n\n\`\`\`\n${formattedText}\n\`\`\`\n\n`;
 
+      Logger.info("editor", "Built markdown content for transcript", {
+        jobId,
+        markdownLength: contentMarkdown.length,
+        hasAttachment: !!attachmentId,
+        transcriptHeading,
+        formattedTextLength: formattedText.length,
+      });
+
       // Parse the markdown into ProseMirror nodes
-      const transcriptContent = pasteParser.parse(
-        normalizePastedMarkdown(contentMarkdown)
-      );
+      const normalizeStartTime = Date.now();
+      const normalizedMarkdown = normalizePastedMarkdown(contentMarkdown);
+      const normalizeDuration = Date.now() - normalizeStartTime;
+
+      Logger.debug("editor", "Normalized markdown", {
+        jobId,
+        normalizeDurationMs: normalizeDuration,
+        originalLength: contentMarkdown.length,
+        normalizedLength: normalizedMarkdown.length,
+      });
+
+      const parseStartTime = Date.now();
+      const transcriptContent = pasteParser.parse(normalizedMarkdown);
+      const parseDuration = Date.now() - parseStartTime;
 
       if (transcriptContent) {
         const slice = transcriptContent.slice(0);
+
+        Logger.info("editor", "Parsed transcript content successfully", {
+          jobId,
+          parseDurationMs: parseDuration,
+          sliceSize: slice.content.size,
+          sliceChildCount: slice.content.childCount,
+          contentMarkdownLength: contentMarkdown.length,
+        });
 
         // Replace the status card with the transcript content
         const transaction = tr.replaceRange(
@@ -188,12 +283,25 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             .setMeta("uiEvent", "paste")
         );
 
+        Logger.info(
+          "editor",
+          "Successfully replaced status card with transcript",
+          {
+            jobId,
+            insertionEnd,
+          }
+        );
+
         toast.success(
           dictionary.audioFileTranscribedSuccessfully ||
             "Transcription completed"
         );
       } else {
-        Logger.warn("Failed to parse transcript markdown");
+        Logger.warn("Failed to parse transcript markdown", {
+          jobId,
+          contentMarkdownLength: contentMarkdown.length,
+          contentMarkdownPreview: contentMarkdown.substring(0, 100),
+        });
       }
     },
     [dictionary, formatTranscriptText]
@@ -420,12 +528,79 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           return true;
         });
 
-        // If no status cards, no need to poll
+        // If no status cards, check if there are any pending jobs that need cards
         if (statusCards.length === 0) {
+          try {
+            const response = await client.post<{
+              data: Array<{
+                id: string;
+                status: "queued" | "processing";
+                progress: number | null;
+                error: string | null;
+                fileName: string;
+                fileSize: number;
+              }>;
+            }>("/transcriptions.list", {
+              documentId,
+            });
+
+            const pendingJobs = response.data;
+
+            // If there are pending jobs without status cards, insert them
+            if (pendingJobs.length > 0) {
+              Logger.info(
+                "editor",
+                "Found pending jobs without status cards, inserting them",
+                {
+                  documentId,
+                  count: pendingJobs.length,
+                  jobIds: pendingJobs.map((j) => j.id),
+                }
+              );
+
+              const { state, dispatch } = view;
+              const { tr, doc } = state;
+              const endPos = doc.content.size;
+
+              // Insert all pending job cards at the end of the document
+              let currentPos = endPos;
+              for (const job of pendingJobs) {
+                const node =
+                  view.state.schema.nodes.transcription_status_card.create({
+                    jobId: job.id,
+                    fileName: job.fileName,
+                    fileSize: job.fileSize,
+                    status: job.status,
+                    progress: job.progress || 0,
+                    error: job.error,
+                  });
+
+                tr.insert(currentPos, node);
+                currentPos += node.nodeSize;
+              }
+
+              dispatch(tr);
+            }
+          } catch (error) {
+            // Silently log errors to avoid noise
+            Logger.debug(
+              "editor",
+              "Failed to check for pending jobs without cards",
+              {
+                error: (error as Error).message,
+              }
+            );
+          }
           return;
         }
 
         // Check the actual status of each job
+        Logger.debug("editor", "Polling status for cards", {
+          documentId,
+          cardCount: statusCards.length,
+          jobIds: statusCards.map((c) => c.jobId),
+        });
+
         for (const card of statusCards) {
           try {
             const response = await client.post<{
@@ -457,10 +632,21 @@ export function TranscriptionStatusManager({ documentId }: Props) {
 
             const job = response.data;
 
+            Logger.debug("editor", "Received job status", {
+              jobId: job.id,
+              status: job.status,
+              hasResult: !!job.result,
+              attachmentId: job.attachmentId,
+            });
+
             // Handle the job based on its actual status
             if (job.status === "completed" && job.result) {
               Logger.info("editor", "Job completed, replacing status card", {
                 jobId: job.id,
+                hasResult: !!job.result,
+                hasAttachment: !!job.attachmentId,
+                textLength: job.result.text?.length || 0,
+                speakerSegmentCount: job.result.speakerSegments?.length || 0,
               });
               replaceStatusCardWithTranscript(
                 job.id,
