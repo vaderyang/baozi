@@ -460,6 +460,34 @@ export type ImportEvent = BaseEvent<Import<any>> & {
   modelId: string;
 };
 
+export type TranscriptionJobEvent = {
+  name: "transcription:status";
+  teamId: string;
+  userId: string;
+  documentId: string;
+  modelId: string;
+  actorId?: string;
+  ip?: string | null;
+  authType?: AuthenticationType | null;
+  data: {
+    jobId: string;
+    documentId: string;
+    status: string;
+    progress: number | null;
+    error: string | null;
+    result: {
+      text: string;
+      speakerSegments?: Array<{
+        spk: number;
+        text: string;
+        start?: number;
+        end?: number;
+        timestamp?: number[][];
+      }>;
+    } | null;
+  };
+};
+
 export type Event =
   | ApiKeyEvent
   | AttachmentEvent
@@ -488,7 +516,8 @@ export type Event =
   | NotificationEvent
   | OAuthClientEvent
   | EmptyTrashEvent
-  | ImportEvent;
+  | ImportEvent
+  | TranscriptionJobEvent;
 
 export type NotificationMetadata = {
   notificationId?: string;

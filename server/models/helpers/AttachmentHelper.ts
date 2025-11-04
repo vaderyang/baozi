@@ -109,6 +109,9 @@ export default class AttachmentHelper {
         return env.FILE_STORAGE_IMPORT_MAX_SIZE;
       case AttachmentPreset.WorkspaceImport:
         return env.FILE_STORAGE_WORKSPACE_IMPORT_MAX_SIZE;
+      case AttachmentPreset.AudioTranscription:
+        // Allow up to 100MB for audio files
+        return 100 * 1024 * 1024;
       case AttachmentPreset.Avatar:
       case AttachmentPreset.DocumentAttachment:
       default:
