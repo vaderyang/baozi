@@ -16,7 +16,13 @@ type TranscriptionStatusEvent = {
   error?: string;
   result?: {
     text: string;
-    speakerSegments?: Array<{ speaker: string; text: string }>;
+    speakerSegments?: Array<{
+      spk: number;
+      text: string;
+      start?: number;
+      end?: number;
+      timestamp?: number[][];
+    }>;
   };
   attachmentId?: string;
 };
@@ -52,7 +58,8 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       if (result.speakerSegments && result.speakerSegments.length > 0) {
         formattedText = result.speakerSegments
           .map((segment) => {
-            const speakerLabel = segment.speaker || "Speaker";
+            // Use the spk number from the segment (e.g., 0, 1, 2)
+            const speakerLabel = `spk ${segment.spk}`;
             return `${speakerLabel}: ${segment.text.trim()}`;
           })
           .join("\n\n");
@@ -95,29 +102,38 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       const { doc, tr, schema } = state;
 
       // Find the status card node by jobId
-      let cardPos: number | null = null;
-      let cardNode: ProsemirrorNode | null = null;
+      let cardInfo:
+        | {
+            pos: number;
+            node: ProsemirrorNode;
+            fileName: string;
+            fileSize: number;
+          }
+        | undefined;
 
       doc.descendants((node, pos) => {
         if (
           node.type.name === "transcription_status_card" &&
           node.attrs.jobId === jobId
         ) {
-          cardPos = pos;
-          cardNode = node;
+          cardInfo = {
+            pos,
+            node,
+            fileName: node.attrs.fileName || "audio",
+            fileSize: node.attrs.fileSize || 0,
+          };
           return false;
         }
         return true;
       });
 
-      if (cardPos === null || !cardNode) {
+      if (!cardInfo) {
         Logger.warn("Status card not found for completed transcription");
         return;
       }
 
-      // Store the node size before we lose the reference
-      const nodeSize = (cardNode as ProsemirrorNode).nodeSize;
-      const position = cardPos as number;
+      const { pos: position, node: cardNode, fileName, fileSize } = cardInfo;
+      const nodeSize = cardNode.nodeSize;
 
       // Format the transcript text
       const formattedText = formatTranscriptText(result);
@@ -130,9 +146,11 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       // Build content to insert: audio attachment (if available) + transcript
       let contentMarkdown = "";
 
-      // Add audio attachment if attachmentId is provided and audio node type exists
+      // Add audio attachment if attachmentId is provided and attachment node type exists
+      // Use the correct markdown format for attachments: [title size](href)
       if (attachmentId && schema.nodes.attachment) {
-        contentMarkdown += `![audio](attachment://${attachmentId})\n\n`;
+        const attachmentUrl = `/api/attachments.redirect?id=${attachmentId}`;
+        contentMarkdown += `[${fileName} ${fileSize}](${attachmentUrl})\n\n`;
       }
 
       // Add transcript heading and code block
@@ -242,7 +260,13 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                 | "cancelled";
               result: {
                 text: string;
-                speakerSegments?: Array<{ speaker: string; text: string }>;
+                speakerSegments?: Array<{
+                  spk: number;
+                  text: string;
+                  start?: number;
+                  end?: number;
+                  timestamp?: number[][];
+                }>;
               } | null;
               attachmentId?: string;
             };
@@ -417,7 +441,13 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                 error: string | null;
                 result: {
                   text: string;
-                  speakerSegments?: Array<{ speaker: string; text: string }>;
+                  speakerSegments?: Array<{
+                    spk: number;
+                    text: string;
+                    start?: number;
+                    end?: number;
+                    timestamp?: number[][];
+                  }>;
                 } | null;
                 attachmentId?: string;
               };

@@ -74,6 +74,19 @@ To test the fix:
 - 5-second interval provides good balance between responsiveness and server load
 - Polling stops automatically when all jobs complete
 
+### 4. Audio Attachment Display Fix
+
+Fixed the issue where audio attachments showed "Image failed to load" after transcription:
+
+**Problem**: The code was using image markdown syntax `![audio](attachment://...)` to insert audio attachments, which caused them to be rendered as broken images.
+
+**Solution**: Updated `replaceStatusCardWithTranscript` to use the correct attachment markdown format:
+- Changed from `![audio](attachment://id)` to `[fileName fileSize](/api/attachments.redirect?id=id)`
+- Extract fileName and fileSize from the status card's attributes
+- Use the proper attachment URL format that the editor expects
+
+Now audio attachments are correctly displayed as downloadable file widgets instead of broken images.
+
 ## Additional Fixes
 
 ### 1. LocalStorage File Access
@@ -110,4 +123,52 @@ ALLOWED_PRIVATE_IP_ADDRESSES=172.16.103.100
 # Stop the server (Ctrl+C)
 # Then restart it
 yarn dev
+```
+
+### 3. Speaker Differentiation
+
+Enhanced the transcript formatting to properly display different speakers:
+
+**Problem**: All dialogue was labeled as "speaker" without differentiation, even though the ASR server returned speaker segments with numeric speaker IDs in the `spk` field.
+
+**Solution**: 
+- Updated type definitions across the codebase to match the actual ASR server response format:
+  - `TranscriptionResult` in `server/models/TranscriptionJob.ts`
+  - `TranscriptionJobEvent` in `server/types.ts`
+  - `TranscriptionStatusEvent` in `app/editor/components/TranscriptionStatusManager.tsx`
+- Modified `formatTranscriptText` to use `segment.spk` (numeric) instead of `segment.speaker` (string)
+- Format speaker labels as `spk 0:`, `spk 1:`, etc. to match the ASR server's format
+
+**ASR Server Response Format**:
+```json
+{
+  "speaker_segments": [
+    {
+      "text": "也不，",
+      "start": 5630,
+      "end": 6110,
+      "timestamp": [[5630, 5870], [5870, 6110]],
+      "spk": 0
+    },
+    {
+      "text": " i said it before...",
+      "start": 7210,
+      "end": 8925,
+      "timestamp": [[7210, 7370], ...],
+      "spk": 0
+    }
+  ]
+}
+```
+
+Now when the ASR server returns speaker segments with different speaker IDs, they will be displayed as:
+
+```
+spk 0: 也不，
+
+spk 0: i said it before and not say it again，
+
+spk 1: life moves pretty fast。
+
+spk 0: you don't stop the gragrams and one you could miss。
 ```
