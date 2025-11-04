@@ -72,10 +72,10 @@ export default class WebsocketsProcessor {
           ],
           collectionIds: document.collectionId
             ? [
-                {
-                  id: document.collectionId,
-                },
-              ]
+              {
+                id: document.collectionId,
+              },
+            ]
             : [],
         });
       }
@@ -870,6 +870,17 @@ export default class WebsocketsProcessor {
         return socketio
           .to(`user-${event.userId}`)
           .emit(event.name, { id: event.modelId, ...event.data });
+      }
+
+      case "transcription:status": {
+        // Emit transcription status updates to the document room
+        // Only users with access to the document will receive the event
+        if (!event.documentId) {
+          return;
+        }
+        return socketio
+          .to(`document-${event.documentId}`)
+          .emit(event.name, event.data);
       }
 
       default:

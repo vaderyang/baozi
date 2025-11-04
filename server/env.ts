@@ -785,6 +785,32 @@ export class Environment {
   );
 
   /**
+   * Timeout in milliseconds for transcription jobs.
+   * Jobs that exceed this duration will be marked as failed.
+   * Defaults to 1800000 (30 minutes).
+   */
+  @IsNumber()
+  public TRANSCRIPTION_JOB_TIMEOUT =
+    this.toOptionalNumber(environment.TRANSCRIPTION_JOB_TIMEOUT) ?? 1800000;
+
+  /**
+   * Number of days to keep completed or failed transcription jobs before cleanup.
+   * Defaults to 7 days.
+   */
+  @IsNumber()
+  public TRANSCRIPTION_CLEANUP_DAYS =
+    this.toOptionalNumber(environment.TRANSCRIPTION_CLEANUP_DAYS) ?? 7;
+
+  /**
+   * Maximum number of concurrent transcription jobs allowed per user.
+   * Defaults to 10.
+   */
+  @IsNumber()
+  public TRANSCRIPTION_MAX_CONCURRENT_PER_USER =
+    this.toOptionalNumber(environment.TRANSCRIPTION_MAX_CONCURRENT_PER_USER) ??
+    10;
+
+  /**
    * The product name
    */
   @Public

@@ -111,19 +111,23 @@ export default function useDictionary() {
       transcribeAudio: t("Transcribe Audio"),
       transcribing: t("Transcribing…"),
       transcriptionFailed: t("Transcription failed"),
+      transcriptionQueued: t("Transcription queued"),
       transcriptionServiceNotAvailable: t(
         "Transcription service is not available"
       ),
       audioFileTranscribedSuccessfully: t(
         "Audio file transcribed successfully"
       ),
+      queued: t("Queued"),
+      retry: t("Retry"),
+      transcriptionCancelled: t("Transcription cancelled"),
       untitled: t("Untitled"),
       none: t("None"),
       deleteEmbed: t("Delete embed"),
       uploadImage: t("Upload an image"),
       generateText: t("Generate Text"),
       continueWriting: t("Continue Writing..."),
-      continueWritingPlaceholder: t("Continuing writing…"),
+      continueWritingPlaceholder: t("Thinking..."),
       aiEdit: t("AI Edit"),
       aiEditPlaceholder: t("Describe how you'd like to edit the selection"),
       aiEditApply: t("Apply changes"),

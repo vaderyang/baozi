@@ -505,9 +505,11 @@ router.post(
 
     try {
       let instructions =
-        "You write Markdown for the Outline editor. " +
-        "Always emit valid Markdown that renders correctly, and never wrap all output in triple backticks unless required. " +
-        "When asked for a diagram, respond with a fenced mermaid code block using ```mermaid and omit any surrounding text.";
+        "You write Markdown Text upon user's request" +
+        "Always emit valid Markdown that renders correctly. " +
+        "IMPORTANT: Do NOT wrap your output in triple backticks (```) unless the user explicitly requests code blocks or code formatting. " +
+        "When asked for a diagram, respond with a fenced mermaid code block using ```mermaid and omit any surrounding text." +
+        "If writing a meeting minutes or so, be professional thinking the sections and the format.";
 
       // Fetch mentioned documents and add them to the system prompt
       if (mentionedDocumentIds.length > 0) {
@@ -542,9 +544,9 @@ router.post(
         },
         context
           ? {
-              role: "assistant",
-              content: context,
-            }
+            role: "assistant",
+            content: context,
+          }
           : undefined,
         {
           role: "user",

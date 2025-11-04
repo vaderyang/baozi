@@ -580,6 +580,7 @@
   "Transcribe Audio": "Transcribe Audio",
   "Transcribing…": "Transcribing…",
   "Transcription failed": "Transcription failed",
+  "Transcription queued": "Transcription started",
   "Transcription service is not available": "Transcription service is not available",
   "Audio file transcribed successfully": "Audio file transcribed successfully",
   "None": "None",
@@ -587,7 +588,7 @@
   "Upload an image": "Upload an image",
   "Generate Text": "Generate Text",
   "Continue Writing...": "Continue Writing...",
-  "Continuing writing…": "Continuing writing…",
+  "Thinking...": "Thinking...",
   "AI Edit": "AI Edit",
   "Describe how you'd like to edit the selection": "Describe how you'd like to edit the selection",
   "Apply changes": "Apply changes",
@@ -1387,5 +1388,9 @@
   "{{ user }} created {{ timeAgo }}": "{{ user }} created {{ timeAgo }}",
   "Caption": "Caption",
   "Open": "Open",
-  "Error loading data": "Error loading data"
+  "Error loading data": "Error loading data",
+  "Queued": "Queued",
+  "Transcribing": "Transcribing",
+  "Retry": "Retry",
+  "Transcription cancelled": "Transcription cancelled"
 }

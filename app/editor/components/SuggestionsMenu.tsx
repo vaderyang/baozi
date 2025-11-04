@@ -148,11 +148,11 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     const offsetParent = ref?.offsetParent
       ? ref.offsetParent.getBoundingClientRect()
       : ({
-          width: 0,
-          height: 0,
-          top: 0,
-          left: 0,
-        } as DOMRect);
+        width: 0,
+        height: 0,
+        top: 0,
+        left: 0,
+      } as DOMRect);
 
     let leftPos = Math.min(
       left - offsetParent.left,
@@ -200,8 +200,8 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         Math.max(
           0,
           state.selection.from -
-            (props.search ?? "").length -
-            (trimTrigger ? props.trigger.length : 0)
+          (props.search ?? "").length -
+          (trimTrigger ? props.trigger.length : 0)
         ),
         state.selection.to
       )
@@ -470,9 +470,9 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     const sanitizedContext = triggerSuffix
       ? textBeforeCursor.endsWith(triggerSuffix)
         ? textBeforeCursor.slice(
-            0,
-            Math.max(0, textBeforeCursor.length - triggerSuffix.length)
-          )
+          0,
+          Math.max(0, textBeforeCursor.length - triggerSuffix.length)
+        )
         : textBeforeCursor
       : textBeforeCursor;
     const context = sanitizedContext.slice(
@@ -723,7 +723,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       );
 
     if (isTranscription && files.length > 0) {
-      // Handle transcription
+      // Handle async transcription
       onFileUploadStart?.();
 
       try {
@@ -746,83 +746,48 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
           throw new Error("Failed to upload audio file");
         }
 
-        // Show transcription progress message
-        toast.message(
-          `${dictionary.transcribing || "Transcribing…"} This may take several minutes for large files.`,
-          { duration: Infinity }
-        );
+        // Call async transcription API
+        const response = await client.post<{
+          data: { jobId: string; status: string };
+        }>("/transcriptions.create", {
+          attachmentId: attachment.id,
+          documentId: editorProps.id,
+        });
 
-        // Call transcription API with extended timeout
-        const response = await client.post(
-          "/transcriptions.create",
-          {
-            attachmentId: attachment.id,
-          },
-          {
-            timeout: 600000, // 10 minutes timeout for large files
-          }
-        );
+        const { jobId } = response.data;
 
-        const transcriptText = response.data.text || "";
-        const speakerSegments = response.data.speakerSegments || [];
-
-        if (!transcriptText) {
-          throw new Error("No transcription text received");
+        if (!jobId) {
+          throw new Error("No job ID received from transcription API");
         }
 
-        // Format the transcript text with proper line breaks
-        let formattedText = transcriptText.trim();
+        // Insert TranscriptionStatusCard node at cursor position
+        if (parent) {
+          const { state, dispatch } = view;
+          const statusCardNode = state.schema.nodes.transcription_status_card.create({
+            jobId,
+            fileName: file.name,
+            fileSize: file.size,
+            status: "queued",
+            progress: 0,
+            error: null,
+          });
 
-        // If speaker segments are available, format them with speaker labels
-        if (speakerSegments.length > 0) {
-          formattedText = speakerSegments
-            .map((segment: { spk: number; text: string }) => {
-              const speakerLabel = `Speaker ${segment.spk}`;
-              return `${speakerLabel}: ${segment.text.trim()}`;
-            })
-            .join("\n");
-        } else if (/speaker \d+:/gi.test(formattedText)) {
-          // If the text already contains speaker labels, format them on separate lines
-          formattedText = formattedText.replace(
-            /speaker \d+:/gi,
-            (match: string, offset: number) =>
-              offset === 0 ? match : `\n${match}`
+          const tr = state.tr.replaceRangeWith(
+            parent.pos,
+            parent.pos,
+            statusCardNode
           );
-        } else {
-          // For transcripts without speaker labels, add line breaks after sentences
-          // This makes long transcripts more readable
-          formattedText = formattedText
-            // Add line break after Chinese/Japanese periods, question marks, and exclamation marks
-            .replace(/([。！？])\s*/g, "$1\n")
-            // Add line break after English periods, question marks, and exclamation marks
-            .replace(/([.!?])\s+/g, "$1\n")
-            // Remove multiple consecutive newlines
-            .replace(/\n{3,}/g, "\n\n")
-            .trim();
-        }
-
-        // Insert the audio attachment and transcript into the document
-        const { state, dispatch } = view;
-
-        // Create markdown with audio attachment link and transcript
-        const audioLink = `[${attachment.name} ${attachment.size}](${attachment.url})`;
-        const transcriptMarkdown = `${audioLink}\n\n## ${dictionary.transcript || "Transcript"}\n\n\`\`\`\n${formattedText}\n\`\`\`\n\n`;
-
-        const transcriptContent = editor.pasteParser.parse(transcriptMarkdown);
-
-        if (transcriptContent && parent) {
-          const slice = transcriptContent.slice(0);
-          const tr = state.tr.replaceRange(parent.pos, parent.pos, slice);
           dispatch(tr.scrollIntoView());
         }
 
         toast.success(
-          dictionary.audioFileTranscribedSuccessfully ||
-            "Audio file transcribed successfully"
+          dictionary.transcriptionQueued || "Transcription started"
         );
       } catch (error) {
-        Logger.error("Transcription failed", error as Error);
-        toast.error(dictionary.transcriptionFailed || "Transcription failed");
+        Logger.error("Failed to start transcription", error as Error);
+        toast.error(
+          dictionary.transcriptionFailed || "Failed to start transcription"
+        );
       } finally {
         onFileUploadStop?.();
       }
@@ -1195,7 +1160,7 @@ const Empty = styled.div`
   padding: 0 16px;
 `;
 
-export const Wrapper = styled(Scrollable)<{
+export const Wrapper = styled(Scrollable) <{
   active: boolean;
   top?: number;
   bottom?: number;
