@@ -133,6 +133,14 @@ const isRateLimitError = (status: number, message: string): boolean =>
   message.toLowerCase().includes("rate limit") ||
   message.toLowerCase().includes("too many requests");
 
+const shouldRetryWithFallback = (status: number, message: string): boolean =>
+  isRateLimitError(status, message) ||
+  status === 503 ||
+  status === 500 ||
+  message.toLowerCase().includes("service unavailable") ||
+  message.toLowerCase().includes("no server is available") ||
+  message.toLowerCase().includes("serviceunavailableerror");
+
 router.post(
   "ai.search",
   auth(),
@@ -339,18 +347,19 @@ ${context}`;
             errorPayload?.message ||
             `Request failed with status ${response.status}`;
 
-          // Check if it's a rate limit error and we have a fallback model
+          // Check if we should retry with fallback model
           if (
             fallbackModel &&
             modelToUse !== fallbackModel &&
-            isRateLimitError(response.status, message)
+            shouldRetryWithFallback(response.status, message)
           ) {
             Logger.warn(
-              `Rate limit hit for model ${modelToUse}, retrying with fallback model ${fallbackModel}`,
+              `Model ${modelToUse} failed (status ${response.status}), retrying with fallback model ${fallbackModel}`,
               {
                 primaryModel: modelToUse,
                 fallbackModel,
                 status: response.status,
+                message,
                 userId: user.id,
               }
             );
@@ -544,9 +553,9 @@ router.post(
         },
         context
           ? {
-            role: "assistant",
-            content: context,
-          }
+              role: "assistant",
+              content: context,
+            }
           : undefined,
         {
           role: "user",
@@ -606,18 +615,19 @@ router.post(
             errorPayload?.message ||
             `Request failed with status ${response.status}`;
 
-          // Check if it's a rate limit error and we have a fallback model
+          // Check if we should retry with fallback model
           if (
             fallbackModel &&
             modelToUse !== fallbackModel &&
-            isRateLimitError(response.status, message)
+            shouldRetryWithFallback(response.status, message)
           ) {
             Logger.warn(
-              `Rate limit hit for model ${modelToUse}, retrying with fallback model ${fallbackModel}`,
+              `Model ${modelToUse} failed (status ${response.status}), retrying with fallback model ${fallbackModel}`,
               {
                 primaryModel: modelToUse,
                 fallbackModel,
                 status: response.status,
+                message,
                 userId: user.id,
               }
             );

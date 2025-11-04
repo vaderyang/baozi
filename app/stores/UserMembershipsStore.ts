@@ -86,7 +86,10 @@ export default class UserMembershipsStore extends Store<UserMembership> {
       id: documentId,
       userId,
     });
-    this.removeAll({ userId, documentId });
+
+    runInAction("UserMembershipsStore#delete", () => {
+      this.removeAll({ userId, documentId });
+    });
   }
 
   @computed

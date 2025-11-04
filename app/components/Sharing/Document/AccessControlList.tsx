@@ -106,7 +106,7 @@ export const AccessControlList = observer(
 
     React.useEffect(() => {
       calcMaxHeight();
-    });
+    }, [calcMaxHeight]);
 
     return (
       <ScrollableContainer

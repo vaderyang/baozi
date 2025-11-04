@@ -357,7 +357,7 @@ const TH = styled.span`
 const TD = styled.span`
   padding: 10px 6px;
   font-size: 14px;
-  text-wrap: wrap;
+  white-space: normal;
   overflow: hidden;
   text-overflow: ellipsis;
 

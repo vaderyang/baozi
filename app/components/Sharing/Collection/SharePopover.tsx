@@ -15,6 +15,7 @@ import { createAction } from "~/actions";
 import { UserSection } from "~/actions/sections";
 import useBoolean from "~/hooks/useBoolean";
 import useCurrentTeam from "~/hooks/useCurrentTeam";
+import useIsMounted from "~/hooks/useIsMounted";
 import useKeyDown from "~/hooks/useKeyDown";
 import usePolicy from "~/hooks/usePolicy";
 import usePrevious from "~/hooks/usePrevious";
@@ -50,6 +51,7 @@ function SharePopover({ collection, visible, onRequestClose }: Props) {
   const [permission, setPermission] = React.useState<CollectionPermission>(
     CollectionPermission.Read
   );
+  const isMounted = useIsMounted();
 
   const share = shares.getByCollectionId(collection.id);
   const prevPendingIds = usePrevious(pendingIds);
@@ -257,9 +259,11 @@ function SharePopover({ collection, visible, onRequestClose }: Props) {
             );
           }
 
-          setInvitedInSession((prev) => [...prev, ...pendingIds]);
-          setPendingIds([]);
-          hidePicker();
+          if (isMounted()) {
+            setInvitedInSession((prev) => [...prev, ...pendingIds]);
+            setPendingIds([]);
+            hidePicker();
+          }
         },
       }),
     [
@@ -267,6 +271,7 @@ function SharePopover({ collection, visible, onRequestClose }: Props) {
       groupMemberships,
       groups,
       hidePicker,
+      isMounted,
       memberships,
       pendingIds,
       permission,
