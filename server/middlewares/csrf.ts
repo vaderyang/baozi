@@ -1,7 +1,9 @@
 import type { Next } from "koa";
 import { Scope } from "@shared/types";
 import env from "@server/env";
+import Logger from "@server/logging/Logger";
 import AuthenticationHelper from "@shared/helpers/AuthenticationHelper";
+
 import { AppContext } from "@server/types";
 import {
   generateRawToken,
@@ -24,7 +26,10 @@ export function attachCSRFToken() {
       const existingToken = ctx.cookies.get(CSRF.cookieName);
 
       // Only generate a new token if one doesn't exist or is invalid
-      if (!existingToken || !unbundleToken(existingToken, env.SECRET_KEY).valid) {
+      if (
+        !existingToken ||
+        !unbundleToken(existingToken, env.SECRET_KEY).valid
+      ) {
         const raw = generateRawToken(16);
         const bundled = bundleToken(raw, env.SECRET_KEY);
 
