@@ -102,6 +102,7 @@ export enum AttachmentPreset {
   WorkspaceImport = "workspaceImport",
   Import = "import",
   Avatar = "avatar",
+  AudioTranscription = "audioTranscription",
 }
 
 export enum IntegrationType {

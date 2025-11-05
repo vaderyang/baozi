@@ -12,6 +12,7 @@ import UserMembership from "~/models/UserMembership";
 import { GroupAvatar } from "~/components/Avatar";
 import InputMemberPermissionSelect from "~/components/InputMemberPermissionSelect";
 import useCurrentUser from "~/hooks/useCurrentUser";
+import useIsMounted from "~/hooks/useIsMounted";
 import usePolicy from "~/hooks/usePolicy";
 import useStores from "~/hooks/useStores";
 import { EmptySelectValue, Permission } from "~/types";
@@ -36,6 +37,7 @@ function DocumentMembersList({ document, invitedInSession }: Props) {
   const can = usePolicy(document);
   const { t } = useTranslation();
   const theme = useTheme();
+  const isMounted = useIsMounted();
 
   const handleRemoveUser = React.useCallback(
     async (item) => {
@@ -44,6 +46,10 @@ function DocumentMembersList({ document, invitedInSession }: Props) {
           documentId: document.id,
           userId: item.id,
         } as UserMembership);
+
+        if (!isMounted()) {
+          return;
+        }
 
         if (item.id === user.id) {
           history.push(homePath());
@@ -55,10 +61,12 @@ function DocumentMembersList({ document, invitedInSession }: Props) {
           );
         }
       } catch (_err) {
-        toast.error(t("Could not remove user"));
+        if (isMounted()) {
+          toast.error(t("Could not remove user"));
+        }
       }
     },
-    [t, history, userMemberships, user, document]
+    [t, history, isMounted, userMemberships, user, document]
   );
 
   const handleUpdateUser = React.useCallback(
@@ -69,16 +77,20 @@ function DocumentMembersList({ document, invitedInSession }: Props) {
           userId: userToUpdate.id,
           permission,
         });
-        toast.success(
-          t(`Permissions for {{ userName }} updated`, {
-            userName: userToUpdate.name,
-          })
-        );
+        if (isMounted()) {
+          toast.success(
+            t(`Permissions for {{ userName }} updated`, {
+              userName: userToUpdate.name,
+            })
+          );
+        }
       } catch (_err) {
-        toast.error(t("Could not update user"));
+        if (isMounted()) {
+          toast.error(t("Could not update user"));
+        }
       }
     },
-    [t, userMemberships, document]
+    [t, isMounted, userMemberships, document]
   );
 
   // Order newly added users first during the current editing session, on reload members are

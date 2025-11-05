@@ -41,6 +41,7 @@ import TableCell from "./TableCell";
 import TableHeader from "./TableHeader";
 import TableRow from "./TableRow";
 import Text from "./Text";
+import TranscriptionStatusCard from "./TranscriptionStatusCard";
 import Video from "./Video";
 
 type Nodes = (typeof Node | typeof Mark | typeof Extension)[];
@@ -99,6 +100,7 @@ export const richExtensions: Nodes = [
   Attachment,
   Video,
   Notice,
+  TranscriptionStatusCard,
   Heading,
   HorizontalRule,
   Highlight,

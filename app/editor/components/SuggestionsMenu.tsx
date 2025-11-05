@@ -148,11 +148,11 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     const offsetParent = ref?.offsetParent
       ? ref.offsetParent.getBoundingClientRect()
       : ({
-          width: 0,
-          height: 0,
-          top: 0,
-          left: 0,
-        } as DOMRect);
+        width: 0,
+        height: 0,
+        top: 0,
+        left: 0,
+      } as DOMRect);
 
     let leftPos = Math.min(
       left - offsetParent.left,
@@ -200,8 +200,8 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         Math.max(
           0,
           state.selection.from -
-            (props.search ?? "").length -
-            (trimTrigger ? props.trigger.length : 0)
+          (props.search ?? "").length -
+          (trimTrigger ? props.trigger.length : 0)
         ),
         state.selection.to
       )
@@ -470,9 +470,9 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     const sanitizedContext = triggerSuffix
       ? textBeforeCursor.endsWith(triggerSuffix)
         ? textBeforeCursor.slice(
-            0,
-            Math.max(0, textBeforeCursor.length - triggerSuffix.length)
-          )
+          0,
+          Math.max(0, textBeforeCursor.length - triggerSuffix.length)
+        )
         : textBeforeCursor
       : textBeforeCursor;
     const context = sanitizedContext.slice(
@@ -546,6 +546,10 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
           return triggerFilePick("video/*");
         case "attachment":
           return triggerFilePick("*");
+        case "transcript":
+          return triggerFilePick(
+            AttachmentValidation.audioContentTypes.join(", ")
+          );
         case "embed":
           return triggerLinkInput(item);
         case "ai_generate_text":
@@ -711,7 +715,84 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       throw new Error("uploadFile prop is required to replace files");
     }
 
-    if (parent) {
+    // Check if this is a transcription request
+    const isTranscription =
+      inputRef.current?.accept &&
+      AttachmentValidation.audioContentTypes.some((type) =>
+        inputRef.current?.accept?.includes(type)
+      );
+
+    if (isTranscription && files.length > 0) {
+      // Handle async transcription
+      onFileUploadStart?.();
+
+      try {
+        const file = files[0];
+        const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
+
+        // Show initial upload message
+        toast.message(`Uploading audio file (${fileSizeMB} MB)...`);
+
+        // Upload the audio file first as an attachment
+        const { uploadFile: uploadFileFn } = await import("~/utils/files");
+        const { AttachmentPreset } = await import("@shared/types");
+        const attachment = await uploadFileFn(file, {
+          name: file.name,
+          documentId: editorProps.id,
+          preset: AttachmentPreset.AudioTranscription,
+        });
+
+        if (!attachment || !attachment.id) {
+          throw new Error("Failed to upload audio file");
+        }
+
+        // Call async transcription API
+        const response = await client.post<{
+          data: { jobId: string; status: string };
+        }>("/transcriptions.create", {
+          attachmentId: attachment.id,
+          documentId: editorProps.id,
+        });
+
+        const { jobId } = response.data;
+
+        if (!jobId) {
+          throw new Error("No job ID received from transcription API");
+        }
+
+        // Insert TranscriptionStatusCard node at cursor position
+        if (parent) {
+          const { state, dispatch } = view;
+          const statusCardNode = state.schema.nodes.transcription_status_card.create({
+            jobId,
+            fileName: file.name,
+            fileSize: file.size,
+            status: "queued",
+            progress: 0,
+            error: null,
+          });
+
+          const tr = state.tr.replaceRangeWith(
+            parent.pos,
+            parent.pos,
+            statusCardNode
+          );
+          dispatch(tr.scrollIntoView());
+        }
+
+        toast.success(
+          dictionary.transcriptionQueued || "Transcription started"
+        );
+      } catch (error) {
+        Logger.error("Failed to start transcription", error as Error);
+        toast.error(
+          dictionary.transcriptionFailed || "Failed to start transcription"
+        );
+      } finally {
+        onFileUploadStop?.();
+      }
+    } else if (parent) {
+      // Handle regular file upload
       await insertFiles(view, event, parent.pos, files, {
         uploadFile,
         onFileUploadStart,
@@ -1079,7 +1160,7 @@ const Empty = styled.div`
   padding: 0 16px;
 `;
 
-export const Wrapper = styled(Scrollable)<{
+export const Wrapper = styled(Scrollable) <{
   active: boolean;
   top?: number;
   bottom?: number;

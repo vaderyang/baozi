@@ -52,7 +52,7 @@ import Logger from "~/utils/Logger";
 import ComponentView from "./components/ComponentView";
 import EditorContext from "./components/EditorContext";
 import { NodeViewRenderer } from "./components/NodeViewRenderer";
-
+import TranscriptionStatusManager from "./components/TranscriptionStatusManager";
 import WithTheme from "./components/WithTheme";
 import isNull from "lodash/isNull";
 import { isArray, map } from "lodash";
@@ -439,7 +439,7 @@ export class Editor extends React.PureComponent<
         (step) =>
           (step instanceof ReplaceAroundStep || step instanceof ReplaceStep) &&
           step.slice.content?.firstChild?.type.name ===
-            this.schema.nodes.checkbox_item.name
+          this.schema.nodes.checkbox_item.name
       );
 
     const isEditingComment = (tr: Transaction) =>
@@ -827,6 +827,7 @@ export class Editor extends React.PureComponent<
     return (
       <PortalContext.Provider value={this.wrapperRef.current}>
         <EditorContext.Provider value={this}>
+          {this.props.id && <TranscriptionStatusManager documentId={this.props.id} />}
           <Flex
             ref={this.wrapperRef}
             onKeyDown={onKeyDown}
@@ -873,7 +874,7 @@ export class Editor extends React.PureComponent<
   }
 }
 
-const EditorContainer = styled(Styles)<{
+const EditorContainer = styled(Styles) <{
   userId?: string;
   focusedCommentId?: string;
 }>`
@@ -900,8 +901,8 @@ const EditorContainer = styled(Styles)<{
 
         &.ProseMirror-selectednode {
           outline-color: ${props.readOnly
-            ? "transparent"
-            : darken(0.2, props.theme.textHighlight)};
+        ? "transparent"
+        : darken(0.2, props.theme.textHighlight)};
         }
       }
     `}

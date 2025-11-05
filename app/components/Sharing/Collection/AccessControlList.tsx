@@ -14,6 +14,7 @@ import InputMemberPermissionSelect from "~/components/InputMemberPermissionSelec
 import { InputSelectPermission } from "~/components/InputSelectPermission";
 import Scrollable from "~/components/Scrollable";
 import useCurrentTeam from "~/hooks/useCurrentTeam";
+import useIsMounted from "~/hooks/useIsMounted";
 import useMaxHeight from "~/hooks/useMaxHeight";
 import usePolicy from "~/hooks/usePolicy";
 import useRequest from "~/hooks/useRequest";
@@ -44,6 +45,7 @@ export const AccessControlList = observer(
     const can = usePolicy(collection);
     const { t } = useTranslation();
     const theme = useTheme();
+    const isMounted = useIsMounted();
     const collectionId = collection.id;
 
     const { request: fetchMemberships, loading: membershipLoading } =
@@ -84,7 +86,7 @@ export const AccessControlList = observer(
 
     React.useEffect(() => {
       calcMaxHeight();
-    });
+    }, [calcMaxHeight]);
 
     const permissions = React.useMemo(
       () =>
@@ -191,7 +193,9 @@ export const AccessControlList = observer(
                               });
                             }
                           } catch (err) {
-                            toast.error(err.message);
+                            if (isMounted()) {
+                              toast.error(err.message);
+                            }
                             return false;
                           }
                           return true;
@@ -242,7 +246,9 @@ export const AccessControlList = observer(
                               });
                             }
                           } catch (err) {
-                            toast.error(err.message);
+                            if (isMounted()) {
+                              toast.error(err.message);
+                            }
                             return false;
                           }
                           return true;
