@@ -35,12 +35,18 @@ IMAGE_BASE="netis/house-outline-base:${VERSION_ARG}"
 BUILD_TIME=$(date +"%Y%m%d%H%M")
 echo "Building images with BUILD_TIME=${BUILD_TIME}, APP_PATH=${APP_PATH}"
 
+# Last 6 chars of current commit hash
+GIT_HASH_FULL=$(git rev-parse HEAD)
+BUILD_GIT_HASH=${GIT_HASH_FULL: -6}
+echo "Using BUILD_GIT_HASH=${BUILD_GIT_HASH}"
+
 # Build base image (fresh)
 docker build --pull --no-cache \
   -f ../Dockerfile.base \
   -t "${IMAGE_BASE}" \
   --build-arg APP_PATH="${APP_PATH}" \
   --build-arg BUILD_TIME="${BUILD_TIME}" \
+  --build-arg BUILD_GIT_HASH="${BUILD_GIT_HASH}" \
   ..
 
 # Build app image against the freshly built base
@@ -50,6 +56,7 @@ docker build --no-cache \
   --build-arg BASE_IMAGE="${IMAGE_BASE}" \
   --build-arg APP_PATH="${APP_PATH}" \
   --build-arg BUILD_TIME="${BUILD_TIME}" \
+  --build-arg BUILD_GIT_HASH="${BUILD_GIT_HASH}" \
   ..
 
 echo "Build complete: ${IMAGE_APP}. Now forcing replacement of any running containers using this image."
