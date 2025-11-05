@@ -1,6 +1,7 @@
 import invariant from "invariant";
 import lowerFirst from "lodash/lowerFirst";
 import pluralize from "pluralize";
+import AIAskStore from "./AIAskStore";
 import ApiKeysStore from "./ApiKeysStore";
 import AudioRecorderStore from "./AudioRecorderStore";
 import AuthStore from "./AuthStore";
@@ -37,6 +38,7 @@ import WebhookSubscriptionsStore from "./WebhookSubscriptionStore";
 import Store from "./base/Store";
 
 export default class RootStore {
+  aiAsk: AIAskStore;
   apiKeys: ApiKeysStore;
   audioRecorder: AudioRecorderStore;
   auth: AuthStore;
@@ -103,6 +105,7 @@ export default class RootStore {
     this.registerStore(UserMembershipsStore);
 
     // Non-models
+    this.registerStore(AIAskStore, "aiAsk");
     this.registerStore(DocumentPresenceStore, "presence");
     this.registerStore(DialogsStore, "dialogs");
     this.registerStore(UiStore, "ui");
@@ -126,11 +129,14 @@ export default class RootStore {
   }
 
   /**
-   * Clear all data from the stores except for auth, ui, and audioRecorder.
+   * Clear all data from the stores except for auth, ui, audioRecorder, and aiAsk.
    */
   public clear() {
     Object.getOwnPropertyNames(this)
-      .filter((key) => ["auth", "ui", "audioRecorder"].includes(key) === false)
+      .filter(
+        (key) =>
+          ["auth", "ui", "audioRecorder", "aiAsk"].includes(key) === false
+      )
       .forEach((key: keyof RootStore) => {
         if ("clear" in this[key]) {
           // @ts-expect-error clear exists on all stores
