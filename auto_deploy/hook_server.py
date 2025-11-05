@@ -232,86 +232,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/":
-            # 生成可访问地址列表（枚举全部 IPv4）
+            # 默认路径直接展示日志页面（最新在最上方）
             access_urls = _list_access_urls(HOST, PORT)
             bind_url = f"http://{HOST}:{PORT}"
             base_url = access_urls[0] if access_urls else bind_url
-            json_force_example = "{\"force\": true}"
-
-            payload = {
-                "status": "ok",
-                "server_url": base_url,
-                "access_urls": access_urls,
-                "compose_project_name": COMPOSE_PROJECT_NAME,
-                "compose_project_dir": COMPOSE_PROJECT_DIR,
-                "deploy_in_progress": DEPLOY_IN_PROGRESS,
-                "deploy_start_time": DEPLOY_START_TIME_ISO,
-                "usage": {
-                    "endpoint": "POST /webhook/bitbucket",
-                    "examples": [
-                        {
-                            "curl": f"curl -sS -X POST '{base_url}/webhook/bitbucket'",
-                            "effect": "无部署时 => queued；有部署时 => in_progress",
-                        },
-                        {
-                            "curl": f"curl -sS -X POST '{base_url}/webhook/bitbucket?force=true'",
-                            "effect": "有部署时 => restarted（取消旧部署并重启）",
-                        },
-                        {
-                            "curl": f"curl -sS -H 'Content-Type: application/json' -d '{json_force_example}' '{base_url}/webhook/bitbucket'",
-                            "effect": "与 query force=true 等效",
-                        },
-                    ],
-                },
-            }
-            self._send_json(200, payload)
-        elif self.path.startswith("/deploy/log"):
-            # 纯文本返回日志尾部（供页面刷新使用）
-            parsed = urlparse(self.path)
-            qs = parse_qs(parsed.query)
-            order = str(qs.get("order", ["desc"])[0]).lower()
-            reverse = order in ("desc", "latest", "reverse")
-            log_text = _read_deploy_log_tail(reverse=reverse)
-            body = log_text.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-        elif self.path.startswith("/deploy"):
-            # 展示 deploy.log 内容与取消按钮
-            access_urls = []
-            bind_url = f"http://{HOST}:{PORT}"
-            if HOST == "0.0.0.0":
-                access_urls.append(f"http://127.0.0.1:{PORT}")
-                try:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    s.connect(("8.8.8.8", 80))
-                    primary_ip = s.getsockname()[0]
-                except Exception:
-                    primary_ip = None
-                finally:
-                    try:
-                        s.close()
-                    except Exception:
-                        pass
-                if primary_ip:
-                    access_urls.append(f"http://{primary_ip}:{PORT}")
-            else:
-                access_urls.append(bind_url)
-
-            base_url = access_urls[0] if access_urls else bind_url
-            # 页面初次渲染也采用最新在最上方
             log_text = _read_deploy_log_tail(reverse=True)
             in_progress_text = "部署进行中" if DEPLOY_IN_PROGRESS else "空闲"
             start_text = DEPLOY_START_TIME_ISO or "-"
             cancel_disabled = "" if DEPLOY_IN_PROGRESS else "disabled"
             html = f"""
 <!doctype html>
-<html lang="zh-CN">
+<html lang=\"zh-CN\">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset=\"utf-8\">
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
   <title>AutoDeploy 日志</title>
   <style>
     body {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; margin: 16px; background: #0f1216; color: #e6edf3; }}
@@ -326,18 +260,17 @@ class Handler(BaseHTTPRequestHandler):
 </head>
 <body>
   <h1>AutoDeploy</h1>
-  <div class="meta">项目: {COMPOSE_PROJECT_NAME} · 目录: {COMPOSE_PROJECT_DIR}</div>
-  <div class="meta">状态: {in_progress_text} · 启动时间: {start_text}</div>
-  <div class="actions">
-    <form method="POST" action="/cancel" onsubmit="return confirm('确认取消当前部署吗？');">
-      <button type="submit" {cancel_disabled}>取消当前部署</button>
-      <span style="margin-left:12px; font-size:12px; color:#9da7b1;">取消后将终止当前构建并释放状态</span>
+  <div class=\"meta\">项目: {COMPOSE_PROJECT_NAME} · 目录: {COMPOSE_PROJECT_DIR}</div>
+  <div class=\"meta\">状态: {in_progress_text} · 启动时间: {start_text}</div>
+  <div class=\"actions\">
+    <form method=\"POST\" action=\"/cancel\" onsubmit=\"return confirm('确认取消当前部署吗？');\">\n\n      <button type=\"submit\" {cancel_disabled}>取消当前部署</button>
+      <span style=\"margin-left:12px; font-size:12px; color:#9da7b1;\">取消后将终止当前构建并释放状态</span>
     </form>
   </div>
-  <div class="meta">日志文件: {DEPLOY_LOG_PATH} · 页面地址: <a href="{base_url}/deploy">{base_url}/deploy</a> · 显示顺序: 最新在最上方</div>
-  <pre id="log">{log_text}</pre>
+  <div class=\"meta\">日志文件: {DEPLOY_LOG_PATH} · 页面地址: <a href=\"{base_url}/\">{base_url}/</a> · 显示顺序: 最新在最上方</div>
+  <pre id=\"log\">{log_text}</pre>
   <script>
-    // 可选：简单的轮询刷新日志
+    // 简单轮询刷新日志（降序）
     const pre = document.getElementById('log');
     async function refresh() {{
       try {{
@@ -351,6 +284,24 @@ class Handler(BaseHTTPRequestHandler):
 </html>
 """
             self._send_html(200, html)
+        elif self.path.startswith("/deploy/log"):
+            # 纯文本返回日志尾部（供页面刷新使用）
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            order = str(qs.get("order", ["desc"])[0]).lower()
+            reverse = order in ("desc", "latest", "reverse")
+            log_text = _read_deploy_log_tail(reverse=reverse)
+            body = log_text.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path.startswith("/deploy"):
+            # 兼容旧路径：重定向到根路径
+            self.send_response(303)
+            self.send_header("Location", "/")
+            self.end_headers()
         else:
             self._send_json(404, {
                 "error": "not found",
@@ -384,9 +335,10 @@ class Handler(BaseHTTPRequestHandler):
             # 根据 Accept/Referer 决定返回类型（页面重定向或 JSON）
             accept = self.headers.get("Accept", "")
             referer = self.headers.get("Referer", "")
-            if "text/html" in accept or referer.endswith("/deploy"):
+            if "text/html" in accept or referer:
+                # 现在页面位于根路径，直接重定向到 "/"
                 self.send_response(303)
-                self.send_header("Location", "/deploy")
+                self.send_header("Location", "/")
                 self.end_headers()
             else:
                 self._send_json(200, {
@@ -532,7 +484,7 @@ def main():
         print(f"  正常发布: curl -sS -X POST '{base_url}/webhook/bitbucket'")
         print(f"  强制重新发布: curl -sS -X POST '{base_url}/webhook/bitbucket?force=true'")
         print(f"  JSON 强制重新发布: curl -sS -H 'Content-Type: application/json' -d '{json_force_example}' '{base_url}/webhook/bitbucket'")
-        print(f"  日志页面: {base_url}/deploy")
+        print(f"  日志页面: {base_url}/")
         # 不同 IP 组之间间隔一行，提升可读性
         print()
     try:

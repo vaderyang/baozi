@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-git -c core.sshCommand=ssh -i ~/.ssh/id_ed25519_netis -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new pull
+git -c core.sshCommand=ssh -i ~/.ssh/bitbucket-house-101-readonly -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new pull
 set -euo pipefail
 
 # Config
