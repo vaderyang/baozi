@@ -206,6 +206,12 @@ const getModelConfig = async (
   teamId?: string,
   contextLength?: number
 ) => {
+  Logger.info("utils", "getModelConfig called", {
+    forAiSearch,
+    teamId,
+    contextLength,
+  });
+
   const apiKey = envValue(
     "LLM_API_KEY",
     "AI_API_KEY",
@@ -221,6 +227,12 @@ const getModelConfig = async (
     "OPENAI_API_BASE_URL",
     "API_BASE"
   );
+
+  Logger.info("utils", "Environment config loaded", {
+    hasApiKey: !!apiKey,
+    hasApiBase: !!apiBase,
+    apiBase: apiBase ? apiBase.substring(0, 30) + "..." : undefined,
+  });
 
   let model: string | undefined;
   let fallbackModel: string | undefined;
@@ -341,6 +353,14 @@ const getModelConfig = async (
     model = fallbackModel;
     fallbackModel = temp;
   }
+
+  Logger.info("utils", "getModelConfig result", {
+    forAiSearch,
+    model,
+    fallbackModel,
+    hasApiKey: !!apiKey,
+    hasApiBase: !!apiBase,
+  });
 
   return { apiKey, apiBase, model, fallbackModel };
 };
@@ -882,13 +902,41 @@ router.post(
     // Calculate context length for model selection
     const totalContextLength = prompt.length + context.length;
 
+    Logger.info("utils", "AI Generate request", {
+      promptLength: prompt.length,
+      contextLength: context.length,
+      totalContextLength,
+      mode,
+      mentionedDocumentCount: mentionedDocumentIds.length,
+      userId: user.id,
+      teamId: user.teamId,
+    });
+
     const { apiKey, apiBase, model, fallbackModel } = await getModelConfig(
       false,
       user.teamId,
       totalContextLength
     );
 
+    Logger.info("utils", "AI Generate model config", {
+      hasApiKey: !!apiKey,
+      hasApiBase: !!apiBase,
+      model,
+      fallbackModel,
+      userId: user.id,
+    });
+
     if (!apiKey || !apiBase || !model) {
+      Logger.error(
+        "AI configuration incomplete",
+        new Error("Missing required configuration"),
+        {
+          hasApiKey: !!apiKey,
+          hasApiBase: !!apiBase,
+          hasModel: !!model,
+          userId: user.id,
+        }
+      );
       ctx.throw(InvalidRequestError("AI configuration is incomplete"));
     }
 
