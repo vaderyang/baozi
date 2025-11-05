@@ -240,40 +240,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path == "/":
-            # 生成可访问地址列表（枚举全部 IPv4）
-            access_urls = _list_access_urls(HOST, PORT)
-            bind_url = f"http://{HOST}:{PORT}"
-            base_url = access_urls[0] if access_urls else bind_url
-            json_force_example = "{\"force\": true}"
-
-            payload = {
-                "status": "ok",
-                "server_url": base_url,
-                "access_urls": access_urls,
-                "compose_project_name": COMPOSE_PROJECT_NAME,
-                "compose_project_dir": COMPOSE_PROJECT_DIR,
-                "deploy_in_progress": DEPLOY_IN_PROGRESS,
-                "deploy_start_time": DEPLOY_START_TIME_ISO,
-                "usage": {
-                    "endpoint": "POST /webhook/bitbucket",
-                    "examples": [
-                        {
-                            "curl": f"curl -sS -X POST '{base_url}/webhook/bitbucket'",
-                            "effect": "无部署时 => queued；有部署时 => in_progress",
-                        },
-                        {
-                            "curl": f"curl -sS -X POST '{base_url}/webhook/bitbucket?force=true'",
-                            "effect": "有部署时 => restarted（取消旧部署并重启）",
-                        },
-                        {
-                            "curl": f"curl -sS -H 'Content-Type: application/json' -d '{json_force_example}' '{base_url}/webhook/bitbucket'",
-                            "effect": "与 query force=true 等效",
-                        },
-                    ],
-                },
-            }
-            self._send_json(200, payload)
+        # 规范化路径，根路径重定向到 /deploy
+        parsed = urlparse(self.path)
+        path_only = parsed.path
+        norm_path = path_only.rstrip("/") or "/"
+        if norm_path == "/":
+            self.send_response(302)
+            self.send_header("Location", "/deploy")
+            self.end_headers()
+            return
         elif self.path.startswith("/deploy/log"):
             # 纯文本返回日志尾部（供页面刷新使用）
             parsed = urlparse(self.path)
