@@ -4,6 +4,7 @@ FROM ${BASE_IMAGE} AS base
 
 ARG APP_PATH
 ARG BUILD_TIME
+ARG BUILD_GIT_HASH
 WORKDIR $APP_PATH
 
 # ---
@@ -13,6 +14,7 @@ LABEL org.opencontainers.image.source="https://github.com/outline/outline"
 
 ARG APP_PATH
 ARG BUILD_TIME
+ARG BUILD_GIT_HASH
 WORKDIR $APP_PATH
 ENV NODE_ENV=production
 
@@ -35,6 +37,8 @@ RUN  apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 ENV FILE_STORAGE_LOCAL_ROOT_DIR=/var/lib/outline/data
+ENV BUILD_TIME=${BUILD_TIME}
+ENV BUILD_GIT_HASH=${BUILD_GIT_HASH}
 RUN mkdir -p "$FILE_STORAGE_LOCAL_ROOT_DIR" && \
     chown -R nodejs:nodejs "$FILE_STORAGE_LOCAL_ROOT_DIR" && \
     chmod 1777 "$FILE_STORAGE_LOCAL_ROOT_DIR"
@@ -47,4 +51,3 @@ HEALTHCHECK --interval=1m CMD wget -qO- "http://localhost:${PORT:-3000}/_health"
 
 EXPOSE 3000
 CMD ["yarn", "start"]
-ENV BUILD_TIME=${BUILD_TIME}
