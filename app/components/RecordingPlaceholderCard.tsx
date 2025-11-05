@@ -160,24 +160,51 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
     ]);
 
     React.useEffect(() => {
+      const computeDuration = () => {
+        if (!isMatchingRecording || !audioRecorder.startTime) {return 0;}
+        const now = Date.now();
+        const pausedExtra =
+          audioRecorder.isPaused && audioRecorder.pauseStartTime
+            ? now - audioRecorder.pauseStartTime
+            : 0;
+        const elapsed =
+          now -
+          audioRecorder.startTime -
+          audioRecorder.pausedDuration -
+          pausedExtra;
+        return Math.max(0, elapsed);
+      };
+
       if (isMatchingRecording) {
+        // Set initial duration immediately using store primitives
+        setDisplayDuration(computeDuration());
+
         const interval = window.setInterval(() => {
-          setDisplayDuration(audioRecorder.duration);
+          setDisplayDuration(computeDuration());
         }, 1000);
 
         return () => window.clearInterval(interval);
       }
 
       if (initialStartTime) {
+        // Fallback for historical placeholders rendered from document state
+        const calc = () => Math.max(0, Date.now() - initialStartTime);
+        setDisplayDuration(calc());
         const interval = window.setInterval(() => {
-          setDisplayDuration(Math.max(0, Date.now() - initialStartTime));
+          setDisplayDuration(calc());
         }, 1000);
-
         return () => window.clearInterval(interval);
       }
 
       return undefined;
-    }, [audioRecorder, initialStartTime, isMatchingRecording]);
+    }, [
+      isMatchingRecording,
+      initialStartTime,
+      audioRecorder.startTime,
+      audioRecorder.pausedDuration,
+      audioRecorder.isPaused,
+      audioRecorder.pauseStartTime,
+    ]);
 
     React.useEffect(() => {
       if (
@@ -521,7 +548,10 @@ const compactContainerStyles = css`
   overflow: hidden;
 `;
 
-const Container = styled.div`
+const Container = styled.div.attrs({
+  contentEditable: "false",
+  suppressContentEditableWarning: true,
+})`
   background: ${s("sidebarBackground")};
   border: 2px solid ${s("divider")};
   border-radius: 8px;

@@ -28,18 +28,40 @@ const GlobalRecorderController: React.FC = observer(() => {
   const { t } = useTranslation();
   const [displayDuration, setDisplayDuration] = React.useState(0);
 
-  // Update duration every second
+  // Update duration every second using store primitives (avoid mobx computed caching)
   React.useEffect(() => {
     if (!audioRecorder.isActive) {
       return;
     }
 
+    const computeDuration = () => {
+      if (!audioRecorder.startTime) {return 0;}
+      const now = Date.now();
+      const pausedExtra =
+        audioRecorder.isPaused && audioRecorder.pauseStartTime
+          ? now - audioRecorder.pauseStartTime
+          : 0;
+      const elapsed =
+        now -
+        audioRecorder.startTime -
+        audioRecorder.pausedDuration -
+        pausedExtra;
+      return Math.max(0, elapsed);
+    };
+
+    setDisplayDuration(computeDuration());
     const interval = setInterval(() => {
-      setDisplayDuration(audioRecorder.duration);
+      setDisplayDuration(computeDuration());
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [audioRecorder.isActive, audioRecorder.duration]);
+  }, [
+    audioRecorder.isActive,
+    audioRecorder.startTime,
+    audioRecorder.pausedDuration,
+    audioRecorder.isPaused,
+    audioRecorder.pauseStartTime,
+  ]);
 
   // Format duration as MM:SS
   const formatDuration = (ms: number): string => {
