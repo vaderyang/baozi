@@ -10,6 +10,7 @@ import { InputSelect, Option } from "~/components/InputSelect";
 import Scene from "~/components/Scene";
 import Text from "~/components/Text";
 import useCurrentTeam from "~/hooks/useCurrentTeam";
+import { client } from "~/utils/ApiClient";
 import SettingRow from "./components/SettingRow";
 
 function AI() {
@@ -20,22 +21,26 @@ function AI() {
     String(team.getPreference(TeamPreference.AiContextLengthThreshold) ?? 500)
   );
   const [generateTextModel, setGenerateTextModel] = React.useState(
-    (team.getPreference(TeamPreference.AiGenerateTextModel) as string) ?? ""
+    (team.getPreference(TeamPreference.AiGenerateTextModel) as string) ||
+      "__default__"
   );
   const [generateTextFallbackModel, setGenerateTextFallbackModel] =
     React.useState(
       (team.getPreference(
         TeamPreference.AiGenerateTextFallbackModel
-      ) as string) ?? ""
+      ) as string) || "__default__"
     );
   const [searchModel, setSearchModel] = React.useState(
-    (team.getPreference(TeamPreference.AiSearchModel) as string) ?? ""
+    (team.getPreference(TeamPreference.AiSearchModel) as string) ||
+      "__default__"
   );
   const [searchFallbackModel, setSearchFallbackModel] = React.useState(
-    (team.getPreference(TeamPreference.AiSearchFallbackModel) as string) ?? ""
+    (team.getPreference(TeamPreference.AiSearchFallbackModel) as string) ||
+      "__default__"
   );
   const [visionModel, setVisionModel] = React.useState(
-    (team.getPreference(TeamPreference.AiVisionModel) as string) ?? ""
+    (team.getPreference(TeamPreference.AiVisionModel) as string) ||
+      "__default__"
   );
 
   const [availableModels, setAvailableModels] = React.useState<string[]>([]);
@@ -51,39 +56,15 @@ function AI() {
       setModelsError(null);
 
       try {
-        const response = await fetch("/api/ai.models", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "same-origin",
-        });
+        const data = await client.post("/ai.models");
 
         if (cancelled) {
           return;
         }
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(
-            errorData.message ||
-              `Failed to fetch models: ${response.status} ${response.statusText}`
-          );
-        }
-
-        const data = (await response.json()) as {
-          data?: {
-            models?: Array<{ id: string }>;
-          };
-        };
-
-        if (cancelled) {
-          return;
-        }
-
-        if (data.data?.models && Array.isArray(data.data.models)) {
-          const modelIds = data.data.models
-            .map((model) => model.id)
+        if (data?.models && Array.isArray(data.models)) {
+          const modelIds = data.models
+            .map((model: { id: string }) => model.id)
             .filter((id): id is string => !!id);
           setAvailableModels(modelIds);
         } else {
@@ -116,17 +97,21 @@ function AI() {
       return;
     }
 
+    // Convert __default__ back to undefined for storage
+    const cleanValue = (val: string) =>
+      val === "__default__" || !val ? undefined : val;
+
     await team.save({
       preferences: {
         ...team.preferences,
         [TeamPreference.AiContextLengthThreshold]: threshold,
-        [TeamPreference.AiGenerateTextModel]: generateTextModel || undefined,
-        [TeamPreference.AiGenerateTextFallbackModel]:
-          generateTextFallbackModel || undefined,
-        [TeamPreference.AiSearchModel]: searchModel || undefined,
-        [TeamPreference.AiSearchFallbackModel]:
-          searchFallbackModel || undefined,
-        [TeamPreference.AiVisionModel]: visionModel || undefined,
+        [TeamPreference.AiGenerateTextModel]: cleanValue(generateTextModel),
+        [TeamPreference.AiGenerateTextFallbackModel]: cleanValue(
+          generateTextFallbackModel
+        ),
+        [TeamPreference.AiSearchModel]: cleanValue(searchModel),
+        [TeamPreference.AiSearchFallbackModel]: cleanValue(searchFallbackModel),
+        [TeamPreference.AiVisionModel]: cleanValue(visionModel),
       },
     });
     toast.success(t("AI settings saved"));
@@ -146,7 +131,7 @@ function AI() {
       {
         type: "item",
         label: t("Use environment default"),
-        value: "",
+        value: "__default__",
       },
     ];
 
