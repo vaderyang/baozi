@@ -337,7 +337,8 @@ export default class Attachment extends Node {
             throw new Error("No job ID received from transcription API");
           }
 
-          // Insert TranscriptionStatusCard node after the attachment
+          // Replace the attachment with TranscriptionStatusCard node
+          // This ensures the summary will appear before the attachment when transcription completes
           const { view } = this.editor;
           const pos = state.selection.from;
           const statusCardNode =
@@ -348,11 +349,16 @@ export default class Attachment extends Node {
               status: "queued",
               progress: 0,
               error: null,
-              skipAttachmentLink: true,
+              skipAttachmentLink: false, // Don't skip - we need to insert the attachment
               autoSummary: true, // Pass autoSummary flag to status card
             });
 
-          const tr = state.tr.insert(pos + 1, statusCardNode);
+          // Replace the attachment node with the status card
+          const tr = state.tr.replaceRangeWith(
+            pos,
+            pos + node.nodeSize,
+            statusCardNode
+          );
           view.dispatch(tr.scrollIntoView());
 
           toast.success("Transcription and Auto Summary started");
