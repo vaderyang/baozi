@@ -8,6 +8,10 @@ declare global {
   }
 }
 
+export interface UseSpeechRecognitionOptions {
+  language?: string;
+}
+
 export interface UseSpeechRecognitionReturn {
   // State
   transcript: string;
@@ -27,8 +31,11 @@ export interface UseSpeechRecognitionReturn {
 /**
  * Hook for managing Web Speech API (SpeechRecognition) for live transcript preview.
  * Provides real-time speech-to-text with interim results during audio recording.
+ * Supports multiple languages based on user's locale.
  */
-export default function useSpeechRecognition(): UseSpeechRecognitionReturn {
+export default function useSpeechRecognition(
+  options?: UseSpeechRecognitionOptions
+): UseSpeechRecognitionReturn {
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
   const [isListening, setIsListening] = useState(false);
@@ -66,8 +73,15 @@ export default function useSpeechRecognition(): UseSpeechRecognitionReturn {
     const recognition = new SpeechRecognitionAPI();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang =
-      (typeof navigator !== "undefined" && navigator.language) || "en-US";
+
+    // Use provided language or detect from navigator
+    const detectedLang =
+      typeof navigator !== "undefined" ? navigator.language : "en-US";
+
+    // Convert language format from underscore to hyphen (e.g., zh_CN -> zh-CN)
+    // Web Speech API expects BCP 47 language tags with hyphens
+    const providedLang = options?.language?.replace("_", "-");
+    recognition.lang = providedLang || detectedLang;
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interim = "";

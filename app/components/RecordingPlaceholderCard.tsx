@@ -65,7 +65,7 @@ interface RecordingPlaceholderCardProps {
 const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
   observer(({ nodeId, initialStatus, initialStartTime }) => {
     const { audioRecorder } = useStores();
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const { editor } = useDocumentContext();
     const {
       transcript,
@@ -76,7 +76,10 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
       pauseListening,
       resumeListening,
       resetTranscript,
-    } = useSpeechRecognition();
+    } = useSpeechRecognition({
+      language: i18n.language,
+    });
+    const transcriptRef = React.useRef<HTMLDivElement>(null);
     const [displayDuration, setDisplayDuration] = React.useState(() => {
       if (initialStartTime) {
         return Math.max(0, Date.now() - initialStartTime);
@@ -416,6 +419,13 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
     const isCompactLayout = COMPACT_STATUS_SET.has(displayStatus);
     const showTranscript = isRecording || isPaused;
 
+    // Auto-scroll transcript to bottom to show latest text
+    React.useEffect(() => {
+      if (transcriptRef.current) {
+        transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+      }
+    }, [transcript, interimTranscript]);
+
     // Start/stop speech recognition based on recording state
     React.useEffect(() => {
       if (isMatchingRecording && isRecording && isSpeechSupported) {
@@ -465,6 +475,7 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
 
         {showTranscript && (
           <TranscriptSection
+            ref={transcriptRef}
             data-compact={isCompactLayout ? "true" : "false"}
             onMouseDown={preventDefault}
           >
