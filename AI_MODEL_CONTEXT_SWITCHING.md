@@ -6,12 +6,13 @@ This feature implements intelligent AI model selection based on context length f
 
 ## Key Features
 
-### 1. Context-Length-Based Model Switching
+### 1. Context-Length-Based Model Switching (Text Generation Only)
 
 - **Threshold**: Configurable context length threshold (default: 500 characters)
-- **Logic**: 
+- **Logic** (applies to "Generate Text" feature only): 
   - If context length < threshold → Use fallback model (optimized for short contexts)
   - If context length >= threshold → Use primary model (optimized for long contexts)
+- **Note**: AI Search does NOT use context-length switching. It uses primary/fallback for error handling only.
 
 ### 2. Workspace-Level AI Configuration
 
@@ -22,8 +23,8 @@ New admin preferences available in **Workspace → Settings → AI**:
 | **Context Length Threshold** | Character count threshold for model switching | 500 |
 | **Generate Text Model** | Primary model for AI text generation (long contexts) | From env: `LLM_MODEL_NAME` |
 | **Generate Text Fallback Model** | Fallback model for short contexts | From env: `LLM_MODEL_NAME_AI_SEARCH` |
-| **AI Search Model** | Primary model for AI search (long contexts) | From env: `LLM_MODEL_NAME_AI_SEARCH` |
-| **AI Search Fallback Model** | Fallback model for AI search (short contexts) | From env: `LLM_MODEL_NAME` |
+| **AI Search Model** | Primary model for AI search | From env: `LLM_MODEL_NAME_AI_SEARCH` |
+| **AI Search Fallback Model** | Fallback model when primary fails (errors, rate limits) | From env: `LLM_MODEL_NAME` |
 | **Vision Model** | Model for vision/image analysis tasks | From env: `LLM_MODEL_NAME_VISION` |
 
 ## Use Cases
@@ -37,8 +38,8 @@ When generating summaries from audio transcriptions:
 ### AI Search
 
 When searching documents and generating answers:
-- **Short context** (few documents, < 500 chars): Uses fallback model
-- **Long context** (many documents, >= 500 chars): Uses primary model
+- **Primary model**: Used for all AI search requests
+- **Fallback model**: Used when primary model fails (rate limits, service unavailable, errors)
 
 ### Generate Text Feature
 

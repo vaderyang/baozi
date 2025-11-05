@@ -113,16 +113,8 @@ const getModelConfig = async (
     const team = await Team.findByPk(teamId);
 
     if (team) {
-      // Get context length threshold from preferences
-      const thresholdPref = team.getPreference(
-        TeamPreference.AiContextLengthThreshold
-      );
-      if (typeof thresholdPref === "number") {
-        contextLengthThreshold = thresholdPref;
-      }
-
       if (forAiSearch) {
-        // Get AI Search models from preferences
+        // Get AI Search models from preferences (no context-length switching for search)
         const searchModel = team.getPreference(TeamPreference.AiSearchModel);
         const searchFallbackModel = team.getPreference(
           TeamPreference.AiSearchFallbackModel
@@ -145,6 +137,14 @@ const getModelConfig = async (
             "MODEL"
           );
       } else {
+        // Get context length threshold from preferences (only for text generation)
+        const thresholdPref = team.getPreference(
+          TeamPreference.AiContextLengthThreshold
+        );
+        if (typeof thresholdPref === "number") {
+          contextLengthThreshold = thresholdPref;
+        }
+
         // Get AI Generate Text models from preferences
         const generateModel = team.getPreference(
           TeamPreference.AiGenerateTextModel
@@ -203,8 +203,9 @@ const getModelConfig = async (
     }
   }
 
-  // Apply context-length-based model switching
+  // Apply context-length-based model switching ONLY for text generation (not AI Search)
   if (
+    !forAiSearch &&
     contextLength !== undefined &&
     contextLength < contextLengthThreshold &&
     fallbackModel
@@ -214,7 +215,6 @@ const getModelConfig = async (
       threshold: contextLengthThreshold,
       primaryModel: model,
       fallbackModel,
-      forAiSearch,
     });
     // Swap models: use fallback for short contexts
     const temp = model;
@@ -507,19 +507,6 @@ ${strippedMarkdown}`;
       });
 
       const context = contextParts.join("\n\n---\n\n");
-
-      // Re-evaluate model config based on context length
-      const contextBasedConfig = await getModelConfig(
-        true,
-        user.teamId,
-        context.length
-      );
-      model = contextBasedConfig.model;
-      fallbackModel = contextBasedConfig.fallbackModel;
-
-      if (!model) {
-        ctx.throw(InvalidRequestError("AI model configuration is incomplete"));
-      }
 
       // Build sources list
       const sources = documents.map((doc) => ({

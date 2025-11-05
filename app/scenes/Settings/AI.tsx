@@ -6,10 +6,19 @@ import { toast } from "sonner";
 import { TeamPreference } from "@shared/types";
 import Heading from "~/components/Heading";
 import Input from "~/components/Input";
+import { InputSelect, Option } from "~/components/InputSelect";
 import Scene from "~/components/Scene";
 import Text from "~/components/Text";
+import env from "~/env";
 import useCurrentTeam from "~/hooks/useCurrentTeam";
 import SettingRow from "./components/SettingRow";
+
+type ModelInfo = {
+  id: string;
+  object: string;
+  created?: number;
+  owned_by?: string;
+};
 
 function AI() {
   const { t } = useTranslation();
@@ -36,6 +45,76 @@ function AI() {
   const [visionModel, setVisionModel] = React.useState(
     (team.getPreference(TeamPreference.AiVisionModel) as string) ?? ""
   );
+
+  const [availableModels, setAvailableModels] = React.useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = React.useState(false);
+  const [modelsError, setModelsError] = React.useState<string | null>(null);
+
+  // Fetch available models from the AI API
+  React.useEffect(() => {
+    const fetchModels = async () => {
+      const apiKey = env.LLM_API_KEY || env.AI_API_KEY || env.OPENAI_API_KEY;
+      const apiBase =
+        env.LLM_API_BASE_URL ||
+        env.LLM_API_BASE ||
+        env.AI_API_BASE_URL ||
+        env.AI_API_BASE ||
+        env.OPENAI_API_BASE ||
+        env.OPENAI_API_BASE_URL;
+
+      if (!apiKey || !apiBase) {
+        setModelsError(
+          t("AI API configuration not found in environment variables")
+        );
+        return;
+      }
+
+      setLoadingModels(true);
+      setModelsError(null);
+
+      try {
+        const trimmedBase = apiBase.replace(/\/$/, "");
+        const endpoint = `${trimmedBase}/v1/models`;
+
+        const response = await fetch(endpoint, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch models: ${response.status} ${response.statusText}`
+          );
+        }
+
+        const data = (await response.json()) as {
+          data?: ModelInfo[];
+          object?: string;
+        };
+
+        if (data.data && Array.isArray(data.data)) {
+          const modelIds = data.data
+            .map((model) => model.id)
+            .filter((id): id is string => !!id)
+            .sort();
+          setAvailableModels(modelIds);
+        } else {
+          throw new Error("Invalid response format from models API");
+        }
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        setModelsError(errorMessage);
+      } finally {
+        setLoadingModels(false);
+      }
+    };
+
+    void fetchModels();
+  }, [t]);
 
   const handleSave = React.useCallback(async () => {
     const threshold = parseInt(contextLengthThreshold, 10);
@@ -69,6 +148,28 @@ function AI() {
     t,
   ]);
 
+  const modelOptions: Option[] = React.useMemo(() => {
+    const options: Option[] = [
+      {
+        type: "item",
+        label: t("Use environment default"),
+        value: "",
+      },
+    ];
+
+    if (availableModels.length > 0) {
+      availableModels.forEach((modelId) => {
+        options.push({
+          type: "item",
+          label: modelId,
+          value: modelId,
+        });
+      });
+    }
+
+    return options;
+  }, [availableModels, t]);
+
   return (
     <Scene title={t("AI")} icon={<SparklesIcon />}>
       <Heading>{t("AI")}</Heading>
@@ -100,9 +201,14 @@ function AI() {
       <Text as="p" type="secondary">
         <Trans>
           Models used for the "Generate Text" feature and auto-summary in
-          recordings. Leave empty to use environment defaults.
+          recordings.
         </Trans>
       </Text>
+      {modelsError && (
+        <Text as="p" type="danger">
+          {t("Failed to load models")}: {modelsError}
+        </Text>
+      )}
       <SettingRow
         label={t("Primary model")}
         name="generateTextModel"
@@ -110,11 +216,16 @@ function AI() {
           "Model used for long contexts (>= threshold). Example: qwen-3-coder-480b"
         )}
       >
-        <Input
+        <InputSelect
+          options={modelOptions}
           value={generateTextModel}
-          onChange={(e) => setGenerateTextModel(e.target.value)}
-          onBlur={handleSave}
-          placeholder={t("From environment: LLM_MODEL_NAME")}
+          onChange={(value) => {
+            setGenerateTextModel(value);
+            void handleSave();
+          }}
+          label={t("Primary model")}
+          hideLabel
+          disabled={loadingModels}
         />
       </SettingRow>
       <SettingRow
@@ -125,48 +236,63 @@ function AI() {
         )}
         border={false}
       >
-        <Input
+        <InputSelect
+          options={modelOptions}
           value={generateTextFallbackModel}
-          onChange={(e) => setGenerateTextFallbackModel(e.target.value)}
-          onBlur={handleSave}
-          placeholder={t("From environment: LLM_MODEL_NAME_AI_SEARCH")}
+          onChange={(value) => {
+            setGenerateTextFallbackModel(value);
+            void handleSave();
+          }}
+          label={t("Fallback model")}
+          hideLabel
+          disabled={loadingModels}
         />
       </SettingRow>
 
       <Heading as="h2">{t("AI Search")}</Heading>
       <Text as="p" type="secondary">
         <Trans>
-          Models used for the AI search feature. Leave empty to use environment
-          defaults.
+          Models used for the AI search feature. Fallback model is used when
+          primary model fails (rate limits, errors, etc.).
         </Trans>
       </Text>
       <SettingRow
         label={t("Primary model")}
         name="searchModel"
         description={t(
-          "Model used for long contexts (>= threshold). Example: qwen3-30b-a3b-instruct"
+          "Primary model for AI search. Example: qwen3-30b-a3b-instruct"
         )}
       >
-        <Input
+        <InputSelect
+          options={modelOptions}
           value={searchModel}
-          onChange={(e) => setSearchModel(e.target.value)}
-          onBlur={handleSave}
-          placeholder={t("From environment: LLM_MODEL_NAME_AI_SEARCH")}
+          onChange={(value) => {
+            setSearchModel(value);
+            void handleSave();
+          }}
+          label={t("Primary model")}
+          hideLabel
+          disabled={loadingModels}
         />
       </SettingRow>
       <SettingRow
         label={t("Fallback model")}
         name="searchFallbackModel"
         description={t(
-          "Model used for short contexts (< threshold). Example: qwen-3-coder-480b"
+          "Fallback model used when primary fails. Example: qwen-3-coder-480b"
         )}
         border={false}
       >
-        <Input
+        <InputSelect
+          options={modelOptions}
           value={searchFallbackModel}
-          onChange={(e) => setSearchFallbackModel(e.target.value)}
-          onBlur={handleSave}
-          placeholder={t("From environment: LLM_MODEL_NAME")}
+          onChange={(value) => {
+            setSearchFallbackModel(value);
+            void handleSave();
+          }}
+          label={t("Fallback model")}
+          hideLabel
+          disabled={loadingModels}
         />
       </SettingRow>
 
@@ -179,11 +305,16 @@ function AI() {
         )}
         border={false}
       >
-        <Input
+        <InputSelect
+          options={modelOptions}
           value={visionModel}
-          onChange={(e) => setVisionModel(e.target.value)}
-          onBlur={handleSave}
-          placeholder={t("From environment: LLM_MODEL_NAME_VISION")}
+          onChange={(value) => {
+            setVisionModel(value);
+            void handleSave();
+          }}
+          label={t("Vision model")}
+          hideLabel
+          disabled={loadingModels}
         />
       </SettingRow>
     </Scene>
