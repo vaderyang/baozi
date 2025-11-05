@@ -584,10 +584,7 @@ const compactContainerStyles = css`
   overflow: hidden;
 `;
 
-const Container = styled.div.attrs({
-  contentEditable: "false",
-  suppressContentEditableWarning: true,
-})`
+const Container = styled.div`
   background: ${s("sidebarBackground")};
   border: 2px solid ${s("divider")};
   border-radius: 8px;
