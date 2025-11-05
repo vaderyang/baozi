@@ -304,6 +304,18 @@ export enum TeamPreference {
   TocPosition = "tocPosition",
   /** Whether to prevent shared documents from being embedded in iframes on external websites. */
   PreventDocumentEmbedding = "preventDocumentEmbedding",
+  /** Context length threshold for switching between AI models. */
+  AiContextLengthThreshold = "aiContextLengthThreshold",
+  /** Primary model name for AI text generation. */
+  AiGenerateTextModel = "aiGenerateTextModel",
+  /** Fallback model name for AI text generation (used for short contexts). */
+  AiGenerateTextFallbackModel = "aiGenerateTextFallbackModel",
+  /** Primary model name for AI search. */
+  AiSearchModel = "aiSearchModel",
+  /** Fallback model name for AI search (used for short contexts). */
+  AiSearchFallbackModel = "aiSearchFallbackModel",
+  /** Model name for AI vision tasks. */
+  AiVisionModel = "aiVisionModel",
 }
 
 export type TeamPreferences = {
@@ -318,6 +330,12 @@ export type TeamPreferences = {
   [TeamPreference.CustomTheme]?: Partial<CustomTheme>;
   [TeamPreference.TocPosition]?: TOCPosition;
   [TeamPreference.PreventDocumentEmbedding]?: boolean;
+  [TeamPreference.AiContextLengthThreshold]?: number;
+  [TeamPreference.AiGenerateTextModel]?: string;
+  [TeamPreference.AiGenerateTextFallbackModel]?: string;
+  [TeamPreference.AiSearchModel]?: string;
+  [TeamPreference.AiSearchFallbackModel]?: string;
+  [TeamPreference.AiVisionModel]?: string;
 };
 
 export enum NavigationNodeType {

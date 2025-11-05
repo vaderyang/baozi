@@ -33,6 +33,12 @@ export const TeamPreferenceDefaults: TeamPreferences = {
   [TeamPreference.CustomTheme]: undefined,
   [TeamPreference.TocPosition]: TOCPosition.Left,
   [TeamPreference.PreventDocumentEmbedding]: false,
+  [TeamPreference.AiContextLengthThreshold]: 500,
+  [TeamPreference.AiGenerateTextModel]: undefined,
+  [TeamPreference.AiGenerateTextFallbackModel]: undefined,
+  [TeamPreference.AiSearchModel]: undefined,
+  [TeamPreference.AiSearchFallbackModel]: undefined,
+  [TeamPreference.AiVisionModel]: undefined,
 };
 
 export const UserPreferenceDefaults: UserPreferences = {

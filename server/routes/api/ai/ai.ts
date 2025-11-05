@@ -10,6 +10,126 @@ import * as T from "./schema";
 
 const router = new Router();
 
+type ModelInfo = {
+  id: string;
+  object: string;
+  created?: number;
+  owned_by?: string;
+};
+
+router.post("ai.models", auth(), async (ctx: APIContext) => {
+  const { user } = ctx.state.auth;
+
+  // Check if user has permission to view AI settings
+  // Only admins can configure AI settings
+  if (user.role !== "admin") {
+    ctx.throw(403, "Admin access required");
+  }
+
+  const apiKey = envValue(
+    "LLM_API_KEY",
+    "AI_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENAI_KEY"
+  );
+  const apiBase = envValue(
+    "LLM_API_BASE_URL",
+    "LLM_API_BASE",
+    "AI_API_BASE_URL",
+    "AI_API_BASE",
+    "OPENAI_API_BASE",
+    "OPENAI_API_BASE_URL",
+    "API_BASE"
+  );
+
+  if (!apiKey || !apiBase) {
+    ctx.throw(
+      InvalidRequestError("AI API configuration not found in environment")
+    );
+  }
+
+  try {
+    const trimmedBase = apiBase.replace(/\/$/, "");
+    const endpoint = `${trimmedBase}/v1/models`;
+
+    Logger.info("utils", "Fetching AI models", {
+      endpoint,
+      userId: user.id,
+    });
+
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      Logger.error(
+        "Failed to fetch AI models",
+        new Error(`${response.status}: ${errorText}`),
+        {
+          endpoint,
+          status: response.status,
+          userId: user.id,
+        }
+      );
+      ctx.throw(
+        InvalidRequestError(
+          `Failed to fetch models: ${response.status} ${response.statusText}`
+        )
+      );
+    }
+
+    const data = (await response.json()) as {
+      data?: ModelInfo[];
+      object?: string;
+    };
+
+    if (data.data && Array.isArray(data.data)) {
+      const models = data.data
+        .map((model) => ({
+          id: model.id,
+          object: model.object,
+          created: model.created,
+          owned_by: model.owned_by,
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+
+      Logger.info("utils", "AI models fetched successfully", {
+        count: models.length,
+        userId: user.id,
+      });
+
+      ctx.body = {
+        data: {
+          models,
+        },
+      };
+    } else {
+      Logger.error(
+        "Invalid response format from models API",
+        new Error("Missing data array"),
+        {
+          endpoint,
+          responseKeys: Object.keys(data),
+          userId: user.id,
+        }
+      );
+      ctx.throw(InvalidRequestError("Invalid response format from models API"));
+    }
+  } catch (error: unknown) {
+    const wrappedError =
+      error instanceof Error ? error : new Error(String(error));
+    Logger.error("Failed to fetch AI models", wrappedError, {
+      userId: user.id,
+    });
+    throw error;
+  }
+});
+
 const envValue = (...keys: string[]): string | undefined => {
   for (const key of keys) {
     const value = (env as unknown as Record<string, unknown>)[key];
@@ -81,7 +201,17 @@ const parseAiResponse = (choice: ChatCompletionChoice): string => {
   return "";
 };
 
-const getModelConfig = (forAiSearch = false) => {
+const getModelConfig = async (
+  forAiSearch = false,
+  teamId?: string,
+  contextLength?: number
+) => {
+  Logger.info("utils", "getModelConfig called", {
+    forAiSearch,
+    teamId,
+    contextLength,
+  });
+
   const apiKey = envValue(
     "LLM_API_KEY",
     "AI_API_KEY",
@@ -98,39 +228,139 @@ const getModelConfig = (forAiSearch = false) => {
     "API_BASE"
   );
 
+  Logger.info("utils", "Environment config loaded", {
+    hasApiKey: !!apiKey,
+    hasApiBase: !!apiBase,
+    apiBase: apiBase ? apiBase.substring(0, 30) + "..." : undefined,
+  });
+
   let model: string | undefined;
   let fallbackModel: string | undefined;
+  let contextLengthThreshold = 500;
 
-  if (forAiSearch) {
-    // For AI Search, prefer AI_SEARCH model, fallback to general model
-    model = envValue("LLM_MODEL_NAME_AI_SEARCH");
-    fallbackModel = envValue(
-      "LLM_MODEL_NAME",
-      "LLM_MODEL",
-      "AI_MODEL_NAME",
-      "AI_MODEL",
-      "OPENAI_MODEL_NAME",
-      "OPENAI_MODEL",
-      "MODEL"
-    );
-    // If no AI_SEARCH model specified, use general model
-    if (!model) {
-      model = fallbackModel;
+  // Load team preferences if teamId is provided
+  if (teamId) {
+    const { Team } = await import("@server/models");
+    const { TeamPreference } = await import("@shared/types");
+    const team = await Team.findByPk(teamId);
+
+    if (team) {
+      if (forAiSearch) {
+        // Get AI Search models from preferences (no context-length switching for search)
+        const searchModel = team.getPreference(TeamPreference.AiSearchModel);
+        const searchFallbackModel = team.getPreference(
+          TeamPreference.AiSearchFallbackModel
+        );
+
+        model =
+          (typeof searchModel === "string" ? searchModel : undefined) ||
+          envValue("LLM_MODEL_NAME_AI_SEARCH");
+        fallbackModel =
+          (typeof searchFallbackModel === "string"
+            ? searchFallbackModel
+            : undefined) ||
+          envValue(
+            "LLM_MODEL_NAME",
+            "LLM_MODEL",
+            "AI_MODEL_NAME",
+            "AI_MODEL",
+            "OPENAI_MODEL_NAME",
+            "OPENAI_MODEL",
+            "MODEL"
+          );
+      } else {
+        // Get context length threshold from preferences (only for text generation)
+        const thresholdPref = team.getPreference(
+          TeamPreference.AiContextLengthThreshold
+        );
+        if (typeof thresholdPref === "number") {
+          contextLengthThreshold = thresholdPref;
+        }
+
+        // Get AI Generate Text models from preferences
+        const generateModel = team.getPreference(
+          TeamPreference.AiGenerateTextModel
+        );
+        const generateFallbackModel = team.getPreference(
+          TeamPreference.AiGenerateTextFallbackModel
+        );
+
+        model =
+          (typeof generateModel === "string" ? generateModel : undefined) ||
+          envValue(
+            "LLM_MODEL_NAME",
+            "LLM_MODEL",
+            "AI_MODEL_NAME",
+            "AI_MODEL",
+            "OPENAI_MODEL_NAME",
+            "OPENAI_MODEL",
+            "MODEL"
+          );
+        fallbackModel =
+          (typeof generateFallbackModel === "string"
+            ? generateFallbackModel
+            : undefined) || envValue("LLM_MODEL_NAME_AI_SEARCH");
+      }
+    }
+  }
+
+  // Fallback to environment variables if no team preferences
+  if (!model) {
+    if (forAiSearch) {
+      model = envValue("LLM_MODEL_NAME_AI_SEARCH");
+      fallbackModel = envValue(
+        "LLM_MODEL_NAME",
+        "LLM_MODEL",
+        "AI_MODEL_NAME",
+        "AI_MODEL",
+        "OPENAI_MODEL_NAME",
+        "OPENAI_MODEL",
+        "MODEL"
+      );
+      if (!model) {
+        model = fallbackModel;
+        fallbackModel = envValue("LLM_MODEL_NAME_AI_SEARCH");
+      }
+    } else {
+      model = envValue(
+        "LLM_MODEL_NAME",
+        "LLM_MODEL",
+        "AI_MODEL_NAME",
+        "AI_MODEL",
+        "OPENAI_MODEL_NAME",
+        "OPENAI_MODEL",
+        "MODEL"
+      );
       fallbackModel = envValue("LLM_MODEL_NAME_AI_SEARCH");
     }
-  } else {
-    // For general AI, use general model with AI_SEARCH as fallback
-    model = envValue(
-      "LLM_MODEL_NAME",
-      "LLM_MODEL",
-      "AI_MODEL_NAME",
-      "AI_MODEL",
-      "OPENAI_MODEL_NAME",
-      "OPENAI_MODEL",
-      "MODEL"
-    );
-    fallbackModel = envValue("LLM_MODEL_NAME_AI_SEARCH");
   }
+
+  // Apply context-length-based model switching ONLY for text generation (not AI Search)
+  if (
+    !forAiSearch &&
+    contextLength !== undefined &&
+    contextLength < contextLengthThreshold &&
+    fallbackModel
+  ) {
+    Logger.info("utils", "Using fallback model for short context", {
+      contextLength,
+      threshold: contextLengthThreshold,
+      primaryModel: model,
+      fallbackModel,
+    });
+    // Swap models: use fallback for short contexts
+    const temp = model;
+    model = fallbackModel;
+    fallbackModel = temp;
+  }
+
+  Logger.info("utils", "getModelConfig result", {
+    forAiSearch,
+    model,
+    fallbackModel,
+    hasApiKey: !!apiKey,
+    hasApiBase: !!apiBase,
+  });
 
   return { apiKey, apiBase, model, fallbackModel };
 };
@@ -288,7 +518,12 @@ router.post(
       language,
     } = ctx.input.body;
 
-    const { apiKey, apiBase, model, fallbackModel } = getModelConfig(true);
+    // Get initial model config for keyword extraction (without context length)
+    const initialConfig = await getModelConfig(true, user.teamId);
+    let apiKey = initialConfig.apiKey;
+    let apiBase = initialConfig.apiBase;
+    let model = initialConfig.model;
+    let fallbackModel = initialConfig.fallbackModel;
 
     if (!apiKey || !apiBase || !model) {
       ctx.throw(InvalidRequestError("AI configuration is incomplete"));
@@ -652,6 +887,14 @@ ${context}`;
 router.post(
   "ai.generate",
   auth(),
+  async (ctx: APIContext, next) => {
+    Logger.info("utils", "ai.generate request received", {
+      body: ctx.request.body,
+      hasBody: !!ctx.request.body,
+      bodyKeys: ctx.request.body ? Object.keys(ctx.request.body) : [],
+    });
+    await next();
+  },
   validate(T.AiGenerateSchema),
   async (ctx: APIContext<T.AiGenerateReq>) => {
     const { user } = ctx.state.auth;
@@ -660,13 +903,55 @@ router.post(
     const mentionedDocumentIds = ctx.input.body.mentionedDocumentIds ?? [];
     const mode = (ctx.input.body.mode ?? "fast") as AiPromptMode;
 
+    Logger.info("utils", "ai.generate validation passed", {
+      promptLength: prompt.length,
+      contextLength: context.length,
+      mode,
+      userId: user.id,
+    });
+
     if (!prompt) {
       ctx.throw(InvalidRequestError("Prompt is required"));
     }
 
-    const { apiKey, apiBase, model, fallbackModel } = getModelConfig(false);
+    // Calculate context length for model selection
+    const totalContextLength = prompt.length + context.length;
+
+    Logger.info("utils", "AI Generate request", {
+      promptLength: prompt.length,
+      contextLength: context.length,
+      totalContextLength,
+      mode,
+      mentionedDocumentCount: mentionedDocumentIds.length,
+      userId: user.id,
+      teamId: user.teamId,
+    });
+
+    const { apiKey, apiBase, model, fallbackModel } = await getModelConfig(
+      false,
+      user.teamId,
+      totalContextLength
+    );
+
+    Logger.info("utils", "AI Generate model config", {
+      hasApiKey: !!apiKey,
+      hasApiBase: !!apiBase,
+      model,
+      fallbackModel,
+      userId: user.id,
+    });
 
     if (!apiKey || !apiBase || !model) {
+      Logger.error(
+        "AI configuration incomplete",
+        new Error("Missing required configuration"),
+        {
+          hasApiKey: !!apiKey,
+          hasApiBase: !!apiBase,
+          hasModel: !!model,
+          userId: user.id,
+        }
+      );
       ctx.throw(InvalidRequestError("AI configuration is incomplete"));
     }
 
@@ -889,9 +1174,26 @@ router.post(
         fallbackModel ??
         "qwen3-30b-a3b-instruct";
 
-      const visionModel =
-        envValue("LLM_MODEL_NAME_VISION", "AI_VISION_MODEL", "VISION_MODEL") ??
-        "grok-4-fast-non-reasoning";
+      // Get vision model from team preferences or environment
+      let visionModel: string | undefined;
+      const { Team } = await import("@server/models");
+      const { TeamPreference } = await import("@shared/types");
+      const team = await Team.findByPk(user.teamId);
+      if (team) {
+        const visionModelPref = team.getPreference(
+          TeamPreference.AiVisionModel
+        );
+        visionModel =
+          typeof visionModelPref === "string" ? visionModelPref : undefined;
+      }
+      if (!visionModel) {
+        visionModel =
+          envValue(
+            "LLM_MODEL_NAME_VISION",
+            "AI_VISION_MODEL",
+            "VISION_MODEL"
+          ) ?? "grok-4-fast-non-reasoning";
+      }
 
       let currentModel = model;
       let activeFallbackModel = fallbackModel;

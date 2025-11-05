@@ -60,6 +60,18 @@ export const TeamsUpdateSchema = BaseSchema.extend({
         tocPosition: z.nativeEnum(TOCPosition).optional(),
         /** Whether to prevent shared documents from being embedded in iframes on external websites. */
         preventDocumentEmbedding: z.boolean().optional(),
+        /** Context length threshold for switching between AI models. */
+        aiContextLengthThreshold: z.number().int().min(1).optional(),
+        /** Primary model name for AI text generation. */
+        aiGenerateTextModel: z.string().optional(),
+        /** Fallback model name for AI text generation (used for short contexts). */
+        aiGenerateTextFallbackModel: z.string().optional(),
+        /** Primary model name for AI search. */
+        aiSearchModel: z.string().optional(),
+        /** Fallback model name for AI search (used for short contexts). */
+        aiSearchFallbackModel: z.string().optional(),
+        /** Model name for AI vision tasks. */
+        aiVisionModel: z.string().optional(),
       })
       .optional(),
   }),
