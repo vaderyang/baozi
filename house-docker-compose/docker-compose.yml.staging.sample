@@ -1,0 +1,31 @@
+name: house-docker-compose-${VERSION:-staging}
+services:
+  outline:
+    image: netis/house-outline:${VERSION:-staging}
+    env_file: ./docker.env
+    ports:
+      - "8080:3000" # 仅暴露 HTTP
+    environment:
+      - FORCE_HTTPS=false
+      # 如果你的镜像需要指定端口，照实写；多数情况下不需要 PORT
+      # - PORT=3000
+    volumes:
+      - storage-data:/var/lib/outline/data
+    depends_on:
+      - postgres
+      - redis
+
+  redis:
+    image: redis:7
+    expose: [ "6379" ]
+
+  postgres:
+    image: postgres:16
+    env_file: ./docker.env
+    expose: [ "5432" ]
+    volumes:
+      - database-data:/var/lib/postgresql/data
+
+volumes:
+  storage-data:
+  database-data:

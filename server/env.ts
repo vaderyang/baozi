@@ -305,6 +305,20 @@ export class Environment {
   public DEFAULT_LANGUAGE = environment.DEFAULT_LANGUAGE ?? "en_US";
 
   /**
+   * Build time injected via docker build args, format YYYYMMDDHHMM.
+   */
+  @Public
+  @IsOptional()
+  public BUILD_TIME = this.toOptionalString(environment.BUILD_TIME);
+
+  /**
+   * Last 6 characters of the git commit hash injected at build time.
+   */
+  @Public
+  @IsOptional()
+  public BUILD_GIT_HASH = this.toOptionalString(environment.BUILD_GIT_HASH);
+
+  /**
    * A comma list of which services should be enabled on this instance – defaults to all.
    *
    * If a services flag is passed it takes priority over the environment variable
@@ -814,7 +828,7 @@ export class Environment {
    * The product name
    */
   @Public
-  public APP_NAME = "Outline";
+  public APP_NAME = "House";
 
   /**
    * Returns true if the current installation is the cloud hosted version at
@@ -827,13 +841,6 @@ export class Environment {
       "https://app.outline.dev:3000",
     ].includes(this.URL);
   }
-
-  /**
-   * Build timestamp, used to append to page titles. Optional and exposed client-side.
-   */
-  @Public
-  @IsOptional()
-  public BUILD_TIME = this.toOptionalString(environment.BUILD_TIME);
 
   /**
    * Returns true if the current installation is running in production.

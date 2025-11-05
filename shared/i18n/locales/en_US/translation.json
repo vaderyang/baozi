@@ -468,6 +468,7 @@
   "{{ releasesBehind }} versions behind": "{{ releasesBehind }} version behind",
   "{{ releasesBehind }} versions behind_plural": "{{ releasesBehind }} versions behind",
   "Build": "Build",
+  "Commit": "Commit",
   "Change permissions?": "Change permissions?",
   "{{ documentName }} cannot be moved within {{ parentDocumentName }}": "{{ documentName }} cannot be moved within {{ parentDocumentName }}",
   "You can't reorder documents in an alphabetically sorted collection": "You can't reorder documents in an alphabetically sorted collection",
