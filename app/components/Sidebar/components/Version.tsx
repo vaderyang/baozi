@@ -13,13 +13,18 @@ export default function Version() {
   const { t } = useTranslation();
 
   const buildTime = env.BUILD_TIME as string | undefined;
+  const gitHash = env.BUILD_GIT_HASH as string | undefined;
 
   const formattedBuildTime = useMemo(() => {
-    if (!buildTime) {return undefined;}
+    if (!buildTime) {
+      return undefined;
+    }
     // Expect format YYYYMMDDHHMM, insert separators for readability
     // YYYY-MM-DD HH:MM
     const match = buildTime.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/);
-    if (!match) {return buildTime;}
+    if (!match) {
+      return buildTime;
+    }
     const [, y, mo, d, h, mi] = match;
     return `${y}-${mo}-${d} ${h}:${mi}`;
   }, [buildTime]);
@@ -65,6 +70,14 @@ export default function Version() {
               <br />
               <BuildText>
                 {t("Build")}: {formattedBuildTime}
+              </BuildText>
+            </>
+          )}
+          {gitHash && (
+            <>
+              <br />
+              <BuildText>
+                {t("Commit")}: {gitHash}
               </BuildText>
             </>
           )}
