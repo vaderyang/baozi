@@ -220,9 +220,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         dispatch(transaction.scrollIntoView());
 
         if (isMountedRef.current) {
-          toast.info(
-            dictionary.noSpeechDetected || "No speech detected in recording"
-          );
+          toast.info("No speech detected in recording");
         }
         return;
       }
