@@ -256,11 +256,16 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         });
       }
 
-      // Generate AI summary if enabled
-      if (audioRecorder.autoGenerateSummary) {
+      // Generate AI summary if enabled (either from recorder or from card node)
+      const shouldGenerateSummary =
+        audioRecorder.autoGenerateSummary || cardNode.attrs.autoSummary;
+
+      if (shouldGenerateSummary) {
         try {
           Logger.info("editor", "Generating AI summary for transcript", {
             jobId,
+            fromRecorder: audioRecorder.autoGenerateSummary,
+            fromCardNode: cardNode.attrs.autoSummary,
           });
 
           const prompt =
