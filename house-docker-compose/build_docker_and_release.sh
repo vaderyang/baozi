@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
-git -c core.sshCommand=ssh -i ~/.ssh/bitbucket-house-101-readonly -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new pull
+# 使用 GIT_SSH_COMMAND 将 ssh 选项传递给 git，而不是把 ssh 选项当作 git 选项
 set -euo pipefail
+
+# 使用 GIT_SSH_COMMAND 将 ssh 选项传递给 git
+export GIT_SSH_COMMAND="ssh -i ~/.ssh/bitbucket-house-101-readonly -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+
+# 绝对同步到远端当前分支状态
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+git fetch origin "$BRANCH" --prune
+git reset --hard "origin/$BRANCH"
 
 # Config
 APP_PATH=${APP_PATH:-/opt/outline}
