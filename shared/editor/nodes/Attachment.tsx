@@ -215,6 +215,7 @@ export default class Attachment extends Node {
         document.body.removeChild(link);
         return true;
       },
+      // @ts-expect-error - async command
       transcriptAttachment: (): Command => async (state) => {
         if (!(state.selection instanceof NodeSelection)) {
           return false;
@@ -278,6 +279,83 @@ export default class Attachment extends Node {
           view.dispatch(tr.scrollIntoView());
 
           toast.success("Transcription started");
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : "Failed to start transcription";
+          toast.error(errorMessage);
+          throw error;
+        }
+
+        return true;
+      },
+      // @ts-expect-error - async command
+      transcriptAndSummaryAttachment: (): Command => async (state) => {
+        if (!(state.selection instanceof NodeSelection)) {
+          return false;
+        }
+        const { node } = state.selection;
+        const { id: editorId } = this.editor.props;
+
+        if (node.type.name !== "attachment") {
+          return false;
+        }
+
+        // Extract attachment ID from href
+        // Format: /api/attachments.redirect?id=<uuid>
+        let attachmentId = node.attrs.id;
+
+        if (!attachmentId && node.attrs.href) {
+          const url = new URL(node.attrs.href, window.location.origin);
+          attachmentId = url.searchParams.get("id");
+        }
+
+        if (!attachmentId) {
+          throw new Error("Cannot transcribe: attachment ID not found");
+        }
+
+        // Dynamically import dependencies to avoid circular dependencies
+        const [{ client }, { toast }] = await Promise.all([
+          import("~/utils/ApiClient"),
+          import("sonner"),
+        ]);
+
+        try {
+          // Call transcription API with autoSummary flag
+          const response = await client.post<{
+            data: { jobId: string; status: string };
+          }>("/transcriptions.create", {
+            attachmentId,
+            documentId: editorId,
+            autoSummary: true, // Enable auto summary workflow
+          });
+
+          const { jobId } = response.data;
+
+          if (!jobId) {
+            throw new Error("No job ID received from transcription API");
+          }
+
+          // Insert TranscriptionStatusCard node after the attachment
+          const { view } = this.editor;
+          const pos = state.selection.from;
+          const statusCardNode =
+            state.schema.nodes.transcription_status_card.create({
+              jobId,
+              fileName: node.attrs.title,
+              fileSize: node.attrs.size,
+              status: "queued",
+              progress: 0,
+              error: null,
+              skipAttachmentLink: true,
+              autoSummary: true, // Pass autoSummary flag to status card
+            });
+
+          const tr = state.tr.insert(pos + 1, statusCardNode);
+          view.dispatch(tr.scrollIntoView());
+
+          toast.success("Transcription and Auto Summary started");
         } catch (error) {
           const errorMessage =
             error instanceof Error

@@ -3,6 +3,7 @@ import {
   DownloadIcon,
   ReplaceIcon,
   DocumentIcon,
+  SparklesIcon,
 } from "outline-icons";
 import { EditorState, NodeSelection } from "prosemirror-state";
 import { MenuItem } from "@shared/editor/types";
@@ -60,14 +61,21 @@ export default function attachmentMenuItems(
     },
   ];
 
-  // Add transcript button only for audio files
+  // Add transcript buttons only for audio files
   if (isAudioAttachment) {
-    items.push({
-      name: "transcriptAttachment",
-      label: "Transcribe",
-      tooltip: "Transcribe audio",
-      icon: <DocumentIcon />,
-    });
+    items.push(
+      {
+        name: "transcriptAttachment",
+        label: "Transcribe",
+        tooltip: "Transcribe audio",
+        icon: <DocumentIcon />,
+      },
+      {
+        name: "transcriptAndSummaryAttachment",
+        tooltip: "Transcribe and Auto Summary",
+        icon: <SparklesIcon />,
+      }
+    );
   }
 
   items.push(
