@@ -58,6 +58,7 @@ export const MouseSafeArea = observer(function MouseSafeArea_(props: {
       style={{
         position: "absolute",
         top: 0,
+        pointerEvents: "none",
         backgroundColor: ui.debugSafeArea ? "rgba(255,0,0,0.2)" : undefined,
         right: getRight(positions),
         left: getLeft(positions),

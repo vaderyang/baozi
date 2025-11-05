@@ -265,12 +265,35 @@ const MenuButton = React.forwardRef<
       ? DropdownMenuPrimitive.Item
       : ContextMenuPrimitive.Item;
 
+  const handleInvoke = React.useCallback(
+    (event: React.MouseEvent<HTMLButtonElement> | Event) => {
+      // eslint-disable-next-line no-console
+      console.log(`[actions] Menu item clicked`, { label });
+      const handler = onClick as unknown as (event: any) => void;
+      handler?.(event);
+    },
+    [label, onClick]
+  );
+
+  const handleSelect = React.useCallback(
+    (event: Event) => {
+      handleInvoke(event);
+    },
+    [handleInvoke]
+  );
+
   const button = (
-    <Item ref={ref} disabled={disabled} {...rest} asChild>
+    <Item
+      ref={ref}
+      disabled={disabled}
+      {...rest}
+      onSelect={handleSelect}
+      asChild
+    >
       <Components.MenuButton
         disabled={disabled}
         $dangerous={dangerous}
-        onClick={onClick}
+        onClick={handleInvoke}
       >
         {icon}
         <Components.MenuLabel>{label}</Components.MenuLabel>

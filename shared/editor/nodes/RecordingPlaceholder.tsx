@@ -1,10 +1,58 @@
 import { NodeSpec, NodeType, Node as ProsemirrorNode } from "prosemirror-model";
 import { Command } from "prosemirror-state";
 import * as React from "react";
+import styled, { keyframes } from "styled-components";
 import { Primitive } from "utility-types";
 import { MarkdownSerializerState } from "../lib/markdown/serializer";
 import { ComponentProps } from "../types";
+import { s } from "../../styles";
 import Node from "./Node";
+
+const fallbackPulse = keyframes`
+  0% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.55;
+  }
+`;
+
+const SuspenseFallbackContainer = styled.div`
+  box-sizing: border-box;
+  padding: 12px 16px;
+  margin: 16px 0;
+  border-radius: 8px;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  background: ${s("sidebarBackground")};
+  border: 2px solid ${s("divider")};
+  color: ${s("textSecondary")};
+`;
+
+const SuspenseFallbackLine = styled.div`
+  height: 12px;
+  border-radius: 6px;
+  background: ${s("inputBorder")};
+  animation: ${fallbackPulse} 1.6s ease-in-out infinite;
+  &:nth-child(2) {
+    width: 60%;
+  }
+  &:nth-child(3) {
+    width: 40%;
+  }
+`;
+
+const SuspenseErrorFallback = styled(SuspenseFallbackContainer)`
+  border-color: ${s("danger")};
+  background: ${s("danger")}15;
+  color: ${s("danger")};
+`;
 
 /**
  * RecordingPlaceholder is a custom ProseMirror node that represents an active
@@ -65,9 +113,9 @@ export default class RecordingPlaceholder extends Node {
     const RecordingPlaceholderCard = React.lazy(() =>
       import("~/components/RecordingPlaceholderCard").catch(() => ({
         default: () => (
-          <div style={{ padding: "16px", background: "red", color: "white" }}>
-            Failed to load recording card component
-          </div>
+          <SuspenseErrorFallback role="alert">
+            Failed to load recording controls. Please reload the page.
+          </SuspenseErrorFallback>
         ),
       }))
     );
@@ -75,15 +123,11 @@ export default class RecordingPlaceholder extends Node {
     return (
       <React.Suspense
         fallback={
-          <div
-            style={{
-              padding: "16px",
-              background: "yellow",
-              border: "2px solid red",
-            }}
-          >
-            Loading recording card...
-          </div>
+          <SuspenseFallbackContainer aria-live="polite" role="status">
+            <SuspenseFallbackLine />
+            <SuspenseFallbackLine />
+            <SuspenseFallbackLine />
+          </SuspenseFallbackContainer>
         }
       >
         <RecordingPlaceholderCard

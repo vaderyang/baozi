@@ -11,11 +11,14 @@ type LogCategory =
   | "misc"
   | "store"
   | "plugins"
-  | "policies";
+  | "policies"
+  | "actions";
 
 type Extra = Record<string, any>;
 
 class Logger {
+  private suppressedDebugCategories = new Set<LogCategory>(["collaboration"]);
+
   /**
    * Log information
    *
@@ -33,6 +36,13 @@ class Logger {
    * @param extra Arbitrary data to be logged
    */
   debug(label: LogCategory, message: string, extra?: Extra) {
+    if (
+      this.suppressedDebugCategories.has(label) &&
+      !this.debugLoggingEnabled
+    ) {
+      return;
+    }
+
     if (env.ENVIRONMENT === "development" || this.debugLoggingEnabled) {
       console.debug(`[${label}] ${message}`, extra);
     }
@@ -90,6 +100,10 @@ class Logger {
    * Whether additional debug logging is shown in the console or not.
    */
   public debugLoggingEnabled = false;
+
+  setSuppressedDebugCategories(categories: LogCategory[]) {
+    this.suppressedDebugCategories = new Set(categories);
+  }
 }
 
 export default new Logger();
