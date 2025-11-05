@@ -39,11 +39,17 @@ export function TranscriptionStatusManager({ documentId }: Props) {
   const editor = useEditor();
   const dictionary = useDictionary();
   const editorRef = React.useRef(editor);
+  const isMountedRef = React.useRef(true);
   const [pendingJobsLoaded, setPendingJobsLoaded] = React.useState(false);
 
-  // Keep editor ref up to date
+  // Keep editor ref up to date and track mount status
   React.useEffect(() => {
     editorRef.current = editor;
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [editor]);
 
   const formatTranscriptText = React.useCallback(
@@ -134,6 +140,18 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         hasResult: !!result,
         hasAttachment: !!attachmentId,
       });
+
+      // Check if component is still mounted
+      if (!isMountedRef.current) {
+        Logger.debug(
+          "editor",
+          "Component unmounted, skipping status card replacement",
+          {
+            jobId,
+          }
+        );
+        return;
+      }
 
       const { view, pasteParser } = editorRef.current;
       if (!view || !result) {
@@ -292,10 +310,12 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           }
         );
 
-        toast.success(
-          dictionary.audioFileTranscribedSuccessfully ||
-            "Transcription completed"
-        );
+        if (isMountedRef.current) {
+          toast.success(
+            dictionary.audioFileTranscribedSuccessfully ||
+              "Transcription completed"
+          );
+        }
       } else {
         Logger.warn("Failed to parse transcript markdown", {
           jobId,
@@ -331,10 +351,14 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         });
       }
 
-      toast.success("Retrying transcription...");
+      if (isMountedRef.current) {
+        toast.success("Retrying transcription...");
+      }
     } catch (error) {
       Logger.error("Failed to retry transcription", error as Error);
-      toast.error("Failed to retry transcription");
+      if (isMountedRef.current) {
+        toast.error("Failed to retry transcription");
+      }
     }
   }, []);
 
@@ -351,7 +375,9 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           commands.removeTranscriptionStatusCard({ jobId });
         }
 
-        toast.success("Transcription cancelled");
+        if (isMountedRef.current) {
+          toast.success("Transcription cancelled");
+        }
       } catch (error) {
         Logger.error("Failed to cancel transcription", error as Error);
 
@@ -398,19 +424,27 @@ export function TranscriptionStatusManager({ documentId }: Props) {
               job.result,
               job.attachmentId
             );
-            toast.info("Transcription already completed");
+            if (isMountedRef.current) {
+              toast.info("Transcription already completed");
+            }
           } else if (job.status === "cancelled") {
             // Job is already cancelled, just remove the card
             const { commands } = editorRef.current;
             if (commands.removeTranscriptionStatusCard) {
               commands.removeTranscriptionStatusCard({ jobId });
             }
-            toast.info("Transcription already cancelled");
+            if (isMountedRef.current) {
+              toast.info("Transcription already cancelled");
+            }
           } else {
-            toast.error("Failed to cancel transcription");
+            if (isMountedRef.current) {
+              toast.error("Failed to cancel transcription");
+            }
           }
         } catch (_infoError) {
-          toast.error("Failed to cancel transcription");
+          if (isMountedRef.current) {
+            toast.error("Failed to cancel transcription");
+          }
         }
       }
     },
@@ -439,6 +473,10 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         });
 
         const pendingJobs = response.data;
+
+        if (!isMountedRef.current) {
+          return;
+        }
 
         if (pendingJobs.length === 0) {
           setPendingJobsLoaded(true);
@@ -489,13 +527,17 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           }
         }
 
-        setPendingJobsLoaded(true);
+        if (isMountedRef.current) {
+          setPendingJobsLoaded(true);
+        }
       } catch (error) {
         Logger.error(
           "Failed to load pending transcription jobs",
           error as Error
         );
-        setPendingJobsLoaded(true);
+        if (isMountedRef.current) {
+          setPendingJobsLoaded(true);
+        }
       }
     };
 
@@ -511,6 +553,11 @@ export function TranscriptionStatusManager({ documentId }: Props) {
 
     const pollStatusUpdates = async () => {
       try {
+        // Check if component is still mounted before polling
+        if (!isMountedRef.current) {
+          return;
+        }
+
         const { view } = editorRef.current;
         if (!view) {
           return;
@@ -638,6 +685,11 @@ export function TranscriptionStatusManager({ documentId }: Props) {
               hasResult: !!job.result,
               attachmentId: job.attachmentId,
             });
+
+            // Check if still mounted before handling status
+            if (!isMountedRef.current) {
+              return;
+            }
 
             // Handle the job based on its actual status
             if (job.status === "completed" && job.result) {

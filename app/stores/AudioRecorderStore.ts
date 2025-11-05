@@ -250,9 +250,6 @@ class AudioRecorderStore {
 
       // Start recording
       this.mediaRecorder.start(1000); // Collect data every second
-
-      // Set up audio analysis for waveform
-      this.setupAudioAnalysis(stream);
     } catch (error) {
       runInAction(() => {
         this.error =
@@ -577,9 +574,9 @@ class AudioRecorderStore {
 
         const job = response.data;
 
-        if (job.status === "completed" && job.result) {
-          // Transcription completed successfully
-          await this.insertTranscribedText(job.result.text);
+        if (job.status === "completed") {
+          // Transcription completed successfully (even if empty)
+          await this.insertTranscribedText(job.result?.text || "");
           return;
         } else if (job.status === "failed") {
           // Transcription failed - preserve error message from API

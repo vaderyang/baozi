@@ -373,6 +373,8 @@
   "Preparing microphone...": "Preparing microphone...",
   "Recording duration is long. Consider stopping soon.": "Recording duration is long. Consider stopping soon.",
   "Recording controls are only available to the person capturing audio.": "Recording controls are only available to the person capturing audio.",
+  "Live transcript preview not supported in this browser": "Live transcript preview not supported in this browser",
+  "Listening...": "Listening...",
   "Transcribing audio...": "Transcribing audio...",
   "Uploading audio...": "Uploading audio...",
   "Pause Recording": "Pause Recording",

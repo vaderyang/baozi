@@ -5,12 +5,11 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import styled, { css, keyframes } from "styled-components";
 import { s } from "@shared/styles";
-import AudioWaveform from "~/components/AudioWaveform";
 import Button from "~/components/Button";
 import Flex from "~/components/Flex";
 import Tooltip from "~/components/Tooltip";
 import { useDocumentContext } from "~/components/DocumentContext";
-import useAudioRecorder from "~/hooks/useAudioRecorder";
+import useSpeechRecognition from "~/hooks/useSpeechRecognition";
 import useStores from "~/hooks/useStores";
 import type { RecordingStatus } from "~/stores/AudioRecorderStore";
 import Logger from "~/utils/Logger";
@@ -53,24 +52,31 @@ interface RecordingPlaceholderCardProps {
 /**
  * RecordingPlaceholderCard is an inline card component that displays the status
  * of an active audio recording session. It shows recording status, duration,
- * waveform visualization, and control buttons.
+ * live transcript preview, and control buttons.
  *
  * State Persistence:
  * - The placeholder node persists in the ProseMirror document state
  * - When the user navigates away and returns, the component re-renders with
  *   the same nodeId and reconnects to the AudioRecorderStore
- * - Duration and waveform continue updating via MobX observables
+ * - Duration and live transcript continue updating via MobX observables and Web Speech API
  * - The component remains functional across document navigation
  */
-const WaveformWidth = 560;
-const WaveformHeight = 48;
 
 const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
   observer(({ nodeId, initialStatus, initialStartTime }) => {
     const { audioRecorder } = useStores();
     const { t } = useTranslation();
     const { editor } = useDocumentContext();
-    const { waveformData } = useAudioRecorder();
+    const {
+      transcript,
+      interimTranscript,
+      isSupported: isSpeechSupported,
+      startListening,
+      stopListening,
+      pauseListening,
+      resumeListening,
+      resetTranscript,
+    } = useSpeechRecognition();
     const [displayDuration, setDisplayDuration] = React.useState(() => {
       if (initialStartTime) {
         return Math.max(0, Date.now() - initialStartTime);
@@ -281,7 +287,8 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
         nodeId,
       });
       audioRecorder.pauseRecording();
-    }, [audioRecorder, canControlRecording, nodeId]);
+      pauseListening();
+    }, [audioRecorder, canControlRecording, nodeId, pauseListening]);
 
     const handleResume = React.useCallback(() => {
       if (!canControlRecording) {
@@ -291,7 +298,8 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
         nodeId,
       });
       audioRecorder.resumeRecording();
-    }, [audioRecorder, canControlRecording, nodeId]);
+      resumeListening();
+    }, [audioRecorder, canControlRecording, nodeId, resumeListening]);
 
     const handleStop = React.useCallback(async () => {
       if (!canControlRecording || isStopPending) {
@@ -305,6 +313,7 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
       });
 
       try {
+        stopListening();
         await audioRecorder.stopRecording();
       } catch (error) {
         Logger.error("Failed to stop recording", error as Error);
@@ -312,7 +321,14 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
       } finally {
         setIsStopPending(false);
       }
-    }, [audioRecorder, canControlRecording, isStopPending, nodeId, t]);
+    }, [
+      audioRecorder,
+      canControlRecording,
+      isStopPending,
+      nodeId,
+      stopListening,
+      t,
+    ]);
 
     const handleCancel = React.useCallback(() => {
       if (!canControlRecording) {
@@ -329,13 +345,23 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
         Logger.debug("editor", "RecordingPlaceholderCard cancel clicked", {
           nodeId,
         });
+        stopListening();
+        resetTranscript();
         audioRecorder.cancelRecording();
 
         if (editor) {
           editor.commands.removeRecordingPlaceholder({ nodeId });
         }
       }
-    }, [audioRecorder, canControlRecording, editor, nodeId, t]);
+    }, [
+      audioRecorder,
+      canControlRecording,
+      editor,
+      nodeId,
+      resetTranscript,
+      stopListening,
+      t,
+    ]);
 
     const handleRetry = React.useCallback(async () => {
       if (!canControlRecording) {
@@ -388,6 +414,21 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
     const showControls = canControlRecording && (isRecording || isPaused);
     const showRetry = isError && canControlRecording;
     const isCompactLayout = COMPACT_STATUS_SET.has(displayStatus);
+    const showTranscript = isRecording || isPaused;
+
+    // Start/stop speech recognition based on recording state
+    React.useEffect(() => {
+      if (isMatchingRecording && isRecording && isSpeechSupported) {
+        startListening();
+      }
+      // Cleanup on unmount
+      return () => {
+        if (isMatchingRecording) {
+          stopListening();
+        }
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isMatchingRecording, isRecording, isSpeechSupported]);
 
     return (
       <Container
@@ -422,17 +463,27 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
           </ReadOnlyHint>
         )}
 
-        <WaveformSection
-          data-compact={isCompactLayout ? "true" : "false"}
-          onMouseDown={preventDefault}
-        >
-          <AudioWaveform
-            data={waveformData}
-            width={WaveformWidth}
-            height={WaveformHeight}
-            isPaused={isPaused}
-          />
-        </WaveformSection>
+        {showTranscript && (
+          <TranscriptSection
+            data-compact={isCompactLayout ? "true" : "false"}
+            onMouseDown={preventDefault}
+          >
+            {!isSpeechSupported ? (
+              <TranscriptHint>
+                {t("Live transcript preview not supported in this browser")}
+              </TranscriptHint>
+            ) : transcript || interimTranscript ? (
+              <TranscriptText>
+                <span>{transcript}</span>
+                {interimTranscript && (
+                  <InterimText>{interimTranscript}</InterimText>
+                )}
+              </TranscriptText>
+            ) : (
+              <TranscriptHint>{t("Listening...")}</TranscriptHint>
+            )}
+          </TranscriptSection>
+        )}
 
         {isError && audioRecorder.error && (
           <ErrorSection>
@@ -591,30 +642,52 @@ const WarningIconWrapper = styled.span`
   color: ${s("warning")};
 `;
 
-const compactWaveformStyles = css`
+const compactTranscriptStyles = css`
   flex: 1 1 auto;
   min-height: 0;
   margin: 0;
   width: 100%;
 `;
 
-const WaveformSection = styled.div.attrs({ contentEditable: "false" })`
+const TranscriptSection = styled.div.attrs({ contentEditable: "false" })`
   margin: 0 auto;
   display: flex;
-  justify-content: center;
-  align-items: center;
+  flex-direction: column;
   width: 100%;
-  max-width: ${WaveformWidth + 16}px;
   flex: 0 0 auto;
-  min-height: ${WaveformHeight + 16}px;
+  min-height: 60px;
+  max-height: 120px;
   background: ${s("background")};
   border-radius: 4px;
-  padding: 8px;
+  padding: 8px 12px;
   box-sizing: border-box;
+  overflow-y: auto;
+  font-family: ${s("fontFamily")};
+  font-size: 14px;
+  line-height: 1.5;
 
   &[data-compact="true"] {
-    ${compactWaveformStyles}
+    ${compactTranscriptStyles}
   }
+`;
+
+const TranscriptText = styled.div`
+  color: ${s("text")};
+  word-wrap: break-word;
+  white-space: pre-wrap;
+`;
+
+const InterimText = styled.span`
+  color: ${s("textTertiary")};
+  font-style: italic;
+`;
+
+const TranscriptHint = styled.div`
+  color: ${s("textTertiary")};
+  font-size: 13px;
+  font-style: italic;
+  text-align: center;
+  padding: 8px 0;
 `;
 
 const ReadOnlyHint = styled.span`
