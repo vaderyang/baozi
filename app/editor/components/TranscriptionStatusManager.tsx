@@ -1,7 +1,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { TextSelection } from "prosemirror-state";
-import { Node as ProsemirrorNode } from "prosemirror-model";
+import { Node as ProsemirrorNode, Slice } from "prosemirror-model";
 import normalizePastedMarkdown from "@shared/editor/lib/markdown/normalize";
 import Logger from "~/utils/Logger";
 import { client } from "~/utils/ApiClient";
@@ -277,6 +277,10 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       // Add summary first if generated
       if (summaryMarkdown) {
         contentMarkdown += summaryMarkdown;
+        Logger.info("editor", "Added summary to markdown", {
+          jobId,
+          summaryLength: summaryMarkdown.length,
+        });
       }
 
       // Add audio attachment if attachmentId is provided, attachment node type exists,
@@ -295,6 +299,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           fileName,
           fileSize,
           attachmentUrl,
+          currentMarkdownLength: contentMarkdown.length,
         });
       } else {
         Logger.info("editor", "Skipping audio attachment", {
@@ -306,21 +311,18 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       }
 
       // Add transcript heading and code block
-      // If auto-summary is enabled, make the transcript collapsed by default
+      // Always use a regular heading - we'll set collapsed attribute programmatically if needed
       const transcriptHeading = dictionary.transcript || "Transcript";
-      if (shouldGenerateSummary) {
-        // Use a collapsed heading (details/summary HTML structure in markdown)
-        contentMarkdown += `<details>\n<summary>${transcriptHeading}</summary>\n\n\`\`\`\n${formattedText}\n\`\`\`\n\n</details>\n\n`;
-      } else {
-        contentMarkdown += `## ${transcriptHeading}\n\n\`\`\`\n${formattedText}\n\`\`\`\n\n`;
-      }
+      contentMarkdown += `## ${transcriptHeading}\n\n\`\`\`\n${formattedText}\n\`\`\`\n\n`;
 
       Logger.info("editor", "Built markdown content for transcript", {
         jobId,
         markdownLength: contentMarkdown.length,
         hasAttachment: !!attachmentId,
+        hasSummary: !!summaryMarkdown,
         transcriptHeading,
         formattedTextLength: formattedText.length,
+        markdownPreview: contentMarkdown.substring(0, 200),
       });
 
       // Parse the markdown into ProseMirror nodes
@@ -340,7 +342,33 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       const parseDuration = Date.now() - parseStartTime;
 
       if (transcriptContent) {
-        const slice = transcriptContent.slice(0);
+        let slice = transcriptContent.slice(0);
+
+        // If auto-summary is enabled, find the transcript heading and set it to collapsed
+        if (shouldGenerateSummary) {
+          const nodes: ProsemirrorNode[] = [];
+          slice.content.forEach((node) => {
+            // Check if this is the transcript heading
+            if (
+              node.type.name === "heading" &&
+              node.textContent === transcriptHeading
+            ) {
+              // Create a new heading node with collapsed attribute set to true
+              nodes.push(
+                node.type.create(
+                  { ...node.attrs, collapsed: true },
+                  node.content,
+                  node.marks
+                )
+              );
+            } else {
+              nodes.push(node);
+            }
+          });
+          // Create a new slice with the modified content
+          const newContent = schema.nodes.doc.create(null, nodes).content;
+          slice = new Slice(newContent, slice.openStart, slice.openEnd);
+        }
 
         Logger.info("editor", "Parsed transcript content successfully", {
           jobId,
@@ -348,6 +376,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           sliceSize: slice.content.size,
           sliceChildCount: slice.content.childCount,
           contentMarkdownLength: contentMarkdown.length,
+          collapsedHeading: shouldGenerateSummary,
         });
 
         // Replace the status card with the transcript content
@@ -357,13 +386,11 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           slice
         );
 
-        // Set selection after the inserted content
-        const insertionEnd = Math.min(
-          transaction.doc.content.size,
-          position + slice.content.size
-        );
+        // Set selection at the beginning of the inserted content (summary start)
+        // This allows the user to immediately start editing the summary
+        const insertionStart = position;
         transaction.setSelection(
-          TextSelection.near(transaction.doc.resolve(insertionEnd), -1)
+          TextSelection.near(transaction.doc.resolve(insertionStart), 1)
         );
 
         dispatch(
@@ -378,7 +405,8 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           "Successfully replaced status card with transcript",
           {
             jobId,
-            insertionEnd,
+            insertionStart,
+            cursorPosition: "summary_start",
           }
         );
 
