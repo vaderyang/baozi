@@ -1,6 +1,7 @@
+name: house-docker-compose-${VERSION:-production}
 services:
   outline:
-    image: netis/house-outline:1.0.1
+    image: netis/house-outline:${VERSION:-production}
     env_file: ./docker.env
     ports:
       - "443:443"

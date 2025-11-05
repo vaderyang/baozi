@@ -12,7 +12,7 @@ COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
 #############################################
 VERSION_ARG=${1:-}
 if [ -z "$VERSION_ARG" ]; then
-  read -p "请输入版本号（如 1.0.1/stg/prod）: " VERSION_ARG
+  read -p "请输入版本号（如 1.0.1/staging/production）: " VERSION_ARG
 fi
 if [ -z "$VERSION_ARG" ]; then
   echo "未提供版本号，退出。"

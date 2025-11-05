@@ -1,6 +1,7 @@
+name: house-docker-compose-${VERSION:-staging}
 services:
   outline:
-    image: netis/house-outline:${VERSION}
+    image: netis/house-outline:${VERSION:-staging}
     env_file: ./docker.env
     ports:
       - "8080:3000" # 仅暴露 HTTP

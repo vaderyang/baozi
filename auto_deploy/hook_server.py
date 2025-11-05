@@ -4,6 +4,8 @@ import os
 import threading
 import subprocess
 import time
+import sys
+import socket
 from collections import deque
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -145,12 +147,55 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/":
+            # 生成可访问地址列表（本机与局域网）
+            access_urls = []
+            bind_url = f"http://{HOST}:{PORT}"
+            if HOST == "0.0.0.0":
+                access_urls.append(f"http://127.0.0.1:{PORT}")
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.connect(("8.8.8.8", 80))
+                    primary_ip = s.getsockname()[0]
+                except Exception:
+                    primary_ip = None
+                finally:
+                    try:
+                        s.close()
+                    except Exception:
+                        pass
+                if primary_ip:
+                    access_urls.append(f"http://{primary_ip}:{PORT}")
+            else:
+                access_urls.append(bind_url)
+
+            base_url = access_urls[0] if access_urls else bind_url
+            json_force_example = "{\"force\": true}"
+
             payload = {
                 "status": "ok",
+                "server_url": base_url,
+                "access_urls": access_urls,
                 "compose_project_name": COMPOSE_PROJECT_NAME,
                 "compose_project_dir": COMPOSE_PROJECT_DIR,
                 "deploy_in_progress": DEPLOY_IN_PROGRESS,
                 "deploy_start_time": DEPLOY_START_TIME_ISO,
+                "usage": {
+                    "endpoint": "POST /webhook/bitbucket",
+                    "examples": [
+                        {
+                            "curl": f"curl -sS -X POST '{base_url}/webhook/bitbucket'",
+                            "effect": "无部署时 => queued；有部署时 => in_progress",
+                        },
+                        {
+                            "curl": f"curl -sS -X POST '{base_url}/webhook/bitbucket?force=true'",
+                            "effect": "有部署时 => restarted（取消旧部署并重启）",
+                        },
+                        {
+                            "curl": f"curl -sS -H 'Content-Type: application/json' -d '{json_force_example}' '{base_url}/webhook/bitbucket'",
+                            "effect": "与 query force=true 等效",
+                        },
+                    ],
+                },
             }
             self._send_json(200, payload)
         else:
@@ -257,10 +302,16 @@ def main():
     global CODE_BASE_DIR, IMAGE_VERSION, HOST, PORT, COMPOSE_PROJECT_DIR, BUILD_SCRIPT_PATH
 
     parser = argparse.ArgumentParser(description="AutoDeploy Hook Server")
-    parser.add_argument("--code_base_dir", default=CODE_BASE_DIR, help="代码根目录（包含 compose 项目目录）")
-    parser.add_argument("--image_version", default=IMAGE_VERSION, help="部署镜像版本标签，例如 1.0.1")
-    parser.add_argument("--host", default=HOST, help="HTTP 监听地址")
-    parser.add_argument("--port", type=int, default=PORT, help="HTTP 监听端口")
+    parser.add_argument("--code_base_dir", required=True, help="代码根目录（包含 compose 项目目录）")
+    parser.add_argument("--image_version", required=True, help="部署镜像版本标签，例如production/staging")
+    parser.add_argument("--host", required=True, help="HTTP HOOK 监听地址")
+    parser.add_argument("--port", type=int, required=True, help="HTTP HOOK 监听端口")
+
+    # 未提供任何参数时，显示帮助并退出
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+
     args = parser.parse_args()
 
     CODE_BASE_DIR = args.code_base_dir
@@ -274,9 +325,42 @@ def main():
 
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(
-        f"AutoDeploy server listening on http://{HOST}:{PORT}/ "
+        f"AutoDeploy server listening: bind=http://{HOST}:{PORT}/ "
         f"(project={COMPOSE_PROJECT_NAME}, dir={COMPOSE_PROJECT_DIR}, version={IMAGE_VERSION})"
     )
+
+    # 生成可访问地址列表（本机与局域网）
+    access_urls = []
+    if HOST == "0.0.0.0":
+        access_urls.append(f"http://127.0.0.1:{PORT}")
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            primary_ip = s.getsockname()[0]
+        except Exception:
+            primary_ip = None
+        finally:
+            try:
+                s.close()
+            except Exception:
+                pass
+        if primary_ip:
+            access_urls.append(f"http://{primary_ip}:{PORT}")
+    else:
+        access_urls.append(f"http://{HOST}:{PORT}")
+
+    if access_urls:
+        print("可访问地址：")
+        for u in access_urls:
+            print(f"  - {u}/")
+
+    # 启动后输出常用 POST 示例（选择首个可访问地址作为示例前缀）
+    base_url = access_urls[0] if access_urls else f"http://{HOST}:{PORT}"
+    json_force_example = '{"force": true}'
+    print("示例触发发布：")
+    print(f"  正常发布: curl -sS -X POST '{base_url}/webhook/bitbucket'")
+    print(f"  强制重新发布: curl -sS -X POST '{base_url}/webhook/bitbucket?force=true'")
+    print(f"  JSON 强制重新发布: curl -sS -H 'Content-Type: application/json' -d '{json_force_example}' '{base_url}/webhook/bitbucket'")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
