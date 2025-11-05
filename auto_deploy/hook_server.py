@@ -374,7 +374,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         # 在函数顶部声明涉及的全局变量，避免语法错误
         global DEPLOY_IN_PROGRESS, DEPLOY_START_TIME_ISO, CANCEL_EVENT, CURRENT_PROC, DEPLOY_RUN_ID
-        if self.path == "/cancel":
+        # 解析请求路径（忽略查询参数进行路由匹配，并兼容尾随斜杠）
+        parsed = urlparse(self.path)
+        path_only = parsed.path
+        norm_path = path_only.rstrip("/") or "/"
+
+        if norm_path == "/cancel":
             # 取消当前部署（如果有）
             cancelled = False
             with DEPLOY_LOCK:
@@ -408,7 +413,7 @@ class Handler(BaseHTTPRequestHandler):
                     "deploy_in_progress": DEPLOY_IN_PROGRESS,
                 })
             return
-        if self.path != "/webhook/bitbucket":
+        if norm_path != "/webhook/bitbucket":
             self._send_json(404, {
                 "error": "not found",
                 "compose_project_name": COMPOSE_PROJECT_NAME,
@@ -422,7 +427,7 @@ class Handler(BaseHTTPRequestHandler):
 
         # 解析是否 force=true（支持 query 参数）
         try:
-            query = parse_qs(urlparse(self.path).query)
+            query = parse_qs(parsed.query)
             force_flag = str(query.get("force", ["false"])[0]).lower() == "true"
         except Exception:
             force_flag = False
