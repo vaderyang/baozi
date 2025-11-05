@@ -188,6 +188,89 @@ const stripTranscriptCodeBlocks = (markdown: string): string => {
   );
 };
 
+/**
+ * Extract keywords from a natural language query using LLM
+ */
+const extractKeywords = async (
+  query: string,
+  apiKey: string,
+  apiBase: string,
+  model: string
+): Promise<string> => {
+  const trimmedBase = apiBase.replace(/\/$/, "");
+  const endpoint = /\/chat\/completions$/i.test(trimmedBase)
+    ? trimmedBase
+    : `${trimmedBase}/chat/completions`;
+
+  const systemPrompt = `You are a keyword extraction assistant. Extract the most important keywords from the user's question for document search.
+
+RULES:
+1. Extract 1-5 key terms that would be most useful for searching documents
+2. Focus on nouns, technical terms, and specific concepts
+3. Remove question words (what, how, why, when, where, who)
+4. Remove common words (is, the, a, an, of, in, on, at)
+5. Keep technical abbreviations and acronyms (e.g., FTP, API, HTTP)
+6. Return ONLY the keywords separated by spaces, no explanation
+
+Examples:
+- "什么是FTP" → "FTP"
+- "How does authentication work?" → "authentication"
+- "What is the difference between REST and GraphQL?" → "REST GraphQL difference"
+- "如何配置数据库连接" → "配置 数据库 连接"`;
+
+  const messages = [
+    {
+      role: "system",
+      content: systemPrompt,
+    },
+    {
+      role: "user",
+      content: query,
+    },
+  ];
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.3,
+        max_tokens: 50,
+      }),
+    });
+
+    if (!response.ok) {
+      Logger.warn("Keyword extraction failed, using original query", {
+        status: response.status,
+        query,
+      });
+      return query;
+    }
+
+    const data = (await response.json()) as {
+      choices?: ChatCompletionChoice[];
+    };
+    const keywords = parseAiResponse(data.choices?.[0] || {}).trim();
+
+    Logger.info("utils", "Keywords extracted", {
+      originalQuery: query,
+      extractedKeywords: keywords,
+    });
+
+    return keywords || query;
+  } catch (error) {
+    const wrappedError =
+      error instanceof Error ? error : new Error(String(error));
+    Logger.warn("Keyword extraction error, using original query", wrappedError);
+    return query;
+  }
+};
+
 router.post(
   "ai.search",
   auth(),
@@ -220,7 +303,15 @@ router.post(
       const SearchHelper = (await import("@server/models/helpers/SearchHelper"))
         .default;
 
-      // Search for relevant documents
+      // Extract keywords from the natural language query
+      const searchKeywords = await extractKeywords(
+        query,
+        apiKey,
+        apiBase,
+        model
+      );
+
+      // Search for relevant documents using extracted keywords
       let documentIds = undefined;
       if (documentId) {
         const document = await Document.findByPk(documentId, {
@@ -235,7 +326,7 @@ router.post(
       }
 
       const searchOptions = {
-        query,
+        query: searchKeywords, // Use extracted keywords for search
         collectionId: collectionId || undefined,
         dateFilter: dateFilter || undefined,
         statusFilter: statusFilter || undefined,
@@ -245,6 +336,8 @@ router.post(
       };
 
       Logger.info("utils", "AI search options", {
+        originalQuery: query,
+        searchKeywords,
         searchOptions,
         userId: user.id,
       });
@@ -349,8 +442,6 @@ CRITICAL RULES:
 5. Reference documents using: [Document Title](doc-id)
 6. Use bullet points for lists, but avoid tables and complex structures
 
-The user's question is: "${query}"
-
 Here are the relevant documents:
 
 ${context}`;
@@ -362,7 +453,7 @@ ${context}`;
         },
         {
           role: "user",
-          content: query,
+          content: query, // Use original user question, not extracted keywords
         },
       ];
 
