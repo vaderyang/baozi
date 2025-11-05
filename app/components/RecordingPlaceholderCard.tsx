@@ -441,11 +441,7 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
     }, [isMatchingRecording, isRecording, isSpeechSupported]);
 
     return (
-      <Container
-        contentEditable={false}
-        suppressContentEditableWarning
-        data-compact={isCompactLayout ? "true" : "false"}
-      >
+      <Container data-compact={isCompactLayout ? "true" : "false"}>
         <Header>
           <StatusSection>
             {statusDisplay.showPulse && <PulsingDot />}
@@ -588,7 +584,10 @@ const compactContainerStyles = css`
   overflow: hidden;
 `;
 
-const Container = styled.div.attrs({ contentEditable: "false" })`
+const Container = styled.div.attrs({
+  contentEditable: "false",
+  suppressContentEditableWarning: true,
+})`
   background: ${s("sidebarBackground")};
   border: 2px solid ${s("divider")};
   border-radius: 8px;
