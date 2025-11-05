@@ -8,7 +8,7 @@ export const AiSearchSchema = BaseSchema.extend({
     userId: z.string().uuid().optional(),
     documentId: z.string().uuid().optional(),
     dateFilter: z.string().optional(),
-    statusFilter: z.string().optional(),
+    statusFilter: z.array(z.string()).optional(),
     maxDocuments: z.number().int().min(1).max(50).optional(),
     language: z.string().optional(),
   }),
