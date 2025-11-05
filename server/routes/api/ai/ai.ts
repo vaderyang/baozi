@@ -81,7 +81,11 @@ const parseAiResponse = (choice: ChatCompletionChoice): string => {
   return "";
 };
 
-const getModelConfig = (forAiSearch = false) => {
+const getModelConfig = async (
+  forAiSearch = false,
+  teamId?: string,
+  contextLength?: number
+) => {
   const apiKey = envValue(
     "LLM_API_KEY",
     "AI_API_KEY",
@@ -100,36 +104,122 @@ const getModelConfig = (forAiSearch = false) => {
 
   let model: string | undefined;
   let fallbackModel: string | undefined;
+  let contextLengthThreshold = 500;
 
-  if (forAiSearch) {
-    // For AI Search, prefer AI_SEARCH model, fallback to general model
-    model = envValue("LLM_MODEL_NAME_AI_SEARCH");
-    fallbackModel = envValue(
-      "LLM_MODEL_NAME",
-      "LLM_MODEL",
-      "AI_MODEL_NAME",
-      "AI_MODEL",
-      "OPENAI_MODEL_NAME",
-      "OPENAI_MODEL",
-      "MODEL"
-    );
-    // If no AI_SEARCH model specified, use general model
-    if (!model) {
-      model = fallbackModel;
+  // Load team preferences if teamId is provided
+  if (teamId) {
+    const { Team } = await import("@server/models");
+    const { TeamPreference } = await import("@shared/types");
+    const team = await Team.findByPk(teamId);
+
+    if (team) {
+      // Get context length threshold from preferences
+      const thresholdPref = team.getPreference(
+        TeamPreference.AiContextLengthThreshold
+      );
+      if (typeof thresholdPref === "number") {
+        contextLengthThreshold = thresholdPref;
+      }
+
+      if (forAiSearch) {
+        // Get AI Search models from preferences
+        const searchModel = team.getPreference(TeamPreference.AiSearchModel);
+        const searchFallbackModel = team.getPreference(
+          TeamPreference.AiSearchFallbackModel
+        );
+
+        model =
+          (typeof searchModel === "string" ? searchModel : undefined) ||
+          envValue("LLM_MODEL_NAME_AI_SEARCH");
+        fallbackModel =
+          (typeof searchFallbackModel === "string"
+            ? searchFallbackModel
+            : undefined) ||
+          envValue(
+            "LLM_MODEL_NAME",
+            "LLM_MODEL",
+            "AI_MODEL_NAME",
+            "AI_MODEL",
+            "OPENAI_MODEL_NAME",
+            "OPENAI_MODEL",
+            "MODEL"
+          );
+      } else {
+        // Get AI Generate Text models from preferences
+        const generateModel = team.getPreference(
+          TeamPreference.AiGenerateTextModel
+        );
+        const generateFallbackModel = team.getPreference(
+          TeamPreference.AiGenerateTextFallbackModel
+        );
+
+        model =
+          (typeof generateModel === "string" ? generateModel : undefined) ||
+          envValue(
+            "LLM_MODEL_NAME",
+            "LLM_MODEL",
+            "AI_MODEL_NAME",
+            "AI_MODEL",
+            "OPENAI_MODEL_NAME",
+            "OPENAI_MODEL",
+            "MODEL"
+          );
+        fallbackModel =
+          (typeof generateFallbackModel === "string"
+            ? generateFallbackModel
+            : undefined) || envValue("LLM_MODEL_NAME_AI_SEARCH");
+      }
+    }
+  }
+
+  // Fallback to environment variables if no team preferences
+  if (!model) {
+    if (forAiSearch) {
+      model = envValue("LLM_MODEL_NAME_AI_SEARCH");
+      fallbackModel = envValue(
+        "LLM_MODEL_NAME",
+        "LLM_MODEL",
+        "AI_MODEL_NAME",
+        "AI_MODEL",
+        "OPENAI_MODEL_NAME",
+        "OPENAI_MODEL",
+        "MODEL"
+      );
+      if (!model) {
+        model = fallbackModel;
+        fallbackModel = envValue("LLM_MODEL_NAME_AI_SEARCH");
+      }
+    } else {
+      model = envValue(
+        "LLM_MODEL_NAME",
+        "LLM_MODEL",
+        "AI_MODEL_NAME",
+        "AI_MODEL",
+        "OPENAI_MODEL_NAME",
+        "OPENAI_MODEL",
+        "MODEL"
+      );
       fallbackModel = envValue("LLM_MODEL_NAME_AI_SEARCH");
     }
-  } else {
-    // For general AI, use general model with AI_SEARCH as fallback
-    model = envValue(
-      "LLM_MODEL_NAME",
-      "LLM_MODEL",
-      "AI_MODEL_NAME",
-      "AI_MODEL",
-      "OPENAI_MODEL_NAME",
-      "OPENAI_MODEL",
-      "MODEL"
-    );
-    fallbackModel = envValue("LLM_MODEL_NAME_AI_SEARCH");
+  }
+
+  // Apply context-length-based model switching
+  if (
+    contextLength !== undefined &&
+    contextLength < contextLengthThreshold &&
+    fallbackModel
+  ) {
+    Logger.info("utils", "Using fallback model for short context", {
+      contextLength,
+      threshold: contextLengthThreshold,
+      primaryModel: model,
+      fallbackModel,
+      forAiSearch,
+    });
+    // Swap models: use fallback for short contexts
+    const temp = model;
+    model = fallbackModel;
+    fallbackModel = temp;
   }
 
   return { apiKey, apiBase, model, fallbackModel };
@@ -288,7 +378,12 @@ router.post(
       language,
     } = ctx.input.body;
 
-    const { apiKey, apiBase, model, fallbackModel } = getModelConfig(true);
+    // Get initial model config for keyword extraction (without context length)
+    const initialConfig = await getModelConfig(true, user.teamId);
+    let apiKey = initialConfig.apiKey;
+    let apiBase = initialConfig.apiBase;
+    let model = initialConfig.model;
+    let fallbackModel = initialConfig.fallbackModel;
 
     if (!apiKey || !apiBase || !model) {
       ctx.throw(InvalidRequestError("AI configuration is incomplete"));
@@ -412,6 +507,19 @@ ${strippedMarkdown}`;
       });
 
       const context = contextParts.join("\n\n---\n\n");
+
+      // Re-evaluate model config based on context length
+      const contextBasedConfig = await getModelConfig(
+        true,
+        user.teamId,
+        context.length
+      );
+      model = contextBasedConfig.model;
+      fallbackModel = contextBasedConfig.fallbackModel;
+
+      if (!model) {
+        ctx.throw(InvalidRequestError("AI model configuration is incomplete"));
+      }
 
       // Build sources list
       const sources = documents.map((doc) => ({
@@ -664,7 +772,14 @@ router.post(
       ctx.throw(InvalidRequestError("Prompt is required"));
     }
 
-    const { apiKey, apiBase, model, fallbackModel } = getModelConfig(false);
+    // Calculate context length for model selection
+    const totalContextLength = prompt.length + context.length;
+
+    const { apiKey, apiBase, model, fallbackModel } = await getModelConfig(
+      false,
+      user.teamId,
+      totalContextLength
+    );
 
     if (!apiKey || !apiBase || !model) {
       ctx.throw(InvalidRequestError("AI configuration is incomplete"));
@@ -889,9 +1004,26 @@ router.post(
         fallbackModel ??
         "qwen3-30b-a3b-instruct";
 
-      const visionModel =
-        envValue("LLM_MODEL_NAME_VISION", "AI_VISION_MODEL", "VISION_MODEL") ??
-        "grok-4-fast-non-reasoning";
+      // Get vision model from team preferences or environment
+      let visionModel: string | undefined;
+      const { Team } = await import("@server/models");
+      const { TeamPreference } = await import("@shared/types");
+      const team = await Team.findByPk(user.teamId);
+      if (team) {
+        const visionModelPref = team.getPreference(
+          TeamPreference.AiVisionModel
+        );
+        visionModel =
+          typeof visionModelPref === "string" ? visionModelPref : undefined;
+      }
+      if (!visionModel) {
+        visionModel =
+          envValue(
+            "LLM_MODEL_NAME_VISION",
+            "AI_VISION_MODEL",
+            "VISION_MODEL"
+          ) ?? "grok-4-fast-non-reasoning";
+      }
 
       let currentModel = model;
       let activeFallbackModel = fallbackModel;
