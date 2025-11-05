@@ -53,7 +53,6 @@ export default class RecordingPlaceholder extends Node {
           "data-status": node.attrs.status,
           "data-start-time": node.attrs.startTime,
         },
-        0,
       ],
     };
   }

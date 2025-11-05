@@ -93,6 +93,9 @@ class AudioRecorderStore {
   @observable
   lastAttachment: RecordingAttachmentMetadata | null = null;
 
+  @observable
+  autoGenerateSummary = false;
+
   rootStore: RootStore;
 
   constructor(rootStore: RootStore) {
@@ -250,9 +253,6 @@ class AudioRecorderStore {
 
       // Start recording
       this.mediaRecorder.start(1000); // Collect data every second
-
-      // Set up audio analysis for waveform
-      this.setupAudioAnalysis(stream);
     } catch (error) {
       runInAction(() => {
         this.error =
@@ -412,6 +412,11 @@ class AudioRecorderStore {
   setError = (error: string): void => {
     this.error = error;
     this.status = "error";
+  };
+
+  @action
+  setAutoGenerateSummary = (value: boolean): void => {
+    this.autoGenerateSummary = value;
   };
 
   /**
@@ -577,9 +582,9 @@ class AudioRecorderStore {
 
         const job = response.data;
 
-        if (job.status === "completed" && job.result) {
-          // Transcription completed successfully
-          await this.insertTranscribedText(job.result.text);
+        if (job.status === "completed") {
+          // Transcription completed successfully (even if empty)
+          await this.insertTranscribedText(job.result?.text || "");
           return;
         } else if (job.status === "failed") {
           // Transcription failed - preserve error message from API
@@ -686,6 +691,7 @@ class AudioRecorderStore {
     this.transcriptionResult = null;
     this.error = null;
     this.lastAttachment = null;
+    this.autoGenerateSummary = false;
   };
 
   private selectBestCodec(): string {

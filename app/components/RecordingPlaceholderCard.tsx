@@ -5,12 +5,10 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import styled, { css, keyframes } from "styled-components";
 import { s } from "@shared/styles";
-import AudioWaveform from "~/components/AudioWaveform";
 import Button from "~/components/Button";
 import Flex from "~/components/Flex";
 import Tooltip from "~/components/Tooltip";
 import { useDocumentContext } from "~/components/DocumentContext";
-import useAudioRecorder from "~/hooks/useAudioRecorder";
 import useStores from "~/hooks/useStores";
 import type { RecordingStatus } from "~/stores/AudioRecorderStore";
 import Logger from "~/utils/Logger";
@@ -53,24 +51,21 @@ interface RecordingPlaceholderCardProps {
 /**
  * RecordingPlaceholderCard is an inline card component that displays the status
  * of an active audio recording session. It shows recording status, duration,
- * waveform visualization, and control buttons.
+ * live transcript preview, and control buttons.
  *
  * State Persistence:
  * - The placeholder node persists in the ProseMirror document state
  * - When the user navigates away and returns, the component re-renders with
  *   the same nodeId and reconnects to the AudioRecorderStore
- * - Duration and waveform continue updating via MobX observables
+ * - Duration and live transcript continue updating via MobX observables and Web Speech API
  * - The component remains functional across document navigation
  */
-const WaveformWidth = 560;
-const WaveformHeight = 48;
 
 const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
   observer(({ nodeId, initialStatus, initialStartTime }) => {
     const { audioRecorder } = useStores();
     const { t } = useTranslation();
     const { editor } = useDocumentContext();
-    const { waveformData } = useAudioRecorder();
     const [displayDuration, setDisplayDuration] = React.useState(() => {
       if (initialStartTime) {
         return Math.max(0, Date.now() - initialStartTime);
@@ -390,10 +385,7 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
     const isCompactLayout = COMPACT_STATUS_SET.has(displayStatus);
 
     return (
-      <Container
-        contentEditable={false}
-        data-compact={isCompactLayout ? "true" : "false"}
-      >
+      <Container data-compact={isCompactLayout ? "true" : "false"}>
         <Header>
           <StatusSection>
             {statusDisplay.showPulse && <PulsingDot />}
@@ -422,17 +414,21 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
           </ReadOnlyHint>
         )}
 
-        <WaveformSection
-          data-compact={isCompactLayout ? "true" : "false"}
-          onMouseDown={preventDefault}
-        >
-          <AudioWaveform
-            data={waveformData}
-            width={WaveformWidth}
-            height={WaveformHeight}
-            isPaused={isPaused}
-          />
-        </WaveformSection>
+        {showControls && (
+          <AutoSummaryOption onMouseDown={preventDefault}>
+            <label>
+              <input
+                type="checkbox"
+                checked={audioRecorder.autoGenerateSummary}
+                onChange={(e) =>
+                  audioRecorder.setAutoGenerateSummary(e.target.checked)
+                }
+                disabled={!canControlRecording}
+              />
+              <span>{t("Auto-generate summary")}</span>
+            </label>
+          </AutoSummaryOption>
+        )}
 
         {isError && audioRecorder.error && (
           <ErrorSection>
@@ -525,7 +521,7 @@ const compactContainerStyles = css`
   overflow: hidden;
 `;
 
-const Container = styled.div.attrs({ contentEditable: "false" })`
+const Container = styled.div`
   background: ${s("sidebarBackground")};
   border: 2px solid ${s("divider")};
   border-radius: 8px;
@@ -591,29 +587,29 @@ const WarningIconWrapper = styled.span`
   color: ${s("warning")};
 `;
 
-const compactWaveformStyles = css`
-  flex: 1 1 auto;
-  min-height: 0;
-  margin: 0;
-  width: 100%;
-`;
+const AutoSummaryOption = styled.div`
+  padding: 8px 0;
 
-const WaveformSection = styled.div.attrs({ contentEditable: "false" })`
-  margin: 0 auto;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 100%;
-  max-width: ${WaveformWidth + 16}px;
-  flex: 0 0 auto;
-  min-height: ${WaveformHeight + 16}px;
-  background: ${s("background")};
-  border-radius: 4px;
-  padding: 8px;
-  box-sizing: border-box;
+  label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: ${s("text")};
 
-  &[data-compact="true"] {
-    ${compactWaveformStyles}
+    input[type="checkbox"] {
+      cursor: pointer;
+    }
+
+    input[type="checkbox"]:disabled {
+      cursor: not-allowed;
+    }
+  }
+
+  label:has(input:disabled) {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 `;
 
