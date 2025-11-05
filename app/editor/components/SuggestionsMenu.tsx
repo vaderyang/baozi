@@ -25,7 +25,7 @@ import Logger from "~/utils/Logger";
 import { useEditor } from "./EditorContext";
 import Input from "./Input";
 import { MenuHeader } from "~/components/primitives/components/Menu";
-import AiPromptInput from "./AiPromptInput";
+import AiPromptInput, { AiPromptMode } from "./AiPromptInput";
 
 type TopAnchor = {
   top: number;
@@ -308,6 +308,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       placeholderRange,
       skipClearSearch = false,
       mentionedDocumentIds = [],
+      mode = "fast",
     }: {
       prompt: string;
       context?: string;
@@ -315,6 +316,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       placeholderRange?: { from: number; to: number };
       skipClearSearch?: boolean;
       mentionedDocumentIds?: string[];
+      mode?: AiPromptMode;
     }): Promise<boolean> => {
       const trimmedPrompt = prompt.trim();
 
@@ -360,7 +362,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       try {
         const result = await client.post<{ data: { text?: string } }>(
           "/ai.generate",
-          { prompt: trimmedPrompt, context, mentionedDocumentIds },
+          { prompt: trimmedPrompt, context, mentionedDocumentIds, mode },
           { retry: false }
         );
 
@@ -828,7 +830,11 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
   };
 
   const handlePromptSubmit = React.useCallback(
-    async (promptValue: string, mentionedDocumentIds: string[] = []) => {
+    async (
+      promptValue: string,
+      mentionedDocumentIds: string[] = [],
+      mode: AiPromptMode = "fast"
+    ) => {
       const trimmedPrompt = promptValue.trim();
 
       if (!trimmedPrompt) {
@@ -857,6 +863,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         context,
         requirePrompt: false,
         mentionedDocumentIds,
+        mode,
       });
 
       if (success) {
@@ -875,11 +882,15 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
   );
 
   const handleAiPromptSubmit = React.useCallback(
-    (promptValue: string, mentionedDocumentIds: string[]) => {
+    (
+      promptValue: string,
+      mentionedDocumentIds: string[],
+      mode: AiPromptMode
+    ) => {
       if (isGenerating) {
         return;
       }
-      void handlePromptSubmit(promptValue, mentionedDocumentIds);
+      void handlePromptSubmit(promptValue, mentionedDocumentIds, mode);
     },
     [handlePromptSubmit, isGenerating]
   );
@@ -1239,6 +1250,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
                 onSubmit={handleAiPromptSubmit}
                 disabled={isGenerating}
                 autoFocus
+                enableModeSelector
               />
             ) : (
               <List>

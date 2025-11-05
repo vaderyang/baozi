@@ -9,8 +9,10 @@ import { bytesToHumanReadable, getEventFiles } from "../../utils/files";
 import { sanitizeUrl } from "../../utils/urls";
 import insertFiles from "../commands/insertFiles";
 import toggleWrap from "../commands/toggleWrap";
+import AudioPlayer from "../components/AudioPlayer";
 import FileExtension from "../components/FileExtension";
 import Widget from "../components/Widget";
+import FileHelper from "../lib/FileHelper";
 import { MarkdownSerializerState } from "../lib/markdown/serializer";
 import attachmentsRule from "../rules/links";
 import { ComponentProps } from "../types";
@@ -85,9 +87,20 @@ export default class Attachment extends Node {
 
   component = (props: ComponentProps) => {
     const { isSelected, isEditable, theme, node } = props;
-    return (
+    const isAudio =
+      node.attrs.contentType && FileHelper.isAudio(node.attrs.contentType);
+
+    const widgetContent = (
       <Widget
-        icon={<FileExtension title={node.attrs.title} />}
+        icon={
+          isAudio && node.attrs.href ? (
+            <AudioPlayer src={node.attrs.href} isEditable={isEditable}>
+              <FileExtension title={node.attrs.title} />
+            </AudioPlayer>
+          ) : (
+            <FileExtension title={node.attrs.title} />
+          )
+        }
         href={node.attrs.href}
         title={node.attrs.title}
         onMouseDown={this.handleSelect(props)}
@@ -114,6 +127,12 @@ export default class Attachment extends Node {
       >
         {node.attrs.href && !isEditable && <DownloadIcon size={20} />}
       </Widget>
+    );
+
+    return isAudio && node.attrs.href ? (
+      <div style={{ position: "relative" }}>{widgetContent}</div>
+    ) : (
+      widgetContent
     );
   };
 
