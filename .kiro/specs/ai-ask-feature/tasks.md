@@ -15,15 +15,15 @@ This implementation plan builds upon the existing AI search infrastructure (`AIS
 
 ## Tasks
 
-- [-] 1. Enhance backend API for conversational AI Ask
+- [ ] 1. Enhance backend API for conversational AI Ask
   - Create new `/api/ai.ask` endpoint that extends `/api/ai.search` with conversation context support
   - Add session management to track conversation history (last 10 Q&A pairs)
   - Implement follow-up question generation in AIService
   - Add SSE event type for `followups` in addition to existing `sources`, `content`, `done`, `error`
   - _Requirements: 2.1, 2.2, 2.3, 5.1, 5.2, 5.4, 6.4_
 
-- [ ] 2. Create AIAskStore for state management
-  - [ ] 2.1 Implement MobX store with conversation state management
+- [-] 2. Create AIAskStore for state management
+  - [-] 2.1 Implement MobX store with conversation state management
     - Create `AIAskStore` class extending `BaseStore`
     - Add observable properties: `conversation`, `activeDocumentId`, `sessionId`
     - Implement `submitQuestion` action to handle SSE streaming
