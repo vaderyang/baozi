@@ -140,13 +140,53 @@ const isRateLimitError = (status: number, message: string): boolean =>
   message.toLowerCase().includes("rate limit") ||
   message.toLowerCase().includes("too many requests");
 
+const isContextWindowError = (status: number, message: string): boolean => {
+  const lowerMessage = message.toLowerCase();
+  return (
+    status === 400 &&
+    (lowerMessage.includes("context_length_exceeded") ||
+      lowerMessage.includes("maximum context length") ||
+      lowerMessage.includes("context window") ||
+      lowerMessage.includes("context length") ||
+      lowerMessage.includes("token limit") ||
+      lowerMessage.includes("tokens limit") ||
+      lowerMessage.includes("too many tokens") ||
+      lowerMessage.includes("max tokens"))
+  );
+};
+
 const shouldRetryWithFallback = (status: number, message: string): boolean =>
   isRateLimitError(status, message) ||
+  isContextWindowError(status, message) ||
   status === 503 ||
   status === 500 ||
   message.toLowerCase().includes("service unavailable") ||
   message.toLowerCase().includes("no server is available") ||
   message.toLowerCase().includes("serviceunavailableerror");
+
+/**
+ * Removes transcript code blocks from markdown content to reduce token usage.
+ * Transcripts are typically formatted as:
+ * ## Transcript
+ * ```
+ * <transcript text>
+ * ```
+ *
+ * This function strips out the code block content while preserving the heading
+ * to indicate that a transcript exists.
+ */
+const stripTranscriptCodeBlocks = (markdown: string): string => {
+  // Match heading with "transcript" (case-insensitive) followed by a code block
+  // Pattern: ## Transcript\n\n```\n<content>\n```
+  const transcriptPattern =
+    /^(#{1,6}\s+[^#\n]*transcript[^\n]*)\n+```[^\n]*\n[\s\S]*?```/gim;
+
+  // Replace transcript code blocks with just the heading and a placeholder
+  return markdown.replace(
+    transcriptPattern,
+    "$1\n\n[Transcript content omitted for brevity]"
+  );
+};
 
 router.post(
   "ai.search",
@@ -244,14 +284,38 @@ router.post(
       // Build context from search results
       const contextParts = documents.map((doc, index) => {
         const markdown = DocumentHelper.toMarkdown(doc);
+        // Strip transcript code blocks to reduce token usage for AI Search
+        const strippedMarkdown = stripTranscriptCodeBlocks(markdown);
         const result = searchResults.results[index];
+
+        // Log if transcript content was stripped
+        const charsReduced = markdown.length - strippedMarkdown.length;
+        if (charsReduced > 0) {
+          Logger.info(
+            "utils",
+            "Stripped transcript from document for AI Search",
+            {
+              documentId: doc.id,
+              documentTitle: doc.title,
+              originalLength: markdown.length,
+              strippedLength: strippedMarkdown.length,
+              charsReduced,
+              reductionPercent: (
+                (charsReduced / markdown.length) *
+                100
+              ).toFixed(1),
+              userId: user.id,
+            }
+          );
+        }
+
         return `## Document ${index + 1}: ${doc.title}
 Document ID: ${doc.id}
 Collection: ${doc.collection?.name || "N/A"}
 URL: ${doc.url}
 ${result.context ? `\nRelevant excerpt:\n${result.context}\n` : ""}
 Full content:
-${markdown}`;
+${strippedMarkdown}`;
       });
 
       const context = contextParts.join("\n\n---\n\n");
@@ -392,8 +456,8 @@ ${context}`;
       let result = await makeRequest(currentModel);
 
       // Retry with fallback if needed
-      if (result.shouldRetry && activeFallbackModel) {
-        currentModel = activeFallbackModel;
+      if (result.shouldRetry && fallbackModel) {
+        currentModel = fallbackModel;
         result = await makeRequest(currentModel);
       }
 
