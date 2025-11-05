@@ -87,8 +87,29 @@ export default class Attachment extends Node {
 
   component = (props: ComponentProps) => {
     const { isSelected, isEditable, theme, node } = props;
-    const isAudio =
-      node.attrs.contentType && FileHelper.isAudio(node.attrs.contentType);
+
+    // Check if the file is an audio file
+    let isAudio = false;
+    if (node.attrs.contentType) {
+      isAudio = FileHelper.isAudio(node.attrs.contentType);
+    }
+
+    // Fallback: Check by file extension if contentType doesn't indicate audio
+    if (!isAudio && node.attrs.title) {
+      const fileName = node.attrs.title.toLowerCase();
+      const audioExtensions = [
+        ".mp3",
+        ".wav",
+        ".m4a",
+        ".ogg",
+        ".opus",
+        ".flac",
+        ".aac",
+        ".wma",
+        ".webm",
+      ];
+      isAudio = audioExtensions.some((ext) => fileName.endsWith(ext));
+    }
 
     const widgetContent = (
       <Widget
