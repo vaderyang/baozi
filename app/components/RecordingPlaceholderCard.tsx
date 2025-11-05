@@ -443,6 +443,7 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
     return (
       <Container
         contentEditable={false}
+        suppressContentEditableWarning
         data-compact={isCompactLayout ? "true" : "false"}
       >
         <Header>
