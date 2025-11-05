@@ -64,8 +64,26 @@ export default function blockMenuItems(
       name: "transcript",
       title: dictionary.transcribeAudio,
       icon: <AttachmentIcon />,
-      keywords: "audio transcribe transcript speech to text",
+      keywords:
+        "audio transcribe transcript speech to text record recording microphone",
       skipCommandCheck: true,
+      children: [
+        {
+          name: "start_recording",
+          title: dictionary.startRecording,
+          icon: <AttachmentIcon />,
+          keywords: "record recording microphone live",
+          skipCommandCheck: true,
+        },
+        {
+          name: "upload_audio",
+          title: dictionary.uploadAudio,
+          icon: <AttachmentIcon />,
+          keywords: "upload file audio",
+          skipCommandCheck: true,
+          visible: false,
+        },
+      ],
     },
     {
       name: "separator",

@@ -82,6 +82,7 @@ import capitalize from "lodash/capitalize";
 import CollectionIcon from "~/components/Icons/CollectionIcon";
 import { ActionV2, ActionV2Group, ActionV2Separator } from "~/types";
 import lazyWithRetry from "~/utils/lazyWithRetry";
+import Logger from "~/utils/Logger";
 
 const Insights = lazyWithRetry(
   () => import("~/scenes/Document/components/Insights")
@@ -89,6 +90,13 @@ const Insights = lazyWithRetry(
 const SharePopover = lazyWithRetry(
   () => import("~/components/Sharing/Document/SharePopover")
 );
+
+const logAction = (message: string, extra?: Record<string, unknown>) => {
+  Logger.info("actions", message, extra);
+  // Use console.log in addition to Logger to ensure visibility regardless of console filters.
+  // eslint-disable-next-line no-console
+  console.log(`[actions] ${message}`, extra);
+};
 
 export const openDocument = createAction({
   name: ({ t }) => t("Open document"),
@@ -513,18 +521,21 @@ export const shareDocument = createActionV2({
 });
 
 export const downloadDocumentAsHTML = createActionV2({
-  name: ({ t }) => t("HTML"),
+  name: ({ t }) => t("Download as HTML"),
   analyticsName: "Download document as HTML",
   section: ActiveDocumentSection,
   keywords: "html export",
   icon: <DownloadIcon />,
-  iconInContextMenu: false,
   visible: ({ activeDocumentId, stores }) =>
     !!activeDocumentId && stores.policies.abilities(activeDocumentId).download,
   perform: async ({ activeDocumentId, stores }) => {
     if (!activeDocumentId) {
       return;
     }
+
+    logAction("Download document as HTML clicked", {
+      documentId: activeDocumentId,
+    });
 
     const document = stores.documents.get(activeDocumentId);
     await document?.download(ExportContentType.Html);
@@ -558,12 +569,11 @@ export const downloadDocumentAsPDF = createActionV2({
 });
 
 export const downloadDocumentAsMarkdown = createActionV2({
-  name: ({ t }) => t("Markdown"),
+  name: ({ t }) => t("Download as Markdown"),
   analyticsName: "Download document as Markdown",
   section: ActiveDocumentSection,
   keywords: "md markdown export",
   icon: <DownloadIcon />,
-  iconInContextMenu: false,
   visible: ({ activeDocumentId, stores }) =>
     !!activeDocumentId && stores.policies.abilities(activeDocumentId).download,
   perform: async ({ activeDocumentId, stores }) => {
@@ -571,24 +581,13 @@ export const downloadDocumentAsMarkdown = createActionV2({
       return;
     }
 
+    logAction("Download document as Markdown clicked", {
+      documentId: activeDocumentId,
+    });
+
     const document = stores.documents.get(activeDocumentId);
     await document?.download(ExportContentType.Markdown);
   },
-});
-
-export const downloadDocument = createActionV2WithChildren({
-  name: ({ t, isMenu }) => (isMenu ? t("Download") : t("Download document")),
-  analyticsName: "Download document",
-  section: ActiveDocumentSection,
-  icon: <DownloadIcon />,
-  keywords: "export",
-  visible: ({ activeDocumentId, stores }) =>
-    !!activeDocumentId && stores.policies.abilities(activeDocumentId).download,
-  children: [
-    downloadDocumentAsHTML,
-    downloadDocumentAsPDF,
-    downloadDocumentAsMarkdown,
-  ],
 });
 
 export const copyDocumentAsMarkdown = createActionV2({
@@ -596,7 +595,6 @@ export const copyDocumentAsMarkdown = createActionV2({
   section: ActiveDocumentSection,
   keywords: "clipboard",
   icon: <MarkdownIcon />,
-  iconInContextMenu: false,
   visible: ({ activeDocumentId, stores }) =>
     !!activeDocumentId && stores.policies.abilities(activeDocumentId).download,
   perform: async ({ stores, activeDocumentId, t }) => {
@@ -604,6 +602,9 @@ export const copyDocumentAsMarkdown = createActionV2({
       ? stores.documents.get(activeDocumentId)
       : undefined;
     if (document) {
+      logAction("Copy document as Markdown clicked", {
+        documentId: activeDocumentId,
+      });
       const { ProsemirrorHelper } = await import(
         "~/models/helpers/ProsemirrorHelper"
       );
@@ -626,6 +627,9 @@ export const copyDocumentAsPlainText = createActionV2({
       ? stores.documents.get(activeDocumentId)
       : undefined;
     if (document) {
+      logAction("Copy document as text clicked", {
+        documentId: activeDocumentId,
+      });
       const { ProsemirrorHelper } = await import(
         "~/models/helpers/ProsemirrorHelper"
       );
@@ -650,6 +654,10 @@ export const copyDocumentShareLink = createActionV2({
     }
     const share = stores.shares.getByDocumentId(activeDocumentId);
     if (share) {
+      logAction("Copy document public link clicked", {
+        documentId: activeDocumentId,
+        shareId: share.id,
+      });
       copy(share.url);
       toast.success(t("Link copied to clipboard"));
     }
@@ -668,24 +676,13 @@ export const copyDocumentLink = createActionV2({
       ? stores.documents.get(activeDocumentId)
       : undefined;
     if (document) {
+      logAction("Copy document link clicked", {
+        documentId: activeDocumentId,
+      });
       copy(urlify(documentPath(document)));
       toast.success(t("Link copied to clipboard"));
     }
   },
-});
-
-export const copyDocument = createActionV2WithChildren({
-  name: ({ t }) => t("Copy"),
-  analyticsName: "Copy document",
-  section: ActiveDocumentSection,
-  icon: <CopyIcon />,
-  keywords: "clipboard",
-  children: [
-    copyDocumentLink,
-    copyDocumentShareLink,
-    copyDocumentAsMarkdown,
-    copyDocumentAsPlainText,
-  ],
 });
 
 export const duplicateDocument = createActionV2({
@@ -1435,7 +1432,8 @@ export const rootDocumentActions = [
   createTemplateFromDocument,
   deleteDocument,
   importDocument,
-  downloadDocument,
+  downloadDocumentAsHTML,
+  downloadDocumentAsMarkdown,
   copyDocumentLink,
   copyDocumentShareLink,
   copyDocumentAsMarkdown,

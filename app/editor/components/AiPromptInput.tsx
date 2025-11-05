@@ -1,5 +1,12 @@
 import { observer } from "mobx-react";
-import { useState, useRef, useCallback, useEffect } from "react";
+import {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  forwardRef,
+} from "react";
 import styled from "styled-components";
 import { DocumentIcon } from "outline-icons";
 import { MentionType } from "@shared/types";
@@ -10,6 +17,13 @@ import { Portal } from "~/components/Portal";
 import useDictionary from "~/hooks/useDictionary";
 import useStores from "~/hooks/useStores";
 import { client } from "~/utils/ApiClient";
+import {
+  Menu,
+  MenuTrigger,
+  MenuContent,
+  MenuButton,
+} from "~/components/primitives/Menu";
+import { MenuProvider } from "~/components/primitives/Menu/MenuContext";
 import Input from "./Input";
 
 type MentionData = {
@@ -19,13 +33,52 @@ type MentionData = {
   label: string;
 };
 
+export type AiPromptMode = "fast" | "sensitive" | "vision";
+
+type InputProps = React.ComponentPropsWithoutRef<typeof Input>;
+
 type Props = {
-  onSubmit: (prompt: string, mentionedDocumentIds: string[]) => void;
+  onSubmit?: (
+    prompt: string,
+    mentionedDocumentIds: string[],
+    mode: AiPromptMode
+  ) => void;
+  enableModeSelector?: boolean;
   disabled?: boolean;
   autoFocus?: boolean;
-};
+  placeholder?: string;
+  onKeyDown?: InputProps["onKeyDown"];
+} & Omit<
+  InputProps,
+  | "onChange"
+  | "value"
+  | "defaultValue"
+  | "disabled"
+  | "autoFocus"
+  | "placeholder"
+  | "ref"
+  | "onKeyDown"
+>;
 
-function AiPromptInput({ onSubmit, disabled, autoFocus }: Props) {
+const MODE_OPTIONS: Array<{
+  value: AiPromptMode;
+  label: string;
+  buttonLabel: string;
+}> = [
+  { value: "fast", label: "Fast speed", buttonLabel: "Fast" },
+  { value: "sensitive", label: "Sensitive Info", buttonLabel: "Sensitive" },
+];
+
+const AiPromptInput = forwardRef<HTMLInputElement, Props>((props, ref) => {
+  const {
+    onSubmit,
+    enableModeSelector = false,
+    disabled,
+    autoFocus,
+    placeholder,
+    onKeyDown,
+    ...rest
+  } = props;
   const dictionary = useDictionary();
   const { documents } = useStores();
   const [inputValue, setInputValue] = useState("");
@@ -42,6 +95,10 @@ function AiPromptInput({ onSubmit, disabled, autoFocus }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [mode, setMode] = useState<AiPromptMode>("fast");
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+
+  useImperativeHandle(ref, () => inputRef.current, []);
 
   // Fetch documents when mention search changes
   useEffect(() => {
@@ -158,7 +215,11 @@ function AiPromptInput({ onSubmit, disabled, autoFocus }: Props) {
       .filter((m) => m.type === MentionType.Document)
       .map((m) => m.modelId);
 
-    onSubmit(trimmedPrompt, documentIds);
+    if (onSubmit) {
+      onSubmit(trimmedPrompt, documentIds, mode);
+    } else {
+      inputRef.current?.form?.requestSubmit();
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -184,6 +245,8 @@ function AiPromptInput({ onSubmit, disabled, autoFocus }: Props) {
       e.preventDefault();
       handleSubmit();
     }
+
+    onKeyDown?.(e);
   };
 
   // Close menu when clicking outside
@@ -216,17 +279,68 @@ function AiPromptInput({ onSubmit, disabled, autoFocus }: Props) {
             value={inputValue}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder={dictionary.aiPromptPlaceholder}
+            placeholder={placeholder ?? dictionary.aiPromptPlaceholder}
             disabled={disabled}
             autoFocus={autoFocus}
+            {...rest}
           />
-          <SubmitButton
-            type="button"
-            onClick={handleSubmit}
-            disabled={disabled}
-          >
-            {disabled ? dictionary.aiGenerating : dictionary.aiGenerateButton}
-          </SubmitButton>
+          <ButtonsWrapper>
+            <SubmitButton
+              type="button"
+              onClick={handleSubmit}
+              disabled={disabled}
+              $hasModeSelector={enableModeSelector}
+            >
+              {disabled ? dictionary.aiGenerating : dictionary.aiGenerateButton}
+            </SubmitButton>
+            {enableModeSelector ? (
+              <ModeMenuWrapper
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <MenuProvider variant="dropdown">
+                  <Menu open={modeMenuOpen} onOpenChange={setModeMenuOpen}>
+                    <MenuTrigger
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => event.stopPropagation()}
+                    >
+                      <ModeButton
+                        type="button"
+                        neutral
+                        disclosure
+                        disabled={disabled}
+                        aria-label="Select AI generation mode"
+                      >
+                        {
+                          MODE_OPTIONS.find((option) => option.value === mode)
+                            ?.buttonLabel
+                        }
+                      </ModeButton>
+                    </MenuTrigger>
+                    <MenuContent
+                      aria-label="AI generation mode"
+                      align="end"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => event.stopPropagation()}
+                    >
+                      {MODE_OPTIONS.map((option) => (
+                        <MenuButton
+                          key={option.value}
+                          label={option.label}
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onClick={() => {
+                            setMode(option.value);
+                            setModeMenuOpen(false);
+                          }}
+                          selected={mode === option.value}
+                        />
+                      ))}
+                    </MenuContent>
+                  </Menu>
+                </MenuProvider>
+              </ModeMenuWrapper>
+            ) : null}
+          </ButtonsWrapper>
         </InputWrapper>
       </Wrapper>
       {showMentionMenu && (
@@ -272,7 +386,9 @@ function AiPromptInput({ onSubmit, disabled, autoFocus }: Props) {
       )}
     </>
   );
-}
+});
+
+AiPromptInput.displayName = "AiPromptInput";
 
 const Wrapper = styled.div`
   margin: 8px;
@@ -284,6 +400,12 @@ const InputWrapper = styled.div`
   gap: 12px;
 `;
 
+const ButtonsWrapper = styled.div`
+  display: flex;
+  align-items: stretch;
+  height: 36px;
+`;
+
 const StyledInput = styled(Input)`
   flex: 1;
   height: 36px;
@@ -291,10 +413,31 @@ const StyledInput = styled(Input)`
   padding: 0 14px;
 `;
 
-const SubmitButton = styled(Button)`
+const SubmitButton = styled(Button)<{ $hasModeSelector: boolean }>`
   height: 36px;
   padding: 0 14px;
   white-space: nowrap;
+  ${({ $hasModeSelector }) =>
+    $hasModeSelector
+      ? `
+      border-top-right-radius: 0;
+      border-bottom-right-radius: 0;
+    `
+      : ""}
+`;
+
+const ModeButton = styled(Button)`
+  height: 36px;
+  padding: 0 8px;
+  white-space: nowrap;
+  font-size: 13px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  margin-left: 2px;
+`;
+
+const ModeMenuWrapper = styled.div`
+  display: flex;
 `;
 
 const MentionDropdown = styled.div`
