@@ -94,7 +94,7 @@ class AudioRecorderStore {
   lastAttachment: RecordingAttachmentMetadata | null = null;
 
   @observable
-  autoGenerateSummary = false;
+  autoGenerateSummary = true;
 
   rootStore: RootStore;
 
@@ -533,6 +533,7 @@ class AudioRecorderStore {
       }>("/transcriptions.create", {
         attachmentId,
         documentId: this.sourceDocumentId,
+        autoSummary: this.autoGenerateSummary,
       });
 
       const jobId = response.data.jobId;
@@ -691,7 +692,7 @@ class AudioRecorderStore {
     this.transcriptionResult = null;
     this.error = null;
     this.lastAttachment = null;
-    this.autoGenerateSummary = false;
+    this.autoGenerateSummary = true;
   };
 
   private selectBestCodec(): string {
