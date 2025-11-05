@@ -22,6 +22,7 @@ import {
 import Analytics from "~/utils/Analytics";
 import history from "~/utils/history";
 import { Action as KbarAction } from "kbar";
+import Logger from "~/utils/Logger";
 
 export function resolve<T>(value: any, context: ActionContext): T {
   return typeof value === "function" ? value(context) : value;
@@ -426,6 +427,17 @@ export async function performActionV2(
   action: Exclude<ActionV2Variant, ActionV2WithChildren>,
   context: ActionContext
 ) {
+  const actionName = resolve<string>(action.name, context);
+  Logger.info("actions", `Performing action "${actionName}"`, {
+    actionId: action.id,
+    variant: action.variant,
+  });
+  // eslint-disable-next-line no-console
+  console.log(`[actions] Performing action "${actionName}"`, {
+    actionId: action.id,
+    variant: action.variant,
+  });
+
   const perform =
     action.variant === "action"
       ? () => action.perform(context)

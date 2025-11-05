@@ -28,6 +28,7 @@ export const AttachmentValidation = {
     "audio/mp3",
     "audio/flac",
     "audio/ogg",
+    "audio/webm",
     "audio/x-m4a",
     "audio/m4a",
     "audio/opus",

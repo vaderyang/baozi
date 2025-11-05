@@ -1,7 +1,7 @@
 import { NodeSpec, NodeType, Node as ProsemirrorNode } from "prosemirror-model";
 import { Command, NodeSelection } from "prosemirror-state";
 import * as React from "react";
-import { Trans, useTranslation } from "react-i18next";
+import { Trans } from "react-i18next";
 import styled from "styled-components";
 import { Primitive } from "utility-types";
 import { bytesToHumanReadable } from "../../utils/files";
@@ -11,230 +11,244 @@ import Node from "./Node";
 import { s } from "../../styles";
 
 export default class TranscriptionStatusCard extends Node {
-    get name() {
-        return "transcription_status_card";
-    }
+  get name() {
+    return "transcription_status_card";
+  }
 
-    get schema(): NodeSpec {
-        return {
-            attrs: {
-                jobId: {
-                    default: null,
-                },
-                fileName: {
-                    default: "",
-                },
-                fileSize: {
-                    default: 0,
-                },
-                status: {
-                    default: "queued",
-                },
-                progress: {
-                    default: 0,
-                },
-                error: {
-                    default: null,
-                },
-            },
-            group: "block",
-            atom: true,
-            selectable: true,
-            draggable: false,
-            parseDOM: [
-                {
-                    tag: "div.transcription-status-card",
-                    getAttrs: (dom: HTMLDivElement) => ({
-                        jobId: dom.dataset.jobId,
-                        fileName: dom.dataset.fileName,
-                        fileSize: parseInt(dom.dataset.fileSize || "0", 10),
-                        status: dom.dataset.status,
-                        progress: parseInt(dom.dataset.progress || "0", 10),
-                        error: dom.dataset.error,
-                    }),
-                },
-            ],
-            toDOM: (node) => [
-                "div",
-                {
-                    class: "transcription-status-card",
-                    "data-job-id": node.attrs.jobId,
-                    "data-file-name": node.attrs.fileName,
-                    "data-file-size": node.attrs.fileSize,
-                    "data-status": node.attrs.status,
-                    "data-progress": node.attrs.progress,
-                    "data-error": node.attrs.error,
-                },
-                0,
-            ],
-        };
-    }
+  get schema(): NodeSpec {
+    return {
+      attrs: {
+        jobId: {
+          default: null,
+        },
+        fileName: {
+          default: "",
+        },
+        fileSize: {
+          default: 0,
+        },
+        status: {
+          default: "queued",
+        },
+        progress: {
+          default: 0,
+        },
+        error: {
+          default: null,
+        },
+        skipAttachmentLink: {
+          default: false,
+        },
+      },
+      group: "block",
+      atom: true,
+      selectable: true,
+      draggable: false,
+      parseDOM: [
+        {
+          tag: "div.transcription-status-card",
+          getAttrs: (dom: HTMLDivElement) => ({
+            jobId: dom.dataset.jobId,
+            fileName: dom.dataset.fileName,
+            fileSize: parseInt(dom.dataset.fileSize || "0", 10),
+            status: dom.dataset.status,
+            progress: parseInt(dom.dataset.progress || "0", 10),
+            error: dom.dataset.error,
+            skipAttachmentLink: dom.dataset.skipAttachmentLink === "true",
+          }),
+        },
+      ],
+      toDOM: (node) => [
+        "div",
+        {
+          class: "transcription-status-card",
+          "data-job-id": node.attrs.jobId,
+          "data-file-name": node.attrs.fileName,
+          "data-file-size": node.attrs.fileSize,
+          "data-status": node.attrs.status,
+          "data-progress": node.attrs.progress,
+          "data-error": node.attrs.error,
+          "data-skip-attachment-link": node.attrs.skipAttachmentLink,
+        },
+      ],
+    };
+  }
 
-    handleSelect =
-        ({ getPos }: ComponentProps) =>
-            () => {
-                const { view } = this.editor;
-                const $pos = view.state.doc.resolve(getPos());
-                const transaction = view.state.tr.setSelection(new NodeSelection($pos));
-                view.dispatch(transaction);
-            };
-
-    component = (props: ComponentProps) => {
-        const { isSelected, node } = props;
-        const { jobId, fileName, fileSize, status, progress, error } = node.attrs;
-
-        const handleRetry = () => {
-            this.editor.commands.retryTranscription({ jobId });
-        };
-
-        const handleCancel = () => {
-            this.editor.commands.cancelTranscription({ jobId });
-        };
-
-        return (
-            <CardWrapper
-                className={isSelected ? "ProseMirror-selectednode" : ""}
-                onMouseDown={this.handleSelect(props)}
-            >
-                <CardContent>
-                    <FileInfo>
-                        <FileName>{fileName}</FileName>
-                        <FileSize>{bytesToHumanReadable(fileSize)}</FileSize>
-                    </FileInfo>
-
-                    <StatusSection>
-                        {status === "queued" && (
-                            <>
-                                <Spinner />
-                                <StatusText>
-                                    <Trans>Queued</Trans>
-                                </StatusText>
-                            </>
-                        )}
-
-                        {status === "processing" && (
-                            <>
-                                <Spinner />
-                                <StatusText>
-                                    <Trans>Transcribing</Trans>…
-                                </StatusText>
-                                {progress > 0 && (
-                                    <ProgressBarContainer>
-                                        <ProgressBar progress={progress} />
-                                    </ProgressBarContainer>
-                                )}
-                            </>
-                        )}
-
-                        {status === "failed" && (
-                            <>
-                                <ErrorText>
-                                    <Trans>Transcription failed</Trans>
-                                    {error && `: ${error}`}
-                                </ErrorText>
-                                <RetryButton onClick={handleRetry}>
-                                    <Trans>Retry</Trans>
-                                </RetryButton>
-                            </>
-                        )}
-                    </StatusSection>
-
-                    {(status === "queued" || status === "processing") && (
-                        <CancelButton onClick={handleCancel}>
-                            <Trans>Cancel</Trans>
-                        </CancelButton>
-                    )}
-                </CardContent>
-            </CardWrapper>
-        );
+  handleSelect =
+    ({ getPos }: ComponentProps) =>
+    () => {
+      const { view } = this.editor;
+      const $pos = view.state.doc.resolve(getPos());
+      const transaction = view.state.tr.setSelection(new NodeSelection($pos));
+      view.dispatch(transaction);
     };
 
-    commands({ type }: { type: NodeType }) {
-        return {
-            insertTranscriptionStatusCard: (attrs?: Record<string, Primitive>): Command =>
-                (state, dispatch) => {
-                    const { tr } = state;
-                    const node = type.create(attrs);
+  component = (props: ComponentProps) => {
+    const { isSelected, node } = props;
+    const { jobId, fileName, fileSize, status, progress, error } = node.attrs;
 
-                    if (dispatch) {
-                        tr.replaceSelectionWith(node);
-                        dispatch(tr);
-                    }
+    const handleRetry = () => {
+      this.editor.commands.retryTranscription({ jobId });
+    };
 
-                    return true;
-                },
+    const handleCancel = () => {
+      this.editor.commands.cancelTranscription({ jobId });
+    };
 
-            updateTranscriptionStatus: (attrs?: { jobId: string; updates: Record<string, Primitive> }): Command =>
-                (state, dispatch) => {
-                    if (!attrs) {
-                        return false;
-                    }
+    return (
+      <CardWrapper
+        className={isSelected ? "ProseMirror-selectednode" : ""}
+        onMouseDown={this.handleSelect(props)}
+      >
+        <CardContent>
+          <FileInfo>
+            <FileName>{fileName}</FileName>
+            <FileSize>{bytesToHumanReadable(fileSize)}</FileSize>
+          </FileInfo>
 
-                    const { tr, doc } = state;
-                    let updated = false;
+          <StatusSection>
+            {status === "queued" && (
+              <>
+                <Spinner />
+                <StatusText>
+                  <Trans>Queued</Trans>
+                </StatusText>
+              </>
+            )}
 
-                    doc.descendants((node, pos) => {
-                        if (node.type === type && node.attrs.jobId === attrs.jobId) {
-                            const newAttrs = { ...node.attrs, ...attrs.updates };
-                            tr.setNodeMarkup(pos, undefined, newAttrs);
-                            updated = true;
-                            return false;
-                        }
-                        return true;
-                    });
+            {status === "processing" && (
+              <>
+                <Spinner />
+                <StatusText>
+                  <Trans>Transcribing</Trans>…
+                </StatusText>
+                {progress > 0 && (
+                  <ProgressBarContainer>
+                    <ProgressBar progress={progress} />
+                  </ProgressBarContainer>
+                )}
+              </>
+            )}
 
-                    if (dispatch && updated) {
-                        dispatch(tr);
-                    }
+            {status === "failed" && (
+              <>
+                <ErrorText>
+                  <Trans>Transcription failed</Trans>
+                  {error && `: ${error}`}
+                </ErrorText>
+                <RetryButton onClick={handleRetry}>
+                  <Trans>Retry</Trans>
+                </RetryButton>
+              </>
+            )}
+          </StatusSection>
 
-                    return updated;
-                },
+          {(status === "queued" || status === "processing") && (
+            <CancelButton onClick={handleCancel}>
+              <Trans>Cancel</Trans>
+            </CancelButton>
+          )}
+        </CardContent>
+      </CardWrapper>
+    );
+  };
 
-            removeTranscriptionStatusCard: (attrs?: { jobId: string }): Command =>
-                (state, dispatch) => {
-                    if (!attrs) {
-                        return false;
-                    }
+  commands({ type }: { type: NodeType }) {
+    return {
+      insertTranscriptionStatusCard:
+        (attrs?: Record<string, Primitive>): Command =>
+        (state, dispatch) => {
+          const { tr } = state;
+          const node = type.create(attrs);
 
-                    const { tr, doc } = state;
-                    let removed = false;
+          if (dispatch) {
+            tr.replaceSelectionWith(node);
+            dispatch(tr);
+          }
 
-                    doc.descendants((node, pos) => {
-                        if (node.type === type && node.attrs.jobId === attrs.jobId) {
-                            tr.delete(pos, pos + node.nodeSize);
-                            removed = true;
-                            return false;
-                        }
-                        return true;
-                    });
+          return true;
+        },
 
-                    if (dispatch && removed) {
-                        dispatch(tr);
-                    }
+      updateTranscriptionStatus:
+        (attrs?: {
+          jobId: string;
+          updates: Record<string, Primitive>;
+        }): Command =>
+        (state, dispatch) => {
+          if (!attrs) {
+            return false;
+          }
 
-                    return removed;
-                },
+          const { tr, doc } = state;
+          let updated = false;
 
-            retryTranscription: (_attrs?: { jobId: string }): Command =>
-                () => true,
+          doc.descendants((node, pos) => {
+            if (node.type === type && node.attrs.jobId === attrs.jobId) {
+              const newAttrs = { ...node.attrs, ...attrs.updates };
+              tr.setNodeMarkup(pos, undefined, newAttrs);
+              updated = true;
+              return false;
+            }
+            return true;
+          });
 
-            cancelTranscription: (_attrs?: { jobId: string }): Command =>
-                () => true,
-        };
-    }
+          if (dispatch && updated) {
+            dispatch(tr);
+          }
 
-    toMarkdown(state: MarkdownSerializerState, node: ProsemirrorNode) {
-        // Status cards should not be serialized to markdown
-        // They are temporary UI elements
-        state.ensureNewLine();
-        state.write(`[Transcription: ${node.attrs.fileName}]\n\n`);
-        state.ensureNewLine();
-    }
+          return updated;
+        },
 
-    parseMarkdown() {
-        // Status cards are not parsed from markdown
-        return undefined;
-    }
+      removeTranscriptionStatusCard:
+        (attrs?: { jobId: string }): Command =>
+        (state, dispatch) => {
+          if (!attrs) {
+            return false;
+          }
+
+          const { tr, doc } = state;
+          let removed = false;
+
+          doc.descendants((node, pos) => {
+            if (node.type === type && node.attrs.jobId === attrs.jobId) {
+              tr.delete(pos, pos + node.nodeSize);
+              removed = true;
+              return false;
+            }
+            return true;
+          });
+
+          if (dispatch && removed) {
+            dispatch(tr);
+          }
+
+          return removed;
+        },
+
+      retryTranscription:
+        (_attrs?: { jobId: string }): Command =>
+        () =>
+          true,
+
+      cancelTranscription:
+        (_attrs?: { jobId: string }): Command =>
+        () =>
+          true,
+    };
+  }
+
+  toMarkdown(state: MarkdownSerializerState, node: ProsemirrorNode) {
+    // Status cards should not be serialized to markdown
+    // They are temporary UI elements
+    state.ensureNewLine();
+    state.write(`[Transcription: ${node.attrs.fileName}]\n\n`);
+    state.ensureNewLine();
+  }
+
+  parseMarkdown() {
+    // Status cards are not parsed from markdown
+    return undefined;
+  }
 }
 
 // Styled Components

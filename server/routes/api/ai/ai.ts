@@ -33,6 +33,13 @@ type ChatCompletionChoice = {
   };
 };
 
+type ChatMessagePayload = {
+  role: string;
+  content: string;
+};
+
+type AiPromptMode = "fast" | "sensitive" | "vision";
+
 const parseAiResponse = (choice: ChatCompletionChoice): string => {
   const messageContent = choice?.message?.content;
 
@@ -385,8 +392,8 @@ ${context}`;
       let result = await makeRequest(currentModel);
 
       // Retry with fallback if needed
-      if (result.shouldRetry && fallbackModel) {
-        currentModel = fallbackModel;
+      if (result.shouldRetry && activeFallbackModel) {
+        currentModel = activeFallbackModel;
         result = await makeRequest(currentModel);
       }
 
@@ -496,6 +503,7 @@ router.post(
     const prompt = trim(ctx.input.body.prompt ?? "");
     const context = trim(ctx.input.body.context ?? "");
     const mentionedDocumentIds = ctx.input.body.mentionedDocumentIds ?? [];
+    const mode = (ctx.input.body.mode ?? "fast") as AiPromptMode;
 
     if (!prompt) {
       ctx.throw(InvalidRequestError("Prompt is required"));
@@ -520,7 +528,9 @@ router.post(
         "When asked for a diagram, respond with a fenced mermaid code block using ```mermaid and omit any surrounding text." +
         "If writing a meeting minutes or so, be professional thinking the sections and the format.";
 
-      // Fetch mentioned documents and add them to the system prompt
+      let referencedDocumentsText = "";
+      const visionImageUrls: string[] = [];
+
       if (mentionedDocumentIds.length > 0) {
         const { Document } = await import("@server/models");
         const { DocumentHelper } = await import(
@@ -535,16 +545,167 @@ router.post(
         });
 
         if (documents.length > 0) {
-          const mentionedContent = documents
-            .map((doc) => {
-              const markdown = DocumentHelper.toMarkdown(doc);
+          let textHelperModule:
+            | typeof import("@server/models/helpers/TextHelper")
+            | undefined;
+          let parseImages:
+            | typeof import("@server/utils/parseImages").default
+            | undefined;
+
+          if (mode === "vision") {
+            textHelperModule = await import(
+              "@server/models/helpers/TextHelper"
+            );
+            parseImages = (await import("@server/utils/parseImages")).default;
+          }
+
+          const mentionedSections = await Promise.all(
+            documents.map(async (doc) => {
+              let markdown = DocumentHelper.toMarkdown(doc);
+
+              if (mode === "vision" && textHelperModule && parseImages) {
+                markdown =
+                  await textHelperModule.TextHelper.attachmentsToSignedUrls(
+                    markdown,
+                    user.teamId,
+                    600
+                  );
+
+                const images = parseImages(markdown).map((img) => img.src);
+                visionImageUrls.push(...images);
+              }
+
               return `## Referenced Document: ${doc.title}\n\n${markdown}`;
             })
-            .join("\n\n---\n\n");
+          );
 
-          instructions += `\n\nThe user has mentioned the following documents for reference:\n\n${mentionedContent}`;
+          referencedDocumentsText = mentionedSections.join("\n\n---\n\n");
+
+          if (referencedDocumentsText && mode !== "vision") {
+            instructions += `\n\nThe user has mentioned the following documents for reference:\n\n${referencedDocumentsText}`;
+          }
         }
       }
+
+      const uniqueVisionImages =
+        mode === "vision"
+          ? Array.from(
+              new Set(
+                visionImageUrls
+                  .map((url) => url?.trim())
+                  .filter((url): url is string => !!url)
+              )
+            )
+          : [];
+
+      const visionImages =
+        mode === "vision"
+          ? uniqueVisionImages.filter((url) => {
+              if (!url) {
+                return false;
+              }
+              if (
+                url.startsWith("http://") ||
+                url.startsWith("https://") ||
+                url.startsWith("data:") ||
+                url.startsWith("blob:")
+              ) {
+                return true;
+              }
+              Logger.warn("Skipping unsupported vision image URL", {
+                url,
+                reason:
+                  "Only http(s)/data/blob URLs are supported for vision mode",
+              });
+              return false;
+            })
+          : [];
+
+      const visionImagePayloads =
+        mode === "vision"
+          ? await Promise.all(
+              visionImages.map(async (url) => {
+                try {
+                  if (url.startsWith("data:")) {
+                    const base64Index = url.indexOf("base64,");
+                    if (base64Index === -1) {
+                      Logger.warn(
+                        "Skipping malformed data URL for vision mode",
+                        {
+                          url,
+                        }
+                      );
+                      return null;
+                    }
+                    const meta = url.slice(5, base64Index);
+                    const mimeType = meta.split(";")[0] || "image/png";
+                    const base64Data = url.slice(base64Index + 7);
+
+                    return {
+                      type: mimeType ?? "image/png",
+                      data: base64Data,
+                    };
+                  }
+
+                  if (url.startsWith("blob:")) {
+                    Logger.warn("Skipping blob URL for vision mode", {
+                      url,
+                      reason: "Server cannot resolve blob URLs",
+                    });
+                    return null;
+                  }
+
+                  const response = await fetch(url, {
+                    method: "GET",
+                  });
+
+                  if (!response.ok) {
+                    Logger.warn("Failed fetching vision image", {
+                      url,
+                      status: response.status,
+                    });
+                    return null;
+                  }
+
+                  const contentType =
+                    response.headers.get("content-type") ?? "image/png";
+                  if (!contentType.startsWith("image/")) {
+                    Logger.warn("Skipping non-image content for vision mode", {
+                      url,
+                      contentType,
+                    });
+                    return null;
+                  }
+
+                  const buffer = Buffer.from(await response.arrayBuffer());
+                  const base64Data = buffer.toString("base64");
+
+                  return {
+                    type: contentType,
+                    data: base64Data,
+                  };
+                } catch (error) {
+                  Logger.warn(
+                    "Failed converting vision image to base64",
+                    error,
+                    {
+                      url,
+                    }
+                  );
+                  return null;
+                }
+              })
+            ).then((results) =>
+              results.filter(
+                (item): item is { type: string; data: string } => !!item
+              )
+            )
+          : [];
+
+      const userPrompt =
+        (mode === "vision" && referencedDocumentsText
+          ? `Referenced documents for context:\n\n${referencedDocumentsText}\n\n---\n\n`
+          : "") + prompt;
 
       const messages = [
         {
@@ -559,17 +720,64 @@ router.post(
           : undefined,
         {
           role: "user",
-          content: prompt,
+          content: userPrompt,
         },
-      ].filter(Boolean) as Array<{ role: string; content: string }>;
+      ].filter(Boolean) as ChatMessagePayload[];
+
+      const sensitiveModel =
+        envValue(
+          "LLM_MODEL_NAME_SENSITIVE",
+          "LLM_MODEL_NAME_AI_SEARCH",
+          "AI_SEARCH_MODEL",
+          "AI_MODEL_NAME_SEARCH"
+        ) ??
+        fallbackModel ??
+        "qwen3-30b-a3b-instruct";
+
+      const visionModel =
+        envValue("LLM_MODEL_NAME_VISION", "AI_VISION_MODEL", "VISION_MODEL") ??
+        "grok-4-fast-non-reasoning";
 
       let currentModel = model;
+      let activeFallbackModel = fallbackModel;
+
+      if (mode === "sensitive") {
+        currentModel = sensitiveModel;
+        activeFallbackModel =
+          currentModel === model ? fallbackModel : (model ?? fallbackModel);
+        if (activeFallbackModel === currentModel) {
+          activeFallbackModel = undefined;
+        }
+      } else if (mode === "vision") {
+        currentModel = visionModel;
+        activeFallbackModel = undefined;
+      }
+
+      if (!currentModel) {
+        ctx.throw(InvalidRequestError("AI model configuration is incomplete"));
+      }
 
       const makeRequest = async (modelToUse: string) => {
-        const requestBody = JSON.stringify({
+        const requestPayload: Record<string, unknown> = {
           model: modelToUse,
           messages,
-        });
+        };
+
+        if (mode === "vision" && visionImagePayloads.length) {
+          requestPayload.images = visionImagePayloads;
+          requestPayload.max_tokens = 512;
+          requestPayload.temperature = 0.7;
+        }
+
+        const requestBody = JSON.stringify(requestPayload);
+
+        if (mode === "vision") {
+          Logger.info("utils", "Vision LLM request payload", {
+            endpoint,
+            model: modelToUse,
+            payload: requestPayload,
+          });
+        }
 
         Logger.info("utils", "AI Generate LLM request", {
           model: modelToUse,
@@ -579,6 +787,8 @@ router.post(
           promptLength: prompt.length,
           contextLength: context.length,
           mentionedDocumentCount: mentionedDocumentIds.length,
+          mode,
+          visionImageCount: visionImagePayloads.length,
           userId: user.id,
         });
 
@@ -617,15 +827,15 @@ router.post(
 
           // Check if we should retry with fallback model
           if (
-            fallbackModel &&
-            modelToUse !== fallbackModel &&
+            activeFallbackModel &&
+            modelToUse !== activeFallbackModel &&
             shouldRetryWithFallback(response.status, message)
           ) {
             Logger.warn(
-              `Model ${modelToUse} failed (status ${response.status}), retrying with fallback model ${fallbackModel}`,
+              `Model ${modelToUse} failed (status ${response.status}), retrying with fallback model ${activeFallbackModel}`,
               {
                 primaryModel: modelToUse,
-                fallbackModel,
+                fallbackModel: activeFallbackModel,
                 status: response.status,
                 message,
                 userId: user.id,
@@ -686,6 +896,8 @@ router.post(
         Logger.info("utils", "AI Generate LLM response", {
           model: modelToUse,
           responseLength: normalized.length,
+          mode,
+          visionImageCount: visionImagePayloads.length,
           userId: user.id,
         });
 

@@ -7,6 +7,7 @@ export const AiGenerateSchema = BaseSchema.extend({
     prompt: z.string(),
     context: z.string().optional(),
     mentionedDocumentIds: z.array(z.string()).optional(),
+    mode: z.enum(["fast", "sensitive", "vision"]).optional(),
   }),
 });
 
