@@ -9,7 +9,6 @@ import Button from "~/components/Button";
 import Flex from "~/components/Flex";
 import Tooltip from "~/components/Tooltip";
 import { useDocumentContext } from "~/components/DocumentContext";
-import useSpeechRecognition from "~/hooks/useSpeechRecognition";
 import useStores from "~/hooks/useStores";
 import type { RecordingStatus } from "~/stores/AudioRecorderStore";
 import Logger from "~/utils/Logger";
@@ -65,21 +64,8 @@ interface RecordingPlaceholderCardProps {
 const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
   observer(({ nodeId, initialStatus, initialStartTime }) => {
     const { audioRecorder } = useStores();
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const { editor } = useDocumentContext();
-    const {
-      transcript,
-      interimTranscript,
-      isSupported: isSpeechSupported,
-      startListening,
-      stopListening,
-      pauseListening,
-      resumeListening,
-      resetTranscript,
-    } = useSpeechRecognition({
-      language: i18n.language,
-    });
-    const transcriptRef = React.useRef<HTMLDivElement>(null);
     const [displayDuration, setDisplayDuration] = React.useState(() => {
       if (initialStartTime) {
         return Math.max(0, Date.now() - initialStartTime);
@@ -290,8 +276,7 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
         nodeId,
       });
       audioRecorder.pauseRecording();
-      pauseListening();
-    }, [audioRecorder, canControlRecording, nodeId, pauseListening]);
+    }, [audioRecorder, canControlRecording, nodeId]);
 
     const handleResume = React.useCallback(() => {
       if (!canControlRecording) {
@@ -301,8 +286,7 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
         nodeId,
       });
       audioRecorder.resumeRecording();
-      resumeListening();
-    }, [audioRecorder, canControlRecording, nodeId, resumeListening]);
+    }, [audioRecorder, canControlRecording, nodeId]);
 
     const handleStop = React.useCallback(async () => {
       if (!canControlRecording || isStopPending) {
@@ -316,7 +300,6 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
       });
 
       try {
-        stopListening();
         await audioRecorder.stopRecording();
       } catch (error) {
         Logger.error("Failed to stop recording", error as Error);
@@ -324,14 +307,7 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
       } finally {
         setIsStopPending(false);
       }
-    }, [
-      audioRecorder,
-      canControlRecording,
-      isStopPending,
-      nodeId,
-      stopListening,
-      t,
-    ]);
+    }, [audioRecorder, canControlRecording, isStopPending, nodeId, t]);
 
     const handleCancel = React.useCallback(() => {
       if (!canControlRecording) {
@@ -348,23 +324,13 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
         Logger.debug("editor", "RecordingPlaceholderCard cancel clicked", {
           nodeId,
         });
-        stopListening();
-        resetTranscript();
         audioRecorder.cancelRecording();
 
         if (editor) {
           editor.commands.removeRecordingPlaceholder({ nodeId });
         }
       }
-    }, [
-      audioRecorder,
-      canControlRecording,
-      editor,
-      nodeId,
-      resetTranscript,
-      stopListening,
-      t,
-    ]);
+    }, [audioRecorder, canControlRecording, editor, nodeId, t]);
 
     const handleRetry = React.useCallback(async () => {
       if (!canControlRecording) {
@@ -417,28 +383,6 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
     const showControls = canControlRecording && (isRecording || isPaused);
     const showRetry = isError && canControlRecording;
     const isCompactLayout = COMPACT_STATUS_SET.has(displayStatus);
-    const showTranscript = isRecording || isPaused;
-
-    // Auto-scroll transcript to bottom to show latest text
-    React.useEffect(() => {
-      if (transcriptRef.current) {
-        transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
-      }
-    }, [transcript, interimTranscript]);
-
-    // Start/stop speech recognition based on recording state
-    React.useEffect(() => {
-      if (isMatchingRecording && isRecording && isSpeechSupported) {
-        startListening();
-      }
-      // Cleanup on unmount
-      return () => {
-        if (isMatchingRecording) {
-          stopListening();
-        }
-      };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isMatchingRecording, isRecording, isSpeechSupported]);
 
     return (
       <Container data-compact={isCompactLayout ? "true" : "false"}>
@@ -470,33 +414,20 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
           </ReadOnlyHint>
         )}
 
-        {showTranscript && (
-          <TranscriptSection
-            ref={transcriptRef}
-            data-compact={isCompactLayout ? "true" : "false"}
-            onMouseDown={preventDefault}
-            suppressContentEditableWarning
-          >
-            {!isSpeechSupported ? (
-              <TranscriptHint>
-                {t("Live transcript preview not supported in this browser")}
-              </TranscriptHint>
-            ) : transcript || interimTranscript ? (
-              <TranscriptText
-                suppressContentEditableWarning
-                key="transcript-text"
-              >
-                <span suppressContentEditableWarning>{transcript}</span>
-                {interimTranscript && (
-                  <InterimText suppressContentEditableWarning>
-                    {interimTranscript}
-                  </InterimText>
-                )}
-              </TranscriptText>
-            ) : (
-              <TranscriptHint>{t("Listening...")}</TranscriptHint>
-            )}
-          </TranscriptSection>
+        {showControls && (
+          <AutoSummaryOption onMouseDown={preventDefault}>
+            <label>
+              <input
+                type="checkbox"
+                checked={audioRecorder.autoGenerateSummary}
+                onChange={(e) =>
+                  audioRecorder.setAutoGenerateSummary(e.target.checked)
+                }
+                disabled={!canControlRecording}
+              />
+              <span>{t("Auto-generate summary")}</span>
+            </label>
+          </AutoSummaryOption>
         )}
 
         {isError && audioRecorder.error && (
@@ -656,52 +587,30 @@ const WarningIconWrapper = styled.span`
   color: ${s("warning")};
 `;
 
-const compactTranscriptStyles = css`
-  flex: 1 1 auto;
-  min-height: 0;
-  margin: 0;
-  width: 100%;
-`;
-
-const TranscriptSection = styled.div`
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  flex: 0 0 auto;
-  min-height: 60px;
-  max-height: 120px;
-  background: ${s("background")};
-  border-radius: 4px;
-  padding: 8px 12px;
-  box-sizing: border-box;
-  overflow-y: auto;
-  font-family: ${s("fontFamily")};
-  font-size: 14px;
-  line-height: 1.5;
-
-  &[data-compact="true"] {
-    ${compactTranscriptStyles}
-  }
-`;
-
-const TranscriptText = styled.div`
-  color: ${s("text")};
-  word-wrap: break-word;
-  white-space: pre-wrap;
-`;
-
-const InterimText = styled.span`
-  color: ${s("textTertiary")};
-  font-style: italic;
-`;
-
-const TranscriptHint = styled.div`
-  color: ${s("textTertiary")};
-  font-size: 13px;
-  font-style: italic;
-  text-align: center;
+const AutoSummaryOption = styled.div`
   padding: 8px 0;
+
+  label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: ${s("text")};
+
+    input[type="checkbox"] {
+      cursor: pointer;
+    }
+
+    input[type="checkbox"]:disabled {
+      cursor: not-allowed;
+    }
+  }
+
+  label:has(input:disabled) {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 `;
 
 const ReadOnlyHint = styled.span`

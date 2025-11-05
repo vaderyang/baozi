@@ -6,6 +6,7 @@ import normalizePastedMarkdown from "@shared/editor/lib/markdown/normalize";
 import Logger from "~/utils/Logger";
 import { client } from "~/utils/ApiClient";
 import useDictionary from "~/hooks/useDictionary";
+import useStores from "~/hooks/useStores";
 import { useEditor } from "./EditorContext";
 
 type TranscriptionStatusEvent = {
@@ -38,6 +39,7 @@ type Props = {
 export function TranscriptionStatusManager({ documentId }: Props) {
   const editor = useEditor();
   const dictionary = useDictionary();
+  const { audioRecorder } = useStores();
   const editorRef = React.useRef(editor);
   const isMountedRef = React.useRef(true);
   const [pendingJobsLoaded, setPendingJobsLoaded] = React.useState(false);
@@ -130,7 +132,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
   );
 
   const replaceStatusCardWithTranscript = React.useCallback(
-    (
+    async (
       jobId: string,
       result: TranscriptionStatusEvent["result"],
       attachmentId?: string
@@ -225,7 +227,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         return;
       }
 
-      // Build content to insert: audio attachment (if available) + transcript
+      // Build content to insert: audio attachment (if available) + AI summary (if enabled) + transcript
       let contentMarkdown = "";
 
       // Add audio attachment if attachmentId is provided and attachment node type exists
@@ -246,6 +248,44 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           hasAttachmentId: !!attachmentId,
           hasAttachmentNodeType: !!schema.nodes.attachment,
         });
+      }
+
+      // Generate AI summary if enabled
+      if (audioRecorder.autoGenerateSummary) {
+        try {
+          Logger.info("editor", "Generating AI summary for transcript", {
+            jobId,
+          });
+
+          const prompt =
+            "Summarize a meeting minute based on the following transcript by using the language mainly used in the transcript:";
+          const response = await client.post<{ data: { text?: string } }>(
+            "/ai.generate",
+            {
+              prompt,
+              context: formattedText,
+            },
+            { retry: false }
+          );
+
+          const summary = response?.data?.text?.trim();
+          if (summary) {
+            contentMarkdown += `${summary}\n\n`;
+            Logger.info("editor", "AI summary generated successfully", {
+              jobId,
+              summaryLength: summary.length,
+            });
+          } else {
+            Logger.warn("AI summary generation returned empty result", {
+              jobId,
+            });
+          }
+        } catch (error) {
+          Logger.error("Failed to generate AI summary", error as Error, {
+            jobId,
+          });
+          // Continue without summary - don't block transcript insertion
+        }
       }
 
       // Add transcript heading and code block
@@ -333,7 +373,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         });
       }
     },
-    [dictionary, formatTranscriptText]
+    [audioRecorder, dictionary, formatTranscriptText]
   );
 
   const handleRetryTranscription = React.useCallback(async (jobId: string) => {
@@ -428,7 +468,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                 jobId,
               }
             );
-            replaceStatusCardWithTranscript(
+            void replaceStatusCardWithTranscript(
               jobId,
               job.result,
               job.attachmentId
@@ -709,7 +749,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                 textLength: job.result.text?.length || 0,
                 speakerSegmentCount: job.result.speakerSegments?.length || 0,
               });
-              replaceStatusCardWithTranscript(
+              void replaceStatusCardWithTranscript(
                 job.id,
                 job.result,
                 job.attachmentId

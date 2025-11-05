@@ -93,6 +93,9 @@ class AudioRecorderStore {
   @observable
   lastAttachment: RecordingAttachmentMetadata | null = null;
 
+  @observable
+  autoGenerateSummary = false;
+
   rootStore: RootStore;
 
   constructor(rootStore: RootStore) {
@@ -411,6 +414,11 @@ class AudioRecorderStore {
     this.status = "error";
   };
 
+  @action
+  setAutoGenerateSummary = (value: boolean): void => {
+    this.autoGenerateSummary = value;
+  };
+
   /**
    * Upload audio blob and start transcription
    */
@@ -683,6 +691,7 @@ class AudioRecorderStore {
     this.transcriptionResult = null;
     this.error = null;
     this.lastAttachment = null;
+    this.autoGenerateSummary = false;
   };
 
   private selectBestCodec(): string {
