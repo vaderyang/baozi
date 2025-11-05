@@ -44,6 +44,83 @@ def _log_write(message: str):
         print(message)
 
 
+def _list_access_urls(host: str, port: int) -> list[str]:
+    """
+    枚举可访问地址：
+    - 若 host 为具体地址：仅返回该地址
+    - 若 host 为 0.0.0.0：枚举本机 IPv4（包含 127.0.0.1 与所有非回环地址）
+    """
+    bind_url = f"http://{host}:{port}"
+    urls: list[str] = []
+    if host != "0.0.0.0":
+        return [bind_url]
+
+    # 始终包含本地回环
+    urls.append(f"http://127.0.0.1:{port}")
+
+    # 尝试通过 hostname -I 枚举所有 IPv4
+    try:
+        out = subprocess.check_output(["hostname", "-I"], text=True).strip()
+        for token in out.split():
+            if token.count('.') == 3 and not token.startswith('127.'):
+                urls.append(f"http://{token}:{port}")
+    except Exception:
+        pass
+
+    # 备用：通过 UDP 套接字探测主 IP
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        primary_ip = s.getsockname()[0]
+    except Exception:
+        primary_ip = None
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+    if primary_ip and not primary_ip.startswith('127.'):
+        urls.append(f"http://{primary_ip}:{port}")
+
+    # 去重，保留顺序
+    seen = set()
+    deduped: list[str] = []
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            deduped.append(u)
+    return deduped
+
+def _read_deploy_log_tail(max_bytes: int = 200 * 1024, tail_lines: int = 2000, reverse: bool = False) -> str:
+    """
+    Read the tail of deploy.log safely, limiting bytes and lines to avoid
+    excessive memory usage in the UI.
+    """
+    try:
+        if not os.path.exists(DEPLOY_LOG_PATH):
+            return "(deploy.log 不存在)"
+        size = os.path.getsize(DEPLOY_LOG_PATH)
+        with open(DEPLOY_LOG_PATH, "rb") as f:
+            if size > max_bytes:
+                try:
+                    f.seek(size - max_bytes)
+                except Exception:
+                    # 回退到读取整个文件
+                    pass
+            data = f.read()
+        text = data.decode("utf-8", errors="replace")
+        lines = text.splitlines()
+        # 截取尾部指定行数
+        if len(lines) > tail_lines:
+            lines = lines[-tail_lines:]
+        # 根据需求逆序（最新在最上面）
+        if reverse:
+            lines = list(reversed(lines))
+        return "\n".join(lines)
+    except Exception as e:
+        return f"(无法读取日志: {e})"
+
+
 def _stream_cmd(cmd, cwd=None, env=None, label: str = "cmd", collect_tail: int = 0, cancel_event: threading.Event | None = None):
     """
     Stream command output to deploy.log. Optionally collect the last N lines
@@ -145,29 +222,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_html(self, status_code: int, html: str):
+        body = html.encode("utf-8")
+        self.send_response(status_code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         if self.path == "/":
-            # 生成可访问地址列表（本机与局域网）
-            access_urls = []
+            # 生成可访问地址列表（枚举全部 IPv4）
+            access_urls = _list_access_urls(HOST, PORT)
             bind_url = f"http://{HOST}:{PORT}"
-            if HOST == "0.0.0.0":
-                access_urls.append(f"http://127.0.0.1:{PORT}")
-                try:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    s.connect(("8.8.8.8", 80))
-                    primary_ip = s.getsockname()[0]
-                except Exception:
-                    primary_ip = None
-                finally:
-                    try:
-                        s.close()
-                    except Exception:
-                        pass
-                if primary_ip:
-                    access_urls.append(f"http://{primary_ip}:{PORT}")
-            else:
-                access_urls.append(bind_url)
-
             base_url = access_urls[0] if access_urls else bind_url
             json_force_example = "{\"force\": true}"
 
@@ -198,6 +265,92 @@ class Handler(BaseHTTPRequestHandler):
                 },
             }
             self._send_json(200, payload)
+        elif self.path.startswith("/deploy/log"):
+            # 纯文本返回日志尾部（供页面刷新使用）
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            order = str(qs.get("order", ["desc"])[0]).lower()
+            reverse = order in ("desc", "latest", "reverse")
+            log_text = _read_deploy_log_tail(reverse=reverse)
+            body = log_text.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path.startswith("/deploy"):
+            # 展示 deploy.log 内容与取消按钮
+            access_urls = []
+            bind_url = f"http://{HOST}:{PORT}"
+            if HOST == "0.0.0.0":
+                access_urls.append(f"http://127.0.0.1:{PORT}")
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.connect(("8.8.8.8", 80))
+                    primary_ip = s.getsockname()[0]
+                except Exception:
+                    primary_ip = None
+                finally:
+                    try:
+                        s.close()
+                    except Exception:
+                        pass
+                if primary_ip:
+                    access_urls.append(f"http://{primary_ip}:{PORT}")
+            else:
+                access_urls.append(bind_url)
+
+            base_url = access_urls[0] if access_urls else bind_url
+            # 页面初次渲染也采用最新在最上方
+            log_text = _read_deploy_log_tail(reverse=True)
+            in_progress_text = "部署进行中" if DEPLOY_IN_PROGRESS else "空闲"
+            start_text = DEPLOY_START_TIME_ISO or "-"
+            cancel_disabled = "" if DEPLOY_IN_PROGRESS else "disabled"
+            html = f"""
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AutoDeploy 日志</title>
+  <style>
+    body {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; margin: 16px; background: #0f1216; color: #e6edf3; }}
+    h1 {{ margin: 0 0 12px; font-size: 20px; }}
+    .meta {{ margin: 0 0 12px; font-size: 13px; color: #9da7b1; }}
+    .actions {{ margin: 12px 0; }}
+    button {{ padding: 8px 12px; border-radius: 6px; border: 1px solid #42526b; background: #1f6feb; color: #fff; cursor: pointer; }}
+    button[disabled] {{ opacity: 0.6; cursor: not-allowed; }}
+    pre {{ background: #0a0d12; border: 1px solid #30363d; padding: 12px; overflow: auto; max-height: 70vh; }}
+    a {{ color: #58a6ff; text-decoration: none; }}
+  </style>
+</head>
+<body>
+  <h1>AutoDeploy</h1>
+  <div class="meta">项目: {COMPOSE_PROJECT_NAME} · 目录: {COMPOSE_PROJECT_DIR}</div>
+  <div class="meta">状态: {in_progress_text} · 启动时间: {start_text}</div>
+  <div class="actions">
+    <form method="POST" action="/cancel" onsubmit="return confirm('确认取消当前部署吗？');">
+      <button type="submit" {cancel_disabled}>取消当前部署</button>
+      <span style="margin-left:12px; font-size:12px; color:#9da7b1;">取消后将终止当前构建并释放状态</span>
+    </form>
+  </div>
+  <div class="meta">日志文件: {DEPLOY_LOG_PATH} · 页面地址: <a href="{base_url}/deploy">{base_url}/deploy</a> · 显示顺序: 最新在最上方</div>
+  <pre id="log">{log_text}</pre>
+  <script>
+    // 可选：简单的轮询刷新日志
+    const pre = document.getElementById('log');
+    async function refresh() {{
+      try {{
+        const res = await fetch('/deploy/log?order=desc');
+        pre.textContent = await res.text();
+      }} catch (e) {{ /* ignore */ }}
+    }}
+    setInterval(refresh, 4000);
+  </script>
+</body>
+</html>
+"""
+            self._send_html(200, html)
         else:
             self._send_json(404, {
                 "error": "not found",
@@ -206,6 +359,42 @@ class Handler(BaseHTTPRequestHandler):
             })
 
     def do_POST(self):
+        # 在函数顶部声明涉及的全局变量，避免语法错误
+        global DEPLOY_IN_PROGRESS, DEPLOY_START_TIME_ISO, CANCEL_EVENT, CURRENT_PROC, DEPLOY_RUN_ID
+        if self.path == "/cancel":
+            # 取消当前部署（如果有）
+            cancelled = False
+            with DEPLOY_LOCK:
+                if DEPLOY_IN_PROGRESS:
+                    cancelled = True
+                    if CANCEL_EVENT is not None:
+                        CANCEL_EVENT.set()
+                    if CURRENT_PROC is not None:
+                        try:
+                            CURRENT_PROC.terminate()
+                            try:
+                                CURRENT_PROC.wait(timeout=3)
+                            except Exception:
+                                CURRENT_PROC.kill()
+                        except Exception:
+                            pass
+                else:
+                    cancelled = False
+
+            # 根据 Accept/Referer 决定返回类型（页面重定向或 JSON）
+            accept = self.headers.get("Accept", "")
+            referer = self.headers.get("Referer", "")
+            if "text/html" in accept or referer.endswith("/deploy"):
+                self.send_response(303)
+                self.send_header("Location", "/deploy")
+                self.end_headers()
+            else:
+                self._send_json(200, {
+                    "status": "cancel_requested" if cancelled else "idle",
+                    "message": "cancel signal sent" if cancelled else "no deployment in progress",
+                    "deploy_in_progress": DEPLOY_IN_PROGRESS,
+                })
+            return
         if self.path != "/webhook/bitbucket":
             self._send_json(404, {
                 "error": "not found",
@@ -241,7 +430,6 @@ class Handler(BaseHTTPRequestHandler):
                     force_flag = True
 
         # 部署守卫：如果已有部署在进行，返回明确 JSON，不再启动新的部署
-        global DEPLOY_IN_PROGRESS, DEPLOY_START_TIME_ISO, CANCEL_EVENT, CURRENT_PROC, DEPLOY_RUN_ID
         with DEPLOY_LOCK:
             if DEPLOY_IN_PROGRESS:
                 if force_flag:
@@ -329,38 +517,24 @@ def main():
         f"(project={COMPOSE_PROJECT_NAME}, dir={COMPOSE_PROJECT_DIR}, version={IMAGE_VERSION})"
     )
 
-    # 生成可访问地址列表（本机与局域网）
-    access_urls = []
-    if HOST == "0.0.0.0":
-        access_urls.append(f"http://127.0.0.1:{PORT}")
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            primary_ip = s.getsockname()[0]
-        except Exception:
-            primary_ip = None
-        finally:
-            try:
-                s.close()
-            except Exception:
-                pass
-        if primary_ip:
-            access_urls.append(f"http://{primary_ip}:{PORT}")
-    else:
-        access_urls.append(f"http://{HOST}:{PORT}")
+    # 生成可访问地址列表（枚举全部 IPv4）
+    access_urls = _list_access_urls(HOST, PORT)
 
     if access_urls:
         print("可访问地址：")
         for u in access_urls:
             print(f"  - {u}/")
 
-    # 启动后输出常用 POST 示例（选择首个可访问地址作为示例前缀）
-    base_url = access_urls[0] if access_urls else f"http://{HOST}:{PORT}"
+    # 启动后输出常用 POST 示例（为每个可访问地址打印一组示例）
     json_force_example = '{"force": true}'
     print("示例触发发布：")
-    print(f"  正常发布: curl -sS -X POST '{base_url}/webhook/bitbucket'")
-    print(f"  强制重新发布: curl -sS -X POST '{base_url}/webhook/bitbucket?force=true'")
-    print(f"  JSON 强制重新发布: curl -sS -H 'Content-Type: application/json' -d '{json_force_example}' '{base_url}/webhook/bitbucket'")
+    for base_url in access_urls:
+        print(f"  正常发布: curl -sS -X POST '{base_url}/webhook/bitbucket'")
+        print(f"  强制重新发布: curl -sS -X POST '{base_url}/webhook/bitbucket?force=true'")
+        print(f"  JSON 强制重新发布: curl -sS -H 'Content-Type: application/json' -d '{json_force_example}' '{base_url}/webhook/bitbucket'")
+        print(f"  日志页面: {base_url}/deploy")
+        # 不同 IP 组之间间隔一行，提升可读性
+        print()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
