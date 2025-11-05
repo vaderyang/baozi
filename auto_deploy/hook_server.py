@@ -33,6 +33,15 @@ DEPLOY_RUN_ID = 0  # 用于避免并发覆盖 in_progress 状态
 CURRENT_PROC: subprocess.Popen | None = None
 CANCEL_EVENT: threading.Event | None = None
 
+# 启动说明/示例输出收集（在 stdout 打印的同时也保存一份）
+STARTUP_LINES: list[str] = []
+
+def _startup_print(line: str):
+    try:
+        print(line)
+    finally:
+        STARTUP_LINES.append(line)
+
 
 def _log_write(message: str):
     ts = datetime.utcnow().isoformat() + "Z"
@@ -232,58 +241,39 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/":
-            # 默认路径直接展示日志页面（最新在最上方）
+            # 生成可访问地址列表（枚举全部 IPv4）
             access_urls = _list_access_urls(HOST, PORT)
             bind_url = f"http://{HOST}:{PORT}"
             base_url = access_urls[0] if access_urls else bind_url
-            log_text = _read_deploy_log_tail(reverse=True)
-            in_progress_text = "部署进行中" if DEPLOY_IN_PROGRESS else "空闲"
-            start_text = DEPLOY_START_TIME_ISO or "-"
-            cancel_disabled = "" if DEPLOY_IN_PROGRESS else "disabled"
-            html = f"""
-<!doctype html>
-<html lang=\"zh-CN\">
-<head>
-  <meta charset=\"utf-8\">
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-  <title>AutoDeploy 日志</title>
-  <style>
-    body {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; margin: 16px; background: #0f1216; color: #e6edf3; }}
-    h1 {{ margin: 0 0 12px; font-size: 20px; }}
-    .meta {{ margin: 0 0 12px; font-size: 13px; color: #9da7b1; }}
-    .actions {{ margin: 12px 0; }}
-    button {{ padding: 8px 12px; border-radius: 6px; border: 1px solid #42526b; background: #1f6feb; color: #fff; cursor: pointer; }}
-    button[disabled] {{ opacity: 0.6; cursor: not-allowed; }}
-    pre {{ background: #0a0d12; border: 1px solid #30363d; padding: 12px; overflow: auto; max-height: 70vh; }}
-    a {{ color: #58a6ff; text-decoration: none; }}
-  </style>
-</head>
-<body>
-  <h1>AutoDeploy</h1>
-  <div class=\"meta\">项目: {COMPOSE_PROJECT_NAME} · 目录: {COMPOSE_PROJECT_DIR}</div>
-  <div class=\"meta\">状态: {in_progress_text} · 启动时间: {start_text}</div>
-  <div class=\"actions\">
-    <form method=\"POST\" action=\"/cancel\" onsubmit=\"return confirm('确认取消当前部署吗？');\">\n\n      <button type=\"submit\" {cancel_disabled}>取消当前部署</button>
-      <span style=\"margin-left:12px; font-size:12px; color:#9da7b1;\">取消后将终止当前构建并释放状态</span>
-    </form>
-  </div>
-  <div class=\"meta\">日志文件: {DEPLOY_LOG_PATH} · 页面地址: <a href=\"{base_url}/\">{base_url}/</a> · 显示顺序: 最新在最上方</div>
-  <pre id=\"log\">{log_text}</pre>
-  <script>
-    // 简单轮询刷新日志（降序）
-    const pre = document.getElementById('log');
-    async function refresh() {{
-      try {{
-        const res = await fetch('/deploy/log?order=desc');
-        pre.textContent = await res.text();
-      }} catch (e) {{ /* ignore */ }}
-    }}
-    setInterval(refresh, 4000);
-  </script>
-</body>
-</html>
-"""
-            self._send_html(200, html)
+            json_force_example = "{\"force\": true}"
+
+            payload = {
+                "status": "ok",
+                "server_url": base_url,
+                "access_urls": access_urls,
+                "compose_project_name": COMPOSE_PROJECT_NAME,
+                "compose_project_dir": COMPOSE_PROJECT_DIR,
+                "deploy_in_progress": DEPLOY_IN_PROGRESS,
+                "deploy_start_time": DEPLOY_START_TIME_ISO,
+                "usage": {
+                    "endpoint": "POST /webhook/bitbucket",
+                    "examples": [
+                        {
+                            "curl": f"curl -sS -X POST '{base_url}/webhook/bitbucket'",
+                            "effect": "无部署时 => queued；有部署时 => in_progress",
+                        },
+                        {
+                            "curl": f"curl -sS -X POST '{base_url}/webhook/bitbucket?force=true'",
+                            "effect": "有部署时 => restarted（取消旧部署并重启）",
+                        },
+                        {
+                            "curl": f"curl -sS -H 'Content-Type: application/json' -d '{json_force_example}' '{base_url}/webhook/bitbucket'",
+                            "effect": "与 query force=true 等效",
+                        },
+                    ],
+                },
+            }
+            self._send_json(200, payload)
         elif self.path.startswith("/deploy/log"):
             # 纯文本返回日志尾部（供页面刷新使用）
             parsed = urlparse(self.path)
@@ -298,10 +288,82 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif self.path.startswith("/deploy"):
-            # 兼容旧路径：重定向到根路径
-            self.send_response(303)
-            self.send_header("Location", "/")
-            self.end_headers()
+            # 展示 deploy.log 内容与取消按钮
+            access_urls = []
+            bind_url = f"http://{HOST}:{PORT}"
+            if HOST == "0.0.0.0":
+                access_urls.append(f"http://127.0.0.1:{PORT}")
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.connect(("8.8.8.8", 80))
+                    primary_ip = s.getsockname()[0]
+                except Exception:
+                    primary_ip = None
+                finally:
+                    try:
+                        s.close()
+                    except Exception:
+                        pass
+                if primary_ip:
+                    access_urls.append(f"http://{primary_ip}:{PORT}")
+            else:
+                access_urls.append(bind_url)
+
+            base_url = access_urls[0] if access_urls else bind_url
+            # 页面初次渲染也采用最新在最上方
+            log_text = _read_deploy_log_tail(reverse=True)
+            in_progress_text = "部署进行中" if DEPLOY_IN_PROGRESS else "空闲"
+            start_text = DEPLOY_START_TIME_ISO or "-"
+            cancel_disabled = "" if DEPLOY_IN_PROGRESS else "disabled"
+            # 启动说明文本（来源于服务启动时的标准输出收集）
+            startup_text = "\n".join(STARTUP_LINES) if STARTUP_LINES else "(暂无启动说明)"
+            html = f"""
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AutoDeploy 日志</title>
+  <style>
+    body {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; margin: 16px; background: #0f1216; color: #e6edf3; }}
+    h1 {{ margin: 0 0 12px; font-size: 20px; }}
+    .meta {{ margin: 0 0 12px; font-size: 13px; color: #9da7b1; }}
+    .actions {{ margin: 12px 0; }}
+    button {{ padding: 8px 12px; border-radius: 6px; border: 1px solid #42526b; background: #1f6feb; color: #fff; cursor: pointer; }}
+    button[disabled] {{ opacity: 0.6; cursor: not-allowed; }}
+    pre {{ background: #0a0d12; border: 1px solid #30363d; padding: 12px; overflow: auto; max-height: 70vh; }}
+    a {{ color: #58a6ff; text-decoration: none; }}
+  </style>
+</head>
+<body>
+  <h1>AutoDeploy</h1>
+  <div class="meta">项目: {COMPOSE_PROJECT_NAME} · 目录: {COMPOSE_PROJECT_DIR}</div>
+  <div class="meta">状态: {in_progress_text} · 启动时间: {start_text}</div>
+  <div class="actions">
+    <form method="POST" action="/cancel" onsubmit="return confirm('确认取消当前部署吗？');">
+      <button type="submit" {cancel_disabled}>取消当前部署</button>
+      <span style="margin-left:12px; font-size:12px; color:#9da7b1;">取消后将终止当前构建并释放状态</span>
+    </form>
+  </div>
+  <div class="meta">日志文件: {DEPLOY_LOG_PATH} · 页面地址: <a href="{base_url}/deploy">{base_url}/deploy</a> · 显示顺序: 最新在最上方</div>
+  <pre id="log">{log_text}</pre>
+  <h2 style="margin-top:16px; font-size:16px;">启动说明</h2>
+  <pre style="max-height: 40vh;">{startup_text}</pre>
+  <script>
+    // 可选：简单的轮询刷新日志
+    const pre = document.getElementById('log');
+    async function refresh() {{
+      try {{
+        const res = await fetch('/deploy/log?order=desc');
+        pre.textContent = await res.text();
+      }} catch (e) {{ /* ignore */ }}
+    }}
+    setInterval(refresh, 4000);
+  </script>
+</body>
+</html>
+"""
+            self._send_html(200, html)
         else:
             self._send_json(404, {
                 "error": "not found",
@@ -335,10 +397,9 @@ class Handler(BaseHTTPRequestHandler):
             # 根据 Accept/Referer 决定返回类型（页面重定向或 JSON）
             accept = self.headers.get("Accept", "")
             referer = self.headers.get("Referer", "")
-            if "text/html" in accept or referer:
-                # 现在页面位于根路径，直接重定向到 "/"
+            if "text/html" in accept or referer.endswith("/deploy"):
                 self.send_response(303)
-                self.send_header("Location", "/")
+                self.send_header("Location", "/deploy")
                 self.end_headers()
             else:
                 self._send_json(200, {
@@ -464,7 +525,7 @@ def main():
     BUILD_SCRIPT_PATH = f"{COMPOSE_PROJECT_DIR}/{BUILD_SCRIPT_NAME}"
 
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(
+    _startup_print(
         f"AutoDeploy server listening: bind=http://{HOST}:{PORT}/ "
         f"(project={COMPOSE_PROJECT_NAME}, dir={COMPOSE_PROJECT_DIR}, version={IMAGE_VERSION})"
     )
@@ -473,20 +534,20 @@ def main():
     access_urls = _list_access_urls(HOST, PORT)
 
     if access_urls:
-        print("可访问地址：")
+        _startup_print("可访问地址：")
         for u in access_urls:
-            print(f"  - {u}/")
+            _startup_print(f"  - {u}/")
 
     # 启动后输出常用 POST 示例（为每个可访问地址打印一组示例）
     json_force_example = '{"force": true}'
-    print("示例触发发布：")
+    _startup_print("示例触发发布：")
     for base_url in access_urls:
-        print(f"  正常发布: curl -sS -X POST '{base_url}/webhook/bitbucket'")
-        print(f"  强制重新发布: curl -sS -X POST '{base_url}/webhook/bitbucket?force=true'")
-        print(f"  JSON 强制重新发布: curl -sS -H 'Content-Type: application/json' -d '{json_force_example}' '{base_url}/webhook/bitbucket'")
-        print(f"  日志页面: {base_url}/")
+        _startup_print(f"  正常发布: curl -sS -X POST '{base_url}/webhook/bitbucket'")
+        _startup_print(f"  强制重新发布: curl -sS -X POST '{base_url}/webhook/bitbucket?force=true'")
+        _startup_print(f"  JSON 强制重新发布: curl -sS -H 'Content-Type: application/json' -d '{json_force_example}' '{base_url}/webhook/bitbucket'")
+        _startup_print(f"  日志页面: {base_url}/")
         # 不同 IP 组之间间隔一行，提升可读性
-        print()
+        _startup_print("")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
