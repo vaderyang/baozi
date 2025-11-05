@@ -19,6 +19,11 @@ type ModelInfo = {
 
 router.post("ai.models", auth(), async (ctx: APIContext) => {
   const { user } = ctx.state.auth;
+  const { Team } = await import("@server/models");
+  const { authorize } = await import("@server/policies");
+
+  const team = await Team.findByPk(user.teamId, { rejectOnEmpty: true });
+  authorize(user, "update", team);
 
   const apiKey = envValue(
     "LLM_API_KEY",

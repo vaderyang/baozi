@@ -44,6 +44,8 @@ function AI() {
 
   // Fetch available models from the backend API
   React.useEffect(() => {
+    let cancelled = false;
+
     const fetchModels = async () => {
       setLoadingModels(true);
       setModelsError(null);
@@ -56,6 +58,10 @@ function AI() {
           },
           credentials: "same-origin",
         });
+
+        if (cancelled) {
+          return;
+        }
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
@@ -71,6 +77,10 @@ function AI() {
           };
         };
 
+        if (cancelled) {
+          return;
+        }
+
         if (data.data?.models && Array.isArray(data.data.models)) {
           const modelIds = data.data.models
             .map((model) => model.id)
@@ -80,15 +90,23 @@ function AI() {
           throw new Error("Invalid response format from models API");
         }
       } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        setModelsError(errorMessage);
+        if (!cancelled) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          setModelsError(errorMessage);
+        }
       } finally {
-        setLoadingModels(false);
+        if (!cancelled) {
+          setLoadingModels(false);
+        }
       }
     };
 
     void fetchModels();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleSave = React.useCallback(async () => {
