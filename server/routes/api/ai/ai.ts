@@ -10,6 +10,120 @@ import * as T from "./schema";
 
 const router = new Router();
 
+type ModelInfo = {
+  id: string;
+  object: string;
+  created?: number;
+  owned_by?: string;
+};
+
+router.post("ai.models", auth(), async (ctx: APIContext) => {
+  const { user } = ctx.state.auth;
+
+  const apiKey = envValue(
+    "LLM_API_KEY",
+    "AI_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENAI_KEY"
+  );
+  const apiBase = envValue(
+    "LLM_API_BASE_URL",
+    "LLM_API_BASE",
+    "AI_API_BASE_URL",
+    "AI_API_BASE",
+    "OPENAI_API_BASE",
+    "OPENAI_API_BASE_URL",
+    "API_BASE"
+  );
+
+  if (!apiKey || !apiBase) {
+    ctx.throw(
+      InvalidRequestError("AI API configuration not found in environment")
+    );
+  }
+
+  try {
+    const trimmedBase = apiBase.replace(/\/$/, "");
+    const endpoint = `${trimmedBase}/v1/models`;
+
+    Logger.info("utils", "Fetching AI models", {
+      endpoint,
+      userId: user.id,
+    });
+
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      Logger.error(
+        "Failed to fetch AI models",
+        new Error(`${response.status}: ${errorText}`),
+        {
+          endpoint,
+          status: response.status,
+          userId: user.id,
+        }
+      );
+      ctx.throw(
+        InvalidRequestError(
+          `Failed to fetch models: ${response.status} ${response.statusText}`
+        )
+      );
+    }
+
+    const data = (await response.json()) as {
+      data?: ModelInfo[];
+      object?: string;
+    };
+
+    if (data.data && Array.isArray(data.data)) {
+      const models = data.data
+        .map((model) => ({
+          id: model.id,
+          object: model.object,
+          created: model.created,
+          owned_by: model.owned_by,
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+
+      Logger.info("utils", "AI models fetched successfully", {
+        count: models.length,
+        userId: user.id,
+      });
+
+      ctx.body = {
+        data: {
+          models,
+        },
+      };
+    } else {
+      Logger.error(
+        "Invalid response format from models API",
+        new Error("Missing data array"),
+        {
+          endpoint,
+          responseKeys: Object.keys(data),
+          userId: user.id,
+        }
+      );
+      ctx.throw(InvalidRequestError("Invalid response format from models API"));
+    }
+  } catch (error: unknown) {
+    const wrappedError =
+      error instanceof Error ? error : new Error(String(error));
+    Logger.error("Failed to fetch AI models", wrappedError, {
+      userId: user.id,
+    });
+    throw error;
+  }
+});
+
 const envValue = (...keys: string[]): string | undefined => {
   for (const key of keys) {
     const value = (env as unknown as Record<string, unknown>)[key];

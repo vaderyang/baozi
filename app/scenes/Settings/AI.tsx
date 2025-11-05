@@ -9,16 +9,8 @@ import Input from "~/components/Input";
 import { InputSelect, Option } from "~/components/InputSelect";
 import Scene from "~/components/Scene";
 import Text from "~/components/Text";
-import env from "~/env";
 import useCurrentTeam from "~/hooks/useCurrentTeam";
 import SettingRow from "./components/SettingRow";
-
-type ModelInfo = {
-  id: string;
-  object: string;
-  created?: number;
-  owned_by?: string;
-};
 
 function AI() {
   const { t } = useTranslation();
@@ -50,56 +42,39 @@ function AI() {
   const [loadingModels, setLoadingModels] = React.useState(false);
   const [modelsError, setModelsError] = React.useState<string | null>(null);
 
-  // Fetch available models from the AI API
+  // Fetch available models from the backend API
   React.useEffect(() => {
     const fetchModels = async () => {
-      const apiKey = env.LLM_API_KEY || env.AI_API_KEY || env.OPENAI_API_KEY;
-      const apiBase =
-        env.LLM_API_BASE_URL ||
-        env.LLM_API_BASE ||
-        env.AI_API_BASE_URL ||
-        env.AI_API_BASE ||
-        env.OPENAI_API_BASE ||
-        env.OPENAI_API_BASE_URL;
-
-      if (!apiKey || !apiBase) {
-        setModelsError(
-          t("AI API configuration not found in environment variables")
-        );
-        return;
-      }
-
       setLoadingModels(true);
       setModelsError(null);
 
       try {
-        const trimmedBase = apiBase.replace(/\/$/, "");
-        const endpoint = `${trimmedBase}/v1/models`;
-
-        const response = await fetch(endpoint, {
-          method: "GET",
+        const response = await fetch("/api/ai.models", {
+          method: "POST",
           headers: {
-            Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
+          credentials: "same-origin",
         });
 
         if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
           throw new Error(
-            `Failed to fetch models: ${response.status} ${response.statusText}`
+            errorData.message ||
+              `Failed to fetch models: ${response.status} ${response.statusText}`
           );
         }
 
         const data = (await response.json()) as {
-          data?: ModelInfo[];
-          object?: string;
+          data?: {
+            models?: Array<{ id: string }>;
+          };
         };
 
-        if (data.data && Array.isArray(data.data)) {
-          const modelIds = data.data
+        if (data.data?.models && Array.isArray(data.data.models)) {
+          const modelIds = data.data.models
             .map((model) => model.id)
-            .filter((id): id is string => !!id)
-            .sort();
+            .filter((id): id is string => !!id);
           setAvailableModels(modelIds);
         } else {
           throw new Error("Invalid response format from models API");
@@ -114,7 +89,7 @@ function AI() {
     };
 
     void fetchModels();
-  }, [t]);
+  }, []);
 
   const handleSave = React.useCallback(async () => {
     const threshold = parseInt(contextLengthThreshold, 10);
