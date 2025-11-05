@@ -6,6 +6,7 @@ import breakpoint from "styled-components-breakpoint";
 import { s } from "@shared/styles";
 import { isModKey } from "@shared/utils/keyboard";
 import Flex from "~/components/Flex";
+import GlobalRecorderController from "~/components/GlobalRecorderController";
 import { LoadingIndicatorBar } from "~/components/LoadingIndicator";
 import SkipNavContent from "~/components/SkipNavContent";
 import SkipNavLink from "~/components/SkipNavLink";
@@ -69,6 +70,8 @@ const Layout = React.forwardRef(function Layout_(
 
         {sidebarRight}
       </Container>
+
+      <GlobalRecorderController />
     </Container>
   );
 });

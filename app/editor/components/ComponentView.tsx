@@ -66,6 +66,9 @@ export default class ComponentView {
       ? document.createElement("span")
       : document.createElement("div");
 
+    // Ensure the React-managed container is not contentEditable to avoid React warnings
+    // when rendering children inside ProseMirror's editable region.
+    this.dom.setAttribute("contenteditable", "false");
     this.dom.classList.add(`component-${node.type.name}`);
     this.renderer = new NodeViewRenderer(this.dom, this.component, this.props);
 
