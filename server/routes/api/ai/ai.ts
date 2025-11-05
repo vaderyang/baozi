@@ -19,11 +19,12 @@ type ModelInfo = {
 
 router.post("ai.models", auth(), async (ctx: APIContext) => {
   const { user } = ctx.state.auth;
-  const { Team } = await import("@server/models");
-  const { authorize } = await import("@server/policies");
 
-  const team = await Team.findByPk(user.teamId, { rejectOnEmpty: true });
-  authorize(user, "update", team);
+  // Check if user has permission to view AI settings
+  // Only admins can configure AI settings
+  if (user.role !== "admin") {
+    ctx.throw(403, "Admin access required");
+  }
 
   const apiKey = envValue(
     "LLM_API_KEY",

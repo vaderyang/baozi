@@ -158,10 +158,28 @@ function AI() {
           value: modelId,
         });
       });
+    } else if (modelsError) {
+      // If API failed, add some common model names as suggestions
+      const commonModels = [
+        "qwen-3-coder-480b",
+        "qwen3-30b-a3b-instruct",
+        "grok-4-fast-non-reasoning",
+        "gpt-4",
+        "gpt-3.5-turbo",
+        "claude-3-opus",
+        "claude-3-sonnet",
+      ];
+      commonModels.forEach((modelId) => {
+        options.push({
+          type: "item",
+          label: modelId,
+          value: modelId,
+        });
+      });
     }
 
     return options;
-  }, [availableModels, t]);
+  }, [availableModels, modelsError, t]);
 
   return (
     <Scene title={t("AI")} icon={<SparklesIcon />}>
@@ -198,8 +216,15 @@ function AI() {
         </Trans>
       </Text>
       {modelsError && (
-        <Text as="p" type="danger">
-          {t("Failed to load models")}: {modelsError}
+        <Text as="p" type="secondary">
+          {t("Could not load models from API")}: {modelsError}
+          <br />
+          {t("You can still manually enter model names below.")}
+        </Text>
+      )}
+      {loadingModels && (
+        <Text as="p" type="secondary">
+          {t("Loading available models...")}
         </Text>
       )}
       <SettingRow
