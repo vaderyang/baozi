@@ -475,16 +475,22 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
             ref={transcriptRef}
             data-compact={isCompactLayout ? "true" : "false"}
             onMouseDown={preventDefault}
+            suppressContentEditableWarning
           >
             {!isSpeechSupported ? (
               <TranscriptHint>
                 {t("Live transcript preview not supported in this browser")}
               </TranscriptHint>
             ) : transcript || interimTranscript ? (
-              <TranscriptText>
-                <span>{transcript}</span>
+              <TranscriptText
+                suppressContentEditableWarning
+                key="transcript-text"
+              >
+                <span suppressContentEditableWarning>{transcript}</span>
                 {interimTranscript && (
-                  <InterimText>{interimTranscript}</InterimText>
+                  <InterimText suppressContentEditableWarning>
+                    {interimTranscript}
+                  </InterimText>
                 )}
               </TranscriptText>
             ) : (
