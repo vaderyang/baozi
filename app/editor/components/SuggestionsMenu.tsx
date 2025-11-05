@@ -88,7 +88,7 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
   const editor = useEditor();
   const { view, commands, props: editorProps } = editor;
   const dictionary = useDictionary();
-  const { comments } = useStores();
+  const { comments, audioRecorder } = useStores();
   const { t } = useTranslation();
   const hasActivated = React.useRef(false);
   const pointerRef = React.useRef<{ clientX: number; clientY: number }>({
@@ -148,11 +148,11 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     const offsetParent = ref?.offsetParent
       ? ref.offsetParent.getBoundingClientRect()
       : ({
-        width: 0,
-        height: 0,
-        top: 0,
-        left: 0,
-      } as DOMRect);
+          width: 0,
+          height: 0,
+          top: 0,
+          left: 0,
+        } as DOMRect);
 
     let leftPos = Math.min(
       left - offsetParent.left,
@@ -200,8 +200,8 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         Math.max(
           0,
           state.selection.from -
-          (props.search ?? "").length -
-          (trimTrigger ? props.trigger.length : 0)
+            (props.search ?? "").length -
+            (trimTrigger ? props.trigger.length : 0)
         ),
         state.selection.to
       )
@@ -470,9 +470,9 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     const sanitizedContext = triggerSuffix
       ? textBeforeCursor.endsWith(triggerSuffix)
         ? textBeforeCursor.slice(
-          0,
-          Math.max(0, textBeforeCursor.length - triggerSuffix.length)
-        )
+            0,
+            Math.max(0, textBeforeCursor.length - triggerSuffix.length)
+          )
         : textBeforeCursor
       : textBeforeCursor;
     const context = sanitizedContext.slice(
@@ -523,6 +523,181 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
     view,
   ]);
 
+  const handleStartRecording = React.useCallback(async () => {
+    Logger.debug("editor", "SuggestionsMenu: handleStartRecording called");
+
+    const parent = findParentNode((node) => !!node)(view.state.selection);
+
+    if (!parent) {
+      Logger.debug(
+        "editor",
+        "SuggestionsMenu: No parent node found for selection"
+      );
+      return;
+    }
+
+    handleClearSearch();
+
+    // Check if MediaRecorder is supported
+    if (typeof MediaRecorder === "undefined") {
+      Logger.warn("Audio recording attempted without MediaRecorder support");
+      toast.error(
+        dictionary.audioRecordingNotSupported ||
+          "Audio recording is not supported in this browser"
+      );
+      return;
+    }
+
+    let nodeId: string | null = null;
+    let placeholderInserted = false;
+
+    try {
+      // Get current cursor position
+      const position = parent.pos;
+      const documentId = editorProps.id;
+
+      Logger.debug("editor", "SuggestionsMenu: Starting recording", {
+        position,
+        documentId,
+      });
+
+      // Generate unique node ID for the placeholder
+      nodeId = audioRecorder.generateNodeId();
+      Logger.debug("editor", "SuggestionsMenu: Generated nodeId", { nodeId });
+      if (!nodeId) {
+        throw new Error("Failed to generate recording node identifier");
+      }
+
+      // Insert recording placeholder node at cursor position
+      let { state, dispatch } = view;
+
+      Logger.debug(
+        "editor",
+        "SuggestionsMenu: Available node types for recording",
+        {
+          nodeTypes: Object.keys(state.schema.nodes),
+        }
+      );
+
+      // Check if recording_placeholder node type exists in schema
+      if (!state.schema.nodes.recording_placeholder) {
+        const schemaError = new Error(
+          "Recording placeholder node type not found in schema"
+        );
+        Logger.error(
+          "Recording placeholder node type missing from schema",
+          schemaError,
+          {
+            availableNodes: Object.keys(state.schema.nodes),
+          }
+        );
+        throw schemaError;
+      }
+
+      // Remove any existing recording placeholder nodes first
+      Logger.debug(
+        "editor",
+        "SuggestionsMenu: Checking for existing recording placeholder nodes"
+      );
+      let tr = state.tr;
+      let foundExisting = false;
+      state.doc.descendants((node, pos) => {
+        if (node.type.name === "recording_placeholder") {
+          Logger.debug(
+            "editor",
+            "SuggestionsMenu: Found existing placeholder",
+            {
+              position: pos,
+              nodeId: node.attrs.nodeId,
+            }
+          );
+          tr.delete(pos, pos + node.nodeSize);
+          foundExisting = true;
+          return false; // Stop after first match
+        }
+        return true;
+      });
+
+      if (foundExisting) {
+        Logger.debug(
+          "editor",
+          "SuggestionsMenu: Removed existing placeholder node"
+        );
+        dispatch(tr);
+        // Get fresh state after deletion
+        state = view.state;
+        tr = state.tr;
+      }
+
+      Logger.debug(
+        "editor",
+        "SuggestionsMenu: Creating recording_placeholder node"
+      );
+      const placeholderNode = state.schema.nodes.recording_placeholder.create({
+        nodeId,
+        status: "recording",
+        startTime: Date.now(),
+      });
+
+      Logger.debug(
+        "editor",
+        "SuggestionsMenu: Inserting placeholder node into document"
+      );
+      tr = tr.replaceRangeWith(position, position, placeholderNode);
+      dispatch(tr.scrollIntoView());
+      Logger.debug("editor", "SuggestionsMenu: Placeholder node inserted");
+      placeholderInserted = true;
+
+      // Clean up any previous recording state first
+      if (audioRecorder.isActive || audioRecorder.insertionPoint) {
+        Logger.debug(
+          "editor",
+          "SuggestionsMenu: Cleaning up previous recording state"
+        );
+        audioRecorder.cancelRecording();
+      }
+
+      // Start recording
+      Logger.debug("editor", "SuggestionsMenu: Starting audio recording");
+      await audioRecorder.startRecording(documentId, position, nodeId);
+      Logger.debug(
+        "editor",
+        "SuggestionsMenu: Audio recording started successfully"
+      );
+
+      close();
+    } catch (error) {
+      Logger.error("Failed to start recording", error as Error);
+
+      if (
+        placeholderInserted &&
+        nodeId &&
+        commands?.removeRecordingPlaceholder
+      ) {
+        commands.removeRecordingPlaceholder({ nodeId });
+      }
+
+      if (
+        error instanceof Error &&
+        error.message.includes("Permission denied")
+      ) {
+        toast.error(
+          dictionary.microphoneAccessDenied || "Microphone access denied"
+        );
+      } else {
+        toast.error(dictionary.recordingFailed || "Failed to start recording");
+      }
+    }
+  }, [
+    audioRecorder,
+    close,
+    commands,
+    dictionary,
+    editorProps.id,
+    handleClearSearch,
+    view,
+  ]);
+
   const handleClickItem = React.useCallback(
     (item) => {
       props.onSelect?.(item);
@@ -547,9 +722,12 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         case "attachment":
           return triggerFilePick("*");
         case "transcript":
+        case "upload_audio":
           return triggerFilePick(
             AttachmentValidation.audioContentTypes.join(", ")
           );
+        case "start_recording":
+          return handleStartRecording();
         case "embed":
           return triggerLinkInput(item);
         case "ai_generate_text":
@@ -561,7 +739,14 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
           insertNode(item);
       }
     },
-    [editorProps, handleContinueWriting, insertNode, props, triggerAiPrompt]
+    [
+      editorProps,
+      handleContinueWriting,
+      handleStartRecording,
+      insertNode,
+      props,
+      triggerAiPrompt,
+    ]
   );
 
   const handleLinkInputKeydown = (
@@ -763,14 +948,15 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         // Insert TranscriptionStatusCard node at cursor position
         if (parent) {
           const { state, dispatch } = view;
-          const statusCardNode = state.schema.nodes.transcription_status_card.create({
-            jobId,
-            fileName: file.name,
-            fileSize: file.size,
-            status: "queued",
-            progress: 0,
-            error: null,
-          });
+          const statusCardNode =
+            state.schema.nodes.transcription_status_card.create({
+              jobId,
+              fileName: file.name,
+              fileSize: file.size,
+              status: "queued",
+              progress: 0,
+              error: null,
+            });
 
           const tr = state.tr.replaceRangeWith(
             parent.pos,
@@ -834,6 +1020,18 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       );
     }
 
+    // Expand items with children into flat list
+    const expandedItems: (EmbedDescriptor | MenuItem)[] = [];
+    for (const item of items) {
+      if ("children" in item && item.children && item.children.length > 0) {
+        // Add children instead of parent
+        expandedItems.push(...item.children);
+      } else {
+        expandedItems.push(item);
+      }
+    }
+    items = expandedItems;
+
     const searchInput = search.toLowerCase();
     const filtered = items.filter((item) => {
       if (item.name === "separator") {
@@ -861,6 +1059,14 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
 
       // If no image upload callback has been passed, filter the image block out
       if (!uploadFile && item.name === "image") {
+        return false;
+      }
+
+      // Hide recording option if MediaRecorder is not supported
+      if (
+        item.name === "start_recording" &&
+        typeof MediaRecorder === "undefined"
+      ) {
         return false;
       }
 
@@ -1160,7 +1366,7 @@ const Empty = styled.div`
   padding: 0 16px;
 `;
 
-export const Wrapper = styled(Scrollable) <{
+export const Wrapper = styled(Scrollable)<{
   active: boolean;
   top?: number;
   bottom?: number;

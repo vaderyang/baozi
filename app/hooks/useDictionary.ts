@@ -109,6 +109,26 @@ export default function useDictionary() {
       video: t("Video"),
       transcript: t("Transcript"),
       transcribeAudio: t("Transcribe Audio"),
+      startRecording: t("Start Recording"),
+      uploadAudio: t("Upload Audio"),
+      audioRecordingNotSupported: t(
+        "Audio recording is not supported in this browser"
+      ),
+      microphoneAccessDenied: t("Microphone access denied"),
+      recordingFailed: t("Failed to start recording"),
+      recording: t("Recording"),
+      paused: t("Paused"),
+      stopRecording: t("Stop Recording"),
+      cancelRecording: t("Cancel Recording"),
+      pauseRecording: t("Pause Recording"),
+      resumeRecording: t("Resume Recording"),
+      recordingInProgress: t("Recording in progress"),
+      recordingDurationWarning: t(
+        "Recording duration is long. Consider stopping soon."
+      ),
+      navigateToRecording: t("Navigate to recording"),
+      recordingInTitle: (title: string) =>
+        t('Recording in "{{title}}"', { title }),
       transcribing: t("Transcribing…"),
       transcriptionFailed: t("Transcription failed"),
       transcriptionQueued: t("Transcription queued"),
