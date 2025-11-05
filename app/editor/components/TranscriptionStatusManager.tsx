@@ -230,9 +230,14 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       // Build content to insert: audio attachment (if available) + AI summary (if enabled) + transcript
       let contentMarkdown = "";
 
-      // Add audio attachment if attachmentId is provided and attachment node type exists
+      // Add audio attachment if attachmentId is provided, attachment node type exists,
+      // and skipAttachmentLink flag is not set (to avoid duplicates when transcribing existing attachments)
       // Use the correct markdown format for attachments: [title size](href)
-      if (attachmentId && schema.nodes.attachment) {
+      if (
+        attachmentId &&
+        schema.nodes.attachment &&
+        !cardNode.attrs.skipAttachmentLink
+      ) {
         const attachmentUrl = `/api/attachments.redirect?id=${attachmentId}`;
         contentMarkdown += `[${fileName} ${fileSize}](${attachmentUrl})\n\n`;
         Logger.info("editor", "Added audio attachment to markdown", {
@@ -247,6 +252,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           jobId,
           hasAttachmentId: !!attachmentId,
           hasAttachmentNodeType: !!schema.nodes.attachment,
+          skipAttachmentLink: cardNode.attrs.skipAttachmentLink,
         });
       }
 

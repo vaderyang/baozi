@@ -36,6 +36,9 @@ export default class TranscriptionStatusCard extends Node {
         error: {
           default: null,
         },
+        skipAttachmentLink: {
+          default: false,
+        },
       },
       group: "block",
       atom: true,
@@ -51,6 +54,7 @@ export default class TranscriptionStatusCard extends Node {
             status: dom.dataset.status,
             progress: parseInt(dom.dataset.progress || "0", 10),
             error: dom.dataset.error,
+            skipAttachmentLink: dom.dataset.skipAttachmentLink === "true",
           }),
         },
       ],
@@ -64,6 +68,7 @@ export default class TranscriptionStatusCard extends Node {
           "data-status": node.attrs.status,
           "data-progress": node.attrs.progress,
           "data-error": node.attrs.error,
+          "data-skip-attachment-link": node.attrs.skipAttachmentLink,
         },
       ],
     };
