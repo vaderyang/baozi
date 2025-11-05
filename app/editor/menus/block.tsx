@@ -81,6 +81,7 @@ export default function blockMenuItems(
           icon: <AttachmentIcon />,
           keywords: "upload file audio",
           skipCommandCheck: true,
+          visible: false,
         },
       ],
     },
