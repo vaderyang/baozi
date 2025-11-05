@@ -237,14 +237,14 @@ export function TranscriptionStatusManager({ documentId }: Props) {
 
       if (shouldGenerateSummary) {
         try {
-          Logger.info("editor", "Generating AI summary for transcript", {
+          Logger.info("editor", "** Generating AI summary for transcript", {
             jobId,
             fromRecorder: audioRecorder.autoGenerateSummary,
             fromCardNode: cardNode.attrs.autoSummary,
           });
 
           const prompt =
-            "Summarize a meeting minute based on the following transcript by using the language mainly used in the transcript:";
+            "Summarize the following transcript by using the language mainly used in the transcript, if you cannot determine, by default use Chinese(zh-CN). you need to design the best minutes format for the transcript, e.g. professional meeting minutes, interview minutes, personal notes and etc. :";
           const response = await client.post<{ data: { text?: string } }>(
             "/ai.generate",
             {

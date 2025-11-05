@@ -66,12 +66,12 @@ export default function attachmentMenuItems(
     items.push(
       {
         name: "transcriptAttachment",
-        label: "Transcribe",
-        tooltip: "Transcribe audio",
+        tooltip: "Transcribe only, no AI summary",
         icon: <DocumentIcon />,
       },
       {
         name: "transcriptAndSummaryAttachment",
+        label: "AI Notes",
         tooltip: "Transcribe and Auto Summary",
         icon: <SparklesIcon />,
       }
