@@ -110,17 +110,19 @@ export default class GroupMembershipsStore extends Store<GroupMembership> {
       });
     }
 
-    this.removeAll(
-      collectionId
-        ? {
-            collectionId,
-            groupId,
-          }
-        : {
-            documentId,
-            groupId,
-          }
-    );
+    runInAction("GroupMembershipsStore#delete", () => {
+      this.removeAll(
+        collectionId
+          ? {
+              collectionId,
+              groupId,
+            }
+          : {
+              documentId,
+              groupId,
+            }
+      );
+    });
   }
 
   /**

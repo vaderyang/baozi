@@ -54,7 +54,16 @@ export default async function fetch(
     allowPrivateIPAddress?: boolean;
   }
 ): Promise<Response> {
-  Logger.silly("http", `Network request to ${url}`, init);
+  // Log request details, but avoid logging FormData body which has too many properties
+  const logInit = init
+    ? {
+        method: init.method,
+        headers: init.headers,
+        // Don't log body if it's FormData or other complex objects
+        body: init.body?.constructor?.name || undefined,
+      }
+    : undefined;
+  Logger.silly("http", `Network request to ${url}`, logInit);
 
   const { allowPrivateIPAddress, ...rest } = init || {};
 
@@ -73,7 +82,6 @@ export default async function fetch(
         url,
         status: response.status,
         statusText: response.statusText,
-        headers: response.headers.raw(),
       });
     }
 

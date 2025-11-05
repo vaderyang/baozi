@@ -212,7 +212,7 @@ const Image = styled(Flex)`
   color: ${s("text")};
 `;
 
-const Heading = styled.p<{ $small?: boolean; $ellipsis?: boolean }>`
+const Heading = styled.div<{ $small?: boolean; $ellipsis?: boolean }>`
   font-size: ${(props) => (props.$small ? 14 : 16)}px;
   font-weight: 500;
   ${(props) => (props.$ellipsis !== false ? ellipsis() : "")}
@@ -226,7 +226,7 @@ const Content = styled(Flex)<{ $selected: boolean }>`
   color: ${s("text")};
 `;
 
-const Subtitle = styled.p<{ $small?: boolean; $selected?: boolean }>`
+const Subtitle = styled.div<{ $small?: boolean; $selected?: boolean }>`
   margin: 0;
   font-size: ${(props) => (props.$small ? 13 : 14)}px;
   color: ${s("textTertiary")};

@@ -93,7 +93,11 @@ router.post(
     // All user types can upload an avatar so no additional authorization is needed.
     if (preset === AttachmentPreset.Avatar) {
       assertIn(contentType, AttachmentValidation.avatarContentTypes);
-    } else if (preset === AttachmentPreset.DocumentAttachment && documentId) {
+    } else if (
+      (preset === AttachmentPreset.DocumentAttachment ||
+        preset === AttachmentPreset.AudioTranscription) &&
+      documentId
+    ) {
       const document = await Document.findByPk(documentId, {
         userId: user.id,
         transaction,

@@ -208,6 +208,18 @@ async function authenticated(io: IO.Server, socket: SocketWithAuth) {
         await socket.join(`group-${event.groupId}`);
       }
     }
+    // user is joining a document channel to receive real-time updates
+    // such as transcription status changes
+    if (event.documentId) {
+      const { Document } = await import("@server/models");
+      const document = await Document.findByPk(event.documentId, {
+        userId: user.id,
+      });
+
+      if (can(user, "read", document)) {
+        await socket.join(`document-${event.documentId}`);
+      }
+    }
   });
 
   // allow the client to request to leave rooms
@@ -217,6 +229,9 @@ async function authenticated(io: IO.Server, socket: SocketWithAuth) {
     }
     if (event.groupId) {
       await socket.leave(`group-${event.groupId}`);
+    }
+    if (event.documentId) {
+      await socket.leave(`document-${event.documentId}`);
     }
   });
 

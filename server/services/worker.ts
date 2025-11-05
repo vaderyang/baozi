@@ -13,9 +13,76 @@ import {
 } from "../queues";
 import processors from "../queues/processors";
 import tasks from "../queues/tasks";
+import { TranscriptionJob } from "@server/models";
+import { TranscriptionJobStatus } from "@server/models/TranscriptionJob";
+import TranscriptionTask from "@server/queues/tasks/TranscriptionTask";
+
+/**
+ * Resume incomplete transcription jobs that were interrupted by server restart.
+ * Finds jobs in 'processing' state, updates them to 'queued', and re-schedules them.
+ */
+async function resumeIncompleteTranscriptionJobs() {
+  try {
+    // Find all jobs that were in processing state
+    const processingJobs = await TranscriptionJob.findAll({
+      where: {
+        status: TranscriptionJobStatus.Processing,
+      },
+    });
+
+    if (processingJobs.length === 0) {
+      Logger.info("worker", "No incomplete transcription jobs to resume");
+      return;
+    }
+
+    Logger.info(
+      "worker",
+      `Found ${processingJobs.length} incomplete transcription job(s) to resume`
+    );
+
+    // Re-schedule each job
+    for (const job of processingJobs) {
+      try {
+        // Update status from 'processing' to 'queued'
+        await job.updateStatus(TranscriptionJobStatus.Queued);
+
+        // Re-schedule the task
+        const task = new TranscriptionTask();
+        await task.schedule({
+          jobId: job.id,
+          attachmentId: job.attachmentId,
+          userId: job.userId,
+          documentId: job.documentId,
+        });
+
+        Logger.info("worker", "Resumed transcription job", {
+          jobId: job.id,
+          documentId: job.documentId,
+        });
+      } catch (error) {
+        Logger.error(
+          "Failed to resume transcription job",
+          error as Error,
+          {
+            jobId: job.id,
+            documentId: job.documentId,
+          }
+        );
+      }
+    }
+  } catch (error) {
+    Logger.error(
+      "Error resuming incomplete transcription jobs",
+      error as Error
+    );
+  }
+}
 
 export default async function init() {
   await initI18n();
+
+  // Resume incomplete transcription jobs on worker startup
+  await resumeIncompleteTranscriptionJobs();
 
   // This queue processes the global event bus
   globalEventQueue

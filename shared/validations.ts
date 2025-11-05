@@ -18,6 +18,22 @@ export const AttachmentValidation = {
     "image/tiff",
     "image/heic",
   ],
+
+  /** Audio mime-types supported for transcription */
+  audioContentTypes: [
+    "audio/wav",
+    "audio/wave",
+    "audio/x-wav",
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/flac",
+    "audio/ogg",
+    "audio/x-m4a",
+    "audio/m4a",
+    "audio/opus",
+    "audio/aac",
+    "audio/x-ms-wma",
+  ],
 };
 
 export const ApiKeyValidation = {
