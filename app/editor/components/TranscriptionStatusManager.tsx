@@ -225,8 +225,59 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         return;
       }
 
-      // Build content to insert: audio attachment (if available) + AI summary (if enabled) + transcript
+      // Build content to insert based on auto-summary mode
+      // When auto-summary is enabled: Summary + Audio Attachment + Collapsed Transcript
+      // When auto-summary is disabled: Audio Attachment + Transcript
       let contentMarkdown = "";
+      let summaryMarkdown = "";
+
+      // Generate AI summary if enabled (either from recorder or from card node)
+      const shouldGenerateSummary =
+        audioRecorder.autoGenerateSummary || cardNode.attrs.autoSummary;
+
+      if (shouldGenerateSummary) {
+        try {
+          Logger.info("editor", "Generating AI summary for transcript", {
+            jobId,
+            fromRecorder: audioRecorder.autoGenerateSummary,
+            fromCardNode: cardNode.attrs.autoSummary,
+          });
+
+          const prompt =
+            "Summarize a meeting minute based on the following transcript by using the language mainly used in the transcript:";
+          const response = await client.post<{ data: { text?: string } }>(
+            "/ai.generate",
+            {
+              prompt,
+              context: formattedText,
+            },
+            { retry: false }
+          );
+
+          const summary = response?.data?.text?.trim();
+          if (summary) {
+            summaryMarkdown = `${summary}\n\n`;
+            Logger.info("editor", "AI summary generated successfully", {
+              jobId,
+              summaryLength: summary.length,
+            });
+          } else {
+            Logger.warn("AI summary generation returned empty result", {
+              jobId,
+            });
+          }
+        } catch (error) {
+          Logger.error("Failed to generate AI summary", error as Error, {
+            jobId,
+          });
+          // Continue without summary - don't block transcript insertion
+        }
+      }
+
+      // Add summary first if generated
+      if (summaryMarkdown) {
+        contentMarkdown += summaryMarkdown;
+      }
 
       // Add audio attachment if attachmentId is provided, attachment node type exists,
       // and skipAttachmentLink flag is not set (to avoid duplicates when transcribing existing attachments)
@@ -254,52 +305,15 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         });
       }
 
-      // Generate AI summary if enabled (either from recorder or from card node)
-      const shouldGenerateSummary =
-        audioRecorder.autoGenerateSummary || cardNode.attrs.autoSummary;
-
-      if (shouldGenerateSummary) {
-        try {
-          Logger.info("editor", "Generating AI summary for transcript", {
-            jobId,
-            fromRecorder: audioRecorder.autoGenerateSummary,
-            fromCardNode: cardNode.attrs.autoSummary,
-          });
-
-          const prompt =
-            "Summarize a meeting minute based on the following transcript by using the language mainly used in the transcript:";
-          const response = await client.post<{ data: { text?: string } }>(
-            "/ai.generate",
-            {
-              prompt,
-              context: formattedText,
-            },
-            { retry: false }
-          );
-
-          const summary = response?.data?.text?.trim();
-          if (summary) {
-            contentMarkdown += `${summary}\n\n`;
-            Logger.info("editor", "AI summary generated successfully", {
-              jobId,
-              summaryLength: summary.length,
-            });
-          } else {
-            Logger.warn("AI summary generation returned empty result", {
-              jobId,
-            });
-          }
-        } catch (error) {
-          Logger.error("Failed to generate AI summary", error as Error, {
-            jobId,
-          });
-          // Continue without summary - don't block transcript insertion
-        }
-      }
-
       // Add transcript heading and code block
+      // If auto-summary is enabled, make the transcript collapsed by default
       const transcriptHeading = dictionary.transcript || "Transcript";
-      contentMarkdown += `## ${transcriptHeading}\n\n\`\`\`\n${formattedText}\n\`\`\`\n\n`;
+      if (shouldGenerateSummary) {
+        // Use a collapsed heading (details/summary HTML structure in markdown)
+        contentMarkdown += `<details>\n<summary>${transcriptHeading}</summary>\n\n\`\`\`\n${formattedText}\n\`\`\`\n\n</details>\n\n`;
+      } else {
+        contentMarkdown += `## ${transcriptHeading}\n\n\`\`\`\n${formattedText}\n\`\`\`\n\n`;
+      }
 
       Logger.info("editor", "Built markdown content for transcript", {
         jobId,
