@@ -6,6 +6,7 @@ import Logger from "@server/logging/Logger";
 import auth from "@server/middlewares/authentication";
 import validate from "@server/middlewares/validate";
 import { APIContext } from "@server/types";
+import { DateFilter, StatusFilter } from "@shared/types";
 import * as T from "./schema";
 
 const router = new Router();
@@ -501,6 +502,498 @@ Examples:
   }
 };
 
+/**
+ * Generate follow-up questions based on the conversation context
+ */
+const generateFollowups = async (
+  query: string,
+  answer: string,
+  sources: Array<{ id: string; title: string }>,
+  apiKey: string,
+  apiBase: string,
+  model: string
+): Promise<string[]> => {
+  const trimmedBase = apiBase.replace(/\/$/, "");
+  const endpoint = /\/chat\/completions$/i.test(trimmedBase)
+    ? trimmedBase
+    : `${trimmedBase}/chat/completions`;
+
+  const systemPrompt = `You are a follow-up question generator. Based on the user's question and the AI answer, generate 3-5 relevant follow-up questions that the user might want to ask next.
+
+RULES:
+1. Generate 3-5 questions that naturally follow from the conversation
+2. Questions should be specific and actionable
+3. Questions should explore different aspects or go deeper into the topic
+4. Keep questions concise (under 100 characters each)
+5. Return ONLY the questions, one per line, no numbering or explanation
+6. Questions should be in the same language as the original query
+
+Context:
+User Question: ${query}
+AI Answer: ${answer}
+Referenced Documents: ${sources.map((s) => s.title).join(", ")}`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 200,
+      }),
+    });
+
+    if (!response.ok) {
+      Logger.warn("Follow-up generation failed", {
+        status: response.status,
+        query,
+      });
+      return [];
+    }
+
+    const data = (await response.json()) as {
+      choices?: ChatCompletionChoice[];
+    };
+    const followupsText = parseAiResponse(data.choices?.[0] || {}).trim();
+
+    const followups = followupsText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && line.length <= 100)
+      .slice(0, 5);
+
+    Logger.info("utils", "Follow-ups generated", {
+      originalQuery: query,
+      followupCount: followups.length,
+    });
+
+    return followups;
+  } catch (error) {
+    const wrappedError =
+      error instanceof Error ? error : new Error(String(error));
+    Logger.warn("Follow-up generation error", wrappedError);
+    return [];
+  }
+};
+
+router.post(
+  "ai.ask",
+  auth(),
+  validate(T.AiAskSchema),
+  async (ctx: APIContext<T.AiAskReq>) => {
+    const { user } = ctx.state.auth;
+    const {
+      query,
+      collectionId,
+      userId,
+      documentId,
+      dateFilter,
+      statusFilter,
+      maxDocuments,
+      language,
+      conversationHistory,
+    } = ctx.input.body;
+
+    // Get initial model config for keyword extraction
+    const initialConfig = await getModelConfig(true, user.teamId);
+    let apiKey = initialConfig.apiKey;
+    let apiBase = initialConfig.apiBase;
+    let model = initialConfig.model;
+    let fallbackModel = initialConfig.fallbackModel;
+
+    if (!apiKey || !apiBase || !model) {
+      ctx.throw(InvalidRequestError("AI configuration is incomplete"));
+    }
+
+    try {
+      // Import models dynamically
+      const { Document } = await import("@server/models");
+      const { DocumentHelper } = await import(
+        "@server/models/helpers/DocumentHelper"
+      );
+      const SearchHelper = (await import("@server/models/helpers/SearchHelper"))
+        .default;
+
+      // Build conversation context for better search
+      let contextualQuery = query;
+      if (conversationHistory && conversationHistory.length > 0) {
+        // Use last 3 turns for context
+        const recentHistory = conversationHistory.slice(-3);
+        const contextParts = recentHistory.map(
+          (turn) => `Q: ${turn.question}\nA: ${turn.answer}`
+        );
+        contextualQuery = `Previous conversation:\n${contextParts.join("\n\n")}\n\nCurrent question: ${query}`;
+      }
+
+      // Extract keywords from the contextual query
+      const searchKeywords = await extractKeywords(
+        contextualQuery,
+        apiKey,
+        apiBase,
+        model
+      );
+
+      // Search for relevant documents
+      let documentIds = undefined;
+      if (documentId) {
+        const document = await Document.findByPk(documentId, {
+          userId: user.id,
+        });
+        if (document) {
+          documentIds = [
+            documentId,
+            ...(await document.findAllChildDocumentIds()),
+          ];
+        }
+      }
+
+      const searchOptions = {
+        query: searchKeywords,
+        collectionId: collectionId || undefined,
+        dateFilter: (dateFilter as DateFilter) || undefined,
+        statusFilter: (statusFilter as StatusFilter[]) || undefined,
+        limit: maxDocuments,
+        collaboratorIds: userId ? [userId] : undefined,
+        documentIds,
+      };
+
+      Logger.info("utils", "AI Ask search options", {
+        originalQuery: query,
+        searchKeywords,
+        hasConversationHistory: !!conversationHistory?.length,
+        historyLength: conversationHistory?.length || 0,
+        searchOptions,
+        userId: user.id,
+      });
+
+      const searchResults = await SearchHelper.searchForUser(
+        user,
+        searchOptions
+      );
+
+      Logger.info("utils", "AI Ask search results", {
+        resultCount: searchResults.results.length,
+        total: searchResults.total,
+      });
+
+      if (!searchResults.results.length) {
+        ctx.body = {
+          data: {
+            answer:
+              "I couldn't find any relevant documents to answer your question. Please try a different search query or check if you have access to the documents you're looking for.",
+            sources: [],
+            followups: [],
+          },
+        };
+        return;
+      }
+
+      // Fetch full document content for top results
+      const resultDocumentIds = searchResults.results.map(
+        (r: { document: { id: string } }) => r.document.id
+      );
+      const documents = await Document.findAll({
+        where: {
+          id: resultDocumentIds,
+          teamId: user.teamId,
+        },
+      });
+
+      // Build context from search results
+      const contextParts = documents.map((doc, index) => {
+        const markdown = DocumentHelper.toMarkdown(doc);
+        const strippedMarkdown = stripTranscriptCodeBlocks(markdown);
+        const result = searchResults.results[index];
+
+        const charsReduced = markdown.length - strippedMarkdown.length;
+        if (charsReduced > 0) {
+          Logger.info("utils", "Stripped transcript from document for AI Ask", {
+            documentId: doc.id,
+            documentTitle: doc.title,
+            charsReduced,
+            userId: user.id,
+          });
+        }
+
+        return `## Document ${index + 1}: ${doc.title}
+Document ID: ${doc.id}
+Collection: ${doc.collection?.name || "N/A"}
+URL: ${doc.url}
+${result.context ? `\nRelevant excerpt:\n${result.context}\n` : ""}
+Full content:
+${strippedMarkdown}`;
+      });
+
+      const context = contextParts.join("\n\n---\n\n");
+
+      // Build sources list
+      const sources = documents.map((doc) => ({
+        id: doc.id,
+        title: doc.title,
+        url: doc.url,
+        collectionId: doc.collectionId,
+      }));
+
+      // Generate AI answer with conversation context
+      const trimmedBase = apiBase.replace(/\/$/, "");
+      const endpoint = /\/chat\/completions$/i.test(trimmedBase)
+        ? trimmedBase
+        : `${trimmedBase}/chat/completions`;
+
+      const languageInstruction = language
+        ? `IMPORTANT: Answer in ${language === "zh_CN" || language === "zh-CN" ? "Chinese (Simplified)" : language === "zh_TW" || language === "zh-TW" ? "Chinese (Traditional)" : language.replace("_", "-")}. `
+        : "";
+
+      let systemPrompt = `You are a conversational knowledge base assistant. Answer questions based on the provided documents.
+
+CRITICAL RULES:
+1. ${languageInstruction}Maximum 150 words - be extremely concise
+2. ONLY use information from the provided documents
+3. If the documents don't contain the answer, clearly state "The provided documents don't contain information about this"
+4. Use simple, clear language
+5. Reference documents using: [Document Title](doc-id)
+6. Use bullet points for lists, avoid tables and complex structures`;
+
+      if (conversationHistory && conversationHistory.length > 0) {
+        const recentHistory = conversationHistory.slice(-3);
+        const historyText = recentHistory
+          .map((turn) => `User: ${turn.question}\nAssistant: ${turn.answer}`)
+          .join("\n\n");
+        systemPrompt += `\n\nPrevious conversation:\n${historyText}\n\nUse this context to provide a more relevant answer to the current question.`;
+      }
+
+      systemPrompt += `\n\nHere are the relevant documents:\n\n${context}`;
+
+      const messages = [
+        {
+          role: "system",
+          content: systemPrompt,
+        },
+        {
+          role: "user",
+          content: query,
+        },
+      ];
+
+      let currentModel = model;
+
+      const makeRequest = async (modelToUse: string) => {
+        const requestBody = JSON.stringify({
+          model: modelToUse,
+          messages,
+          stream: true,
+        });
+
+        Logger.info("utils", "AI Ask LLM request", {
+          model: modelToUse,
+          endpoint,
+          requestLength: requestBody.length,
+          messageCount: messages.length,
+          contextLength: context.length,
+          hasConversationHistory: !!conversationHistory?.length,
+          query,
+          userId: user.id,
+        });
+
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: requestBody,
+        });
+
+        if (!response.ok) {
+          const raw = await response.text();
+          let payload: unknown = undefined;
+          try {
+            payload = raw ? JSON.parse(raw) : undefined;
+          } catch (error) {
+            const parseError =
+              error instanceof Error ? error : new Error(String(error));
+            Logger.error("Failed parsing AI provider response", parseError, {
+              raw,
+              model: modelToUse,
+            });
+          }
+
+          const errorPayload = payload as {
+            error?: { message?: string };
+            message?: string;
+          };
+
+          const message =
+            errorPayload?.error?.message ||
+            errorPayload?.message ||
+            `Request failed with status ${response.status}`;
+
+          if (
+            fallbackModel &&
+            modelToUse !== fallbackModel &&
+            shouldRetryWithFallback(response.status, message)
+          ) {
+            Logger.warn(
+              `Model ${modelToUse} failed (status ${response.status}), retrying with fallback model ${fallbackModel}`,
+              {
+                primaryModel: modelToUse,
+                fallbackModel,
+                status: response.status,
+                message,
+                userId: user.id,
+              }
+            );
+            return { shouldRetry: true, error: message };
+          }
+
+          Logger.error("AI Ask request failed", new Error(message), {
+            endpoint,
+            status: response.status,
+            payload,
+            model: modelToUse,
+            userId: user.id,
+          });
+
+          return { shouldRetry: false, error: message };
+        }
+
+        return { shouldRetry: false, stream: response.body };
+      };
+
+      // Try with primary model
+      let result = await makeRequest(currentModel);
+
+      // Retry with fallback if needed
+      if (result.shouldRetry && fallbackModel) {
+        currentModel = fallbackModel;
+        result = await makeRequest(currentModel);
+      }
+
+      if (result.error) {
+        ctx.throw(InvalidRequestError(result.error));
+      }
+
+      if (!result.stream) {
+        ctx.throw(InvalidRequestError("No stream returned from AI provider"));
+      }
+
+      // Set up SSE headers
+      ctx.set({
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+
+      ctx.respond = false;
+      ctx.status = 200;
+
+      // Send sources first
+      ctx.res.write(
+        `data: ${JSON.stringify({ type: "sources", sources })}\n\n`
+      );
+
+      // Stream the answer and collect it for follow-up generation
+      const reader = result.stream.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullAnswer = "";
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine || trimmedLine === "data: [DONE]") {
+              continue;
+            }
+
+            if (trimmedLine.startsWith("data: ")) {
+              const jsonStr = trimmedLine.slice(6);
+              try {
+                const parsed = JSON.parse(jsonStr);
+                const delta =
+                  parsed.choices?.[0]?.delta?.content ||
+                  parsed.choices?.[0]?.text ||
+                  "";
+
+                if (delta) {
+                  fullAnswer += delta;
+                  ctx.res.write(
+                    `data: ${JSON.stringify({ type: "content", content: delta })}\n\n`
+                  );
+                }
+              } catch {
+                // Skip invalid JSON
+              }
+            }
+          }
+        }
+
+        // Generate follow-up questions
+        const followups = await generateFollowups(
+          query,
+          fullAnswer,
+          sources,
+          apiKey,
+          apiBase,
+          model
+        );
+
+        // Send follow-ups
+        if (followups.length > 0) {
+          ctx.res.write(
+            `data: ${JSON.stringify({ type: "followups", followups })}\n\n`
+          );
+        }
+
+        // Send completion event
+        ctx.res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+        ctx.res.end();
+
+        Logger.info("utils", "AI Ask streaming completed", {
+          model: currentModel,
+          sourceCount: sources.length,
+          followupCount: followups.length,
+          answerLength: fullAnswer.length,
+          userId: user.id,
+        });
+      } catch (streamError) {
+        Logger.error("Stream processing error", streamError as Error);
+        ctx.res.write(
+          `data: ${JSON.stringify({ type: "error", error: "Stream processing failed" })}\n\n`
+        );
+        ctx.res.end();
+      }
+    } catch (error: unknown) {
+      const wrappedError =
+        error instanceof Error ? error : new Error(String(error));
+      Logger.error("AI Ask failed", wrappedError);
+      ctx.throw(
+        InvalidRequestError("Sorry, something went wrong during AI Ask")
+      );
+    }
+  }
+);
+
 router.post(
   "ai.search",
   auth(),
@@ -563,8 +1056,8 @@ router.post(
       const searchOptions = {
         query: searchKeywords, // Use extracted keywords for search
         collectionId: collectionId || undefined,
-        dateFilter: dateFilter || undefined,
-        statusFilter: statusFilter || undefined,
+        dateFilter: (dateFilter as DateFilter) || undefined,
+        statusFilter: (statusFilter as StatusFilter[]) || undefined,
         limit: maxDocuments,
         collaboratorIds: userId ? [userId] : undefined,
         documentIds,
