@@ -46,7 +46,9 @@ export default function AudioPlayer({ src, isEditable, children }: Props) {
       event.preventDefault();
       event.stopPropagation();
 
-      if (!audioRef.current) {return;}
+      if (!audioRef.current) {
+        return;
+      }
 
       if (isPlaying) {
         audioRef.current.pause();
@@ -119,6 +121,10 @@ const PlayButtonOverlay = styled.button<{ $isEditable?: boolean }>`
   justify-content: center;
   width: 14px;
   height: 14px;
+  min-width: 14px;
+  min-height: 14px;
+  max-width: 14px;
+  max-height: 14px;
   border-radius: 50%;
   border: none;
   background: rgba(0, 0, 0, 0.3);
@@ -128,6 +134,8 @@ const PlayButtonOverlay = styled.button<{ $isEditable?: boolean }>`
   opacity: 0;
   transition: all 0.2s ease;
   z-index: 1;
+  padding: 0;
+  aspect-ratio: 1 / 1;
 
   ${IconContainer}:hover & {
     opacity: 1;
