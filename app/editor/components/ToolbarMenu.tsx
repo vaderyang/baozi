@@ -74,7 +74,7 @@ function ToolbarDropdown(props: {
           };
         })
       : [];
-  }, [item.children, commands, state]);
+  }, [item.children, commands, state, handlers]);
 
   const handleCloseAutoFocus = useCallback((ev: Event) => {
     ev.stopImmediatePropagation();

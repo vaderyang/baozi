@@ -265,21 +265,16 @@ const MenuButton = React.forwardRef<
       ? DropdownMenuPrimitive.Item
       : ContextMenuPrimitive.Item;
 
-  const handleInvoke = React.useCallback(
-    (event: React.MouseEvent<HTMLButtonElement> | Event) => {
+  const handleSelect = React.useCallback(
+    (event: Event) => {
       // eslint-disable-next-line no-console
       console.log(`[actions] Menu item clicked`, { label });
+      // Prevent default to stop the event from bubbling
+      event.preventDefault();
       const handler = onClick as unknown as (event: any) => void;
       handler?.(event);
     },
     [label, onClick]
-  );
-
-  const handleSelect = React.useCallback(
-    (event: Event) => {
-      handleInvoke(event);
-    },
-    [handleInvoke]
   );
 
   const button = (
@@ -290,11 +285,7 @@ const MenuButton = React.forwardRef<
       onSelect={handleSelect}
       asChild
     >
-      <Components.MenuButton
-        disabled={disabled}
-        $dangerous={dangerous}
-        onClick={handleInvoke}
-      >
+      <Components.MenuButton disabled={disabled} $dangerous={dangerous}>
         {icon}
         <Components.MenuLabel>{label}</Components.MenuLabel>
         {selected !== undefined && (
