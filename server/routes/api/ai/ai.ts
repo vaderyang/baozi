@@ -887,6 +887,14 @@ ${context}`;
 router.post(
   "ai.generate",
   auth(),
+  async (ctx: APIContext, next) => {
+    Logger.info("utils", "ai.generate request received", {
+      body: ctx.request.body,
+      hasBody: !!ctx.request.body,
+      bodyKeys: ctx.request.body ? Object.keys(ctx.request.body) : [],
+    });
+    await next();
+  },
   validate(T.AiGenerateSchema),
   async (ctx: APIContext<T.AiGenerateReq>) => {
     const { user } = ctx.state.auth;
@@ -894,6 +902,13 @@ router.post(
     const context = trim(ctx.input.body.context ?? "");
     const mentionedDocumentIds = ctx.input.body.mentionedDocumentIds ?? [];
     const mode = (ctx.input.body.mode ?? "fast") as AiPromptMode;
+
+    Logger.info("utils", "ai.generate validation passed", {
+      promptLength: prompt.length,
+      contextLength: context.length,
+      mode,
+      userId: user.id,
+    });
 
     if (!prompt) {
       ctx.throw(InvalidRequestError("Prompt is required"));
