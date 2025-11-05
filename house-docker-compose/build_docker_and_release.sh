@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-git -c core.sshCommand=ssh -i ~/.ssh/bitbucket-house-101-readonly -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new pull
+# 使用 GIT_SSH_COMMAND 将 ssh 选项传递给 git，而不是把 ssh 选项当作 git 选项
+GIT_SSH_COMMAND="ssh -i ~/.ssh/bitbucket-house-101-readonly -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" git pull
 set -euo pipefail
 
 # Config
