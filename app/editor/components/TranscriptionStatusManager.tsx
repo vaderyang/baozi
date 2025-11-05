@@ -212,7 +212,16 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       const formattedText = formatTranscriptText(result);
 
       if (!formattedText) {
-        Logger.warn("No transcript text to insert", { jobId });
+        Logger.warn("No transcript text - removing status card", { jobId });
+        // Remove the status card for empty transcripts
+        const transaction = tr.deleteRange(position, position + nodeSize);
+        dispatch(transaction.scrollIntoView());
+
+        if (isMountedRef.current) {
+          toast.info(
+            dictionary.noSpeechDetected || "No speech detected in recording"
+          );
+        }
         return;
       }
 
