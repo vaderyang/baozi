@@ -26,3 +26,28 @@ export const AiGenerateSchema = BaseSchema.extend({
 });
 
 export type AiGenerateReq = z.infer<typeof AiGenerateSchema>;
+
+export const AiAskSchema = BaseSchema.extend({
+  body: z.object({
+    query: z.string().min(1).max(500),
+    collectionId: z.string().uuid().optional(),
+    userId: z.string().uuid().optional(),
+    documentId: z.string().uuid().optional(),
+    dateFilter: z.string().optional(),
+    statusFilter: z.array(z.string()).optional(),
+    maxDocuments: z.number().int().min(1).max(50).optional(),
+    language: z.string().optional(),
+    sessionId: z.string().uuid().optional(),
+    conversationHistory: z
+      .array(
+        z.object({
+          question: z.string(),
+          answer: z.string(),
+        })
+      )
+      .max(10)
+      .optional(),
+  }),
+});
+
+export type AiAskReq = z.infer<typeof AiAskSchema>;
