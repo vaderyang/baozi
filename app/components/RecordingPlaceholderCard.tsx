@@ -660,7 +660,7 @@ const compactTranscriptStyles = css`
   width: 100%;
 `;
 
-const TranscriptSection = styled.div.attrs({ contentEditable: "false" })`
+const TranscriptSection = styled.div`
   margin: 0 auto;
   display: flex;
   flex-direction: column;
