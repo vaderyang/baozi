@@ -3,6 +3,7 @@ import lowerFirst from "lodash/lowerFirst";
 import pluralize from "pluralize";
 import AIAskStore from "./AIAskStore";
 import ApiKeysStore from "./ApiKeysStore";
+import AudioInboxStore from "./AudioInboxStore";
 import AudioRecorderStore from "./AudioRecorderStore";
 import AuthStore from "./AuthStore";
 import AuthenticationProvidersStore from "./AuthenticationProvidersStore";
@@ -40,6 +41,7 @@ import Store from "./base/Store";
 export default class RootStore {
   aiAsk: AIAskStore;
   apiKeys: ApiKeysStore;
+  audioInbox: AudioInboxStore;
   audioRecorder: AudioRecorderStore;
   auth: AuthStore;
   authenticationProviders: AuthenticationProvidersStore;
@@ -109,6 +111,7 @@ export default class RootStore {
     this.registerStore(DocumentPresenceStore, "presence");
     this.registerStore(DialogsStore, "dialogs");
     this.registerStore(UiStore, "ui");
+    this.registerStore(AudioInboxStore, "audioInbox");
     this.registerStore(AudioRecorderStore, "audioRecorder");
 
     // AuthStore must be initialized last as it makes use of the other stores.
@@ -129,13 +132,15 @@ export default class RootStore {
   }
 
   /**
-   * Clear all data from the stores except for auth, ui, audioRecorder, and aiAsk.
+   * Clear all data from the stores except for auth, ui, audioRecorder, audioInbox, and aiAsk.
    */
   public clear() {
     Object.getOwnPropertyNames(this)
       .filter(
         (key) =>
-          ["auth", "ui", "audioRecorder", "aiAsk"].includes(key) === false
+          ["auth", "ui", "audioRecorder", "audioInbox", "aiAsk"].includes(
+            key
+          ) === false
       )
       .forEach((key: keyof RootStore) => {
         if ("clear" in this[key]) {
