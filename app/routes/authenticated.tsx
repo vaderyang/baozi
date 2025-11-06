@@ -14,6 +14,7 @@ import lazy from "~/utils/lazyWithRetry";
 import {
   aiAskPath,
   archivePath,
+  audioHubPath,
   draftsPath,
   healthPath,
   homePath,
@@ -25,6 +26,7 @@ import {
 
 const SettingsRoutes = lazy(() => import("./settings"));
 const Archive = lazy(() => import("~/scenes/Archive"));
+const AudioHub = lazy(() => import("~/scenes/AudioHub"));
 const Collection = lazy(() => import("~/scenes/Collection"));
 const Document = lazy(() => import("~/scenes/Document"));
 const Drafts = lazy(() => import("~/scenes/Drafts"));
@@ -106,6 +108,7 @@ function AuthenticatedRoutes() {
                 component={Search}
               />
               <Route exact path={aiAskPath()} component={AIAsk} />
+              <Route exact path={audioHubPath()} component={AudioHub} />
               <Route exact path={healthPath()} component={Health} />
               <Route path="/404" component={Error404} />
               <SettingsRoutes />

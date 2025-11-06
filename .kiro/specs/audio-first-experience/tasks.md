@@ -121,7 +121,7 @@
     - _Requirements: 5_
 
 - [ ] 6. Create Audio Hub landing page
-  - [ ] 6.1 Build Audio Hub component
+  - [x] 6.1 Build Audio Hub component
     - Create app/scenes/AudioHub/AudioHub.tsx
     - Display prominent heading "Capture Audio, Create Knowledge"
     - Create three primary action cards: Record Audio, Upload Files, Import from URL
@@ -131,13 +131,13 @@
     - Add quick link to full Audio Inbox
     - _Requirements: 1, 16_
   
-  - [ ] 6.2 Wire up Audio Hub actions
+  - [x] 6.2 Wire up Audio Hub actions
     - Connect "Record Audio" to start recording flow (create document, open Recording Studio)
     - Connect "Upload Files" to open file picker
     - Connect "Import from URL" to open URL import dialog
     - _Requirements: 1, 1.1_
   
-  - [ ] 6.3 Add Audio Hub to navigation
+  - [x] 6.3 Add Audio Hub to navigation
     - Add "Audio Hub" menu item with microphone icon
     - Make Audio Hub default landing page for new users (configurable)
     - _Requirements: 1_
@@ -242,7 +242,7 @@
   - Ensure high contrast recording indicator
   - _Requirements: All (accessibility)_
 
-- [ ]* 12. Implement real-time transcription (optional)
+- [ ]* 12. Implement real-time transcription 
   - Check if transcription service supports streaming transcription
   - Add "Real-time Transcription" panel to Recording Studio
   - Display transcribed text as it becomes available
