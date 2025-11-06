@@ -133,6 +133,10 @@ export function aiAskPath(): string {
   return "/ai-ask";
 }
 
+export function audioHubPath(): string {
+  return "/audio-hub";
+}
+
 export function healthPath(): string {
   return "/health";
 }
