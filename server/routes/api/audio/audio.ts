@@ -21,6 +21,8 @@ import { authorize } from "@server/policies";
 import TranscriptionTask from "@server/queues/tasks/TranscriptionTask";
 import { APIContext } from "@server/types";
 import { RateLimiterStrategy } from "@server/utils/RateLimiter";
+import AIArchiveSuggestionService from "@server/services/AIArchiveSuggestionService";
+import { DocumentHelper } from "@server/models/helpers/DocumentHelper";
 import * as T from "./schema";
 
 const router = new Router();
@@ -278,6 +280,194 @@ router.post(
       data: {
         transcriptionJobId: job.id,
         attachmentId: attachment.id,
+      },
+    };
+  }
+);
+
+router.post(
+  "audio.archive-suggestion",
+  rateLimiter(RateLimiterStrategy.TwentyFivePerMinute),
+  auth(),
+  validate(T.AudioArchiveSuggestionSchema),
+  async (ctx: APIContext<T.AudioArchiveSuggestionReq>) => {
+    const { user } = ctx.state.auth;
+    const { documentId } = ctx.input.body;
+
+    // Find the document and verify access
+    const document = await Document.findByPk(documentId, {
+      userId: user.id,
+    });
+
+    if (!document) {
+      throw NotFoundError("Document not found");
+    }
+
+    authorize(user, "read", document);
+
+    // Check if document already has suggestions
+    if (
+      document.audioMetadata?.aiArchiveSuggestion &&
+      document.audioMetadata.aiArchiveSuggestion.status !== "dismissed"
+    ) {
+      Logger.info("utils", "Returning cached archive suggestions", {
+        documentId,
+        userId: user.id,
+      });
+
+      ctx.body = {
+        data: {
+          suggestions:
+            document.audioMetadata.aiArchiveSuggestion.suggestions || [],
+          suggestedTitle: undefined,
+          topics: [],
+          documentType: "other",
+        },
+      };
+      return;
+    }
+
+    // Extract transcript from document
+    const transcript = DocumentHelper.toMarkdown(document, {
+      includeTitle: false,
+    });
+
+    if (!transcript || transcript.trim().length < 50) {
+      throw InvalidRequestError(
+        "Document does not have enough content for analysis"
+      );
+    }
+
+    Logger.info("utils", "Generating archive suggestions", {
+      documentId,
+      userId: user.id,
+      transcriptLength: transcript.length,
+    });
+
+    // Call AI service to analyze transcript
+    const suggestions = await AIArchiveSuggestionService.analyzeTranscript({
+      documentId,
+      transcript,
+      userId: user.id,
+    });
+
+    // Store suggestions in document metadata
+    await document.update({
+      audioMetadata: {
+        ...document.audioMetadata,
+        aiArchiveSuggestion: {
+          suggestions: suggestions.suggestions,
+          status: "pending",
+        },
+      },
+    });
+
+    Logger.info("utils", "Archive suggestions generated and stored", {
+      documentId,
+      userId: user.id,
+      suggestionCount: suggestions.suggestions.length,
+    });
+
+    ctx.body = {
+      data: suggestions,
+    };
+  }
+);
+
+router.post(
+  "audio.accept-suggestion",
+  rateLimiter(RateLimiterStrategy.TwentyFivePerMinute),
+  auth(),
+  validate(T.AudioAcceptSuggestionSchema),
+  async (ctx: APIContext<T.AudioAcceptSuggestionReq>) => {
+    const { user } = ctx.state.auth;
+    const { documentId, targetId, targetType } = ctx.input.body;
+
+    // Find the document and verify access
+    const document = await Document.findByPk(documentId, {
+      userId: user.id,
+    });
+
+    if (!document) {
+      throw NotFoundError("Document not found");
+    }
+
+    authorize(user, "update", document);
+
+    // Verify target exists and user has access
+    if (targetType === "collection") {
+      const targetCollection = await Collection.findByPk(targetId, {
+        userId: user.id,
+      });
+
+      if (!targetCollection) {
+        throw NotFoundError("Target collection not found");
+      }
+
+      authorize(user, "updateDocument", targetCollection);
+
+      // Move document to target collection
+      await document.update({
+        collectionId: targetId,
+        parentDocumentId: null,
+        audioMetadata: {
+          ...document.audioMetadata,
+          aiArchiveSuggestion: {
+            ...document.audioMetadata?.aiArchiveSuggestion,
+            status: "accepted",
+            acceptedSuggestionId: targetId,
+          },
+        },
+      });
+
+      Logger.info("utils", "Document moved to collection via AI suggestion", {
+        documentId,
+        targetCollectionId: targetId,
+        userId: user.id,
+      });
+    } else if (targetType === "document") {
+      const targetDocument = await Document.findByPk(targetId, {
+        userId: user.id,
+      });
+
+      if (!targetDocument) {
+        throw NotFoundError("Target document not found");
+      }
+
+      authorize(user, "read", targetDocument);
+
+      // Move document as child of target document
+      await document.update({
+        collectionId: targetDocument.collectionId,
+        parentDocumentId: targetId,
+        audioMetadata: {
+          ...document.audioMetadata,
+          aiArchiveSuggestion: {
+            ...document.audioMetadata?.aiArchiveSuggestion,
+            status: "accepted",
+            acceptedSuggestionId: targetId,
+          },
+        },
+      });
+
+      Logger.info(
+        "utils",
+        "Document moved as child of document via AI suggestion",
+        {
+          documentId,
+          targetDocumentId: targetId,
+          userId: user.id,
+        }
+      );
+    }
+
+    ctx.body = {
+      data: {
+        success: true,
+        newLocation: {
+          collectionId: document.collectionId,
+          parentDocumentId: document.parentDocumentId,
+        },
       },
     };
   }

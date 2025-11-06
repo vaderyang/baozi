@@ -84,6 +84,28 @@ export default class Document extends ArchivableModel implements Searchable {
     fileName?: string;
   };
 
+  /**
+   * Audio-specific metadata for audio documents.
+   */
+  @Field
+  @observable
+  audioMetadata?: {
+    sourceType?: "recording" | "upload" | "url";
+    duration?: number;
+    markers?: Array<{ timestamp: number; label?: string }>;
+    aiArchiveSuggestion?: {
+      suggestions: Array<{
+        targetId: string;
+        targetType: "collection" | "document";
+        targetName: string;
+        reason: string;
+        confidence: number;
+      }>;
+      status: "pending" | "accepted" | "dismissed";
+      acceptedSuggestionId?: string;
+    };
+  };
+
   @computed
   get searchContent(): string {
     return this.title;

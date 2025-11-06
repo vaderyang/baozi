@@ -7,6 +7,7 @@ import Button from "~/components/Button";
 import Flex from "~/components/Flex";
 import LoadingIndicator from "~/components/LoadingIndicator";
 import Text from "~/components/Text";
+import AIArchiveSuggestion from "~/components/AIArchiveSuggestion";
 import useStores from "~/hooks/useStores";
 import {
   TranscriptionJob,
@@ -23,11 +24,59 @@ type Props = {
  * - Processing status with progress indicator
  * - Completed transcript with speaker segments
  * - Error message with retry button on failure
+ * - AI Archive Suggestions when transcription is complete
  */
 function AudioTranscript({ documentId }: Props) {
-  const { transcriptionJobs } = useStores();
+  const { transcriptionJobs, documents } = useStores();
   const { t } = useTranslation();
   const [job, setJob] = React.useState<TranscriptionJob | null>(null);
+  const [suggestions, setSuggestions] = React.useState<
+    Array<{
+      targetId: string;
+      targetType: "collection" | "document";
+      targetName: string;
+      reason: string;
+      confidence: number;
+    }>
+  >([]);
+  const [loadingSuggestions, setLoadingSuggestions] = React.useState(false);
+
+  const document = documents.get(documentId);
+
+  const loadArchiveSuggestions = React.useCallback(async () => {
+    if (!document || loadingSuggestions) {return;}
+
+    // Check if suggestions already exist in document metadata
+    if (
+      document.audioMetadata?.aiArchiveSuggestion?.suggestions &&
+      document.audioMetadata.aiArchiveSuggestion.suggestions.length > 0
+    ) {
+      setSuggestions(document.audioMetadata.aiArchiveSuggestion.suggestions);
+      return;
+    }
+
+    setLoadingSuggestions(true);
+    try {
+      const response = await fetch("/api/audio.archive-suggestion", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          documentId,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSuggestions(data.data.suggestions || []);
+      }
+    } catch (_error) {
+      // Silently fail - suggestions are optional
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  }, [document, documentId, loadingSuggestions]);
 
   React.useEffect(() => {
     // Get the latest job for this document
@@ -36,8 +85,26 @@ function AudioTranscript({ documentId }: Props) {
       // Sort by creation time (assuming newer jobs have higher IDs)
       const latestJob = jobs[jobs.length - 1];
       setJob(latestJob);
+
+      // Load suggestions when transcription completes
+      if (
+        latestJob.status === TranscriptionJobStatus.Completed &&
+        document &&
+        !suggestions.length &&
+        !loadingSuggestions
+      ) {
+        void loadArchiveSuggestions();
+      }
     }
-  }, [documentId, transcriptionJobs, transcriptionJobs.jobs]);
+  }, [
+    documentId,
+    transcriptionJobs,
+    transcriptionJobs.jobs,
+    document,
+    suggestions.length,
+    loadingSuggestions,
+    loadArchiveSuggestions,
+  ]);
 
   const handleRetry = React.useCallback(async () => {
     if (job) {
@@ -48,6 +115,50 @@ function AudioTranscript({ documentId }: Props) {
       }
     }
   }, [job, transcriptionJobs]);
+
+  const handleAcceptSuggestion = React.useCallback(
+    async (targetId: string, targetType: "collection" | "document") => {
+      const response = await fetch("/api/audio.accept-suggestion", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          documentId,
+          targetId,
+          targetType,
+        }),
+      });
+
+      if (response.ok) {
+        // Reload document to reflect changes
+        if (document) {
+          await document.fetch();
+        }
+        setSuggestions([]);
+      }
+    },
+    [documentId, document]
+  );
+
+  const handleDismissSuggestions = React.useCallback(async () => {
+    if (!document) {return;}
+
+    // Update document metadata to mark suggestions as dismissed
+    await document.save({
+      audioMetadata: {
+        ...document.audioMetadata,
+        aiArchiveSuggestion: {
+          suggestions:
+            document.audioMetadata?.aiArchiveSuggestion?.suggestions || [],
+          status: "dismissed",
+          acceptedSuggestionId:
+            document.audioMetadata?.aiArchiveSuggestion?.acceptedSuggestionId,
+        },
+      },
+    });
+    setSuggestions([]);
+  }, [document]);
 
   if (!job) {
     return null;
@@ -95,29 +206,41 @@ function AudioTranscript({ documentId }: Props) {
     const { text, speakerSegments } = job.result;
 
     return (
-      <TranscriptContainer>
-        <TranscriptHeading>{t("Transcript")}</TranscriptHeading>
-
-        {speakerSegments && speakerSegments.length > 0 ? (
-          <SpeakerSegments>
-            {speakerSegments.map((segment, index) => (
-              <SpeakerSegment key={index}>
-                <SpeakerLabel>
-                  {t("Speaker")} {segment.spk}
-                </SpeakerLabel>
-                <SegmentText>{segment.text}</SegmentText>
-                {segment.start !== undefined && segment.end !== undefined && (
-                  <Timestamp>
-                    {formatTime(segment.start)} - {formatTime(segment.end)}
-                  </Timestamp>
-                )}
-              </SpeakerSegment>
-            ))}
-          </SpeakerSegments>
-        ) : (
-          <TranscriptText>{text}</TranscriptText>
+      <>
+        {/* Show AI Archive Suggestions */}
+        {document && suggestions.length > 0 && (
+          <AIArchiveSuggestion
+            document={document}
+            suggestions={suggestions}
+            onAccept={handleAcceptSuggestion}
+            onDismiss={handleDismissSuggestions}
+          />
         )}
-      </TranscriptContainer>
+
+        <TranscriptContainer>
+          <TranscriptHeading>{t("Transcript")}</TranscriptHeading>
+
+          {speakerSegments && speakerSegments.length > 0 ? (
+            <SpeakerSegments>
+              {speakerSegments.map((segment, index) => (
+                <SpeakerSegment key={index}>
+                  <SpeakerLabel>
+                    {t("Speaker")} {segment.spk}
+                  </SpeakerLabel>
+                  <SegmentText>{segment.text}</SegmentText>
+                  {segment.start !== undefined && segment.end !== undefined && (
+                    <Timestamp>
+                      {formatTime(segment.start)} - {formatTime(segment.end)}
+                    </Timestamp>
+                  )}
+                </SpeakerSegment>
+              ))}
+            </SpeakerSegments>
+          ) : (
+            <TranscriptText>{text}</TranscriptText>
+          )}
+        </TranscriptContainer>
+      </>
     );
   }
 

@@ -97,21 +97,21 @@
     - _Requirements: 4_
 
 - [ ] 5. Build AI Archive Suggestion feature
-  - [ ] 5.1 Create AI Archive Suggestion Service
+  - [x] 5.1 Create AI Archive Suggestion Service
     - Create server/services/AIArchiveSuggestionService.ts
     - Implement analyzeTranscript() method using existing AI service
     - Extract key topics, entities, and document type from transcript
     - Rank matches and generate top 3 suggestions with explanations
-    - suggest improved title based on content
+    - suggest improved title based on extracted key topics and entities
     - _Requirements: 5_
   
-  - [ ] 5.2 Create API endpoints for archive suggestions
+  - [x] 5.2 Create API endpoints for archive suggestions
     - Create POST /api/audio/archive-suggestion endpoint
     - Create POST /api/audio/accept-suggestion endpoint that moves document to target location
     - Store suggestions in Audio Document metadata
     - _Requirements: 5_
   
-  - [ ] 5.3 Build AI Archive Suggestion UI component
+  - [x] 5.3 Build AI Archive Suggestion UI component
     - Create suggestion card component displayed at top of Audio Document
     - Show up to 3 suggestions with target name, reason, and confidence
     - Add action buttons: "Move Here", "Create New Collection", "Keep in Inbox", "Dismiss"
