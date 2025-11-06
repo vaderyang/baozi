@@ -31,6 +31,12 @@ export enum TranscriptionJobStatus {
   Cancelled = "cancelled",
 }
 
+export enum TranscriptionSourceType {
+  Recording = "recording",
+  Upload = "upload",
+  Url = "url",
+}
+
 export type TranscriptionResult = {
   text: string;
   speakerSegments?: Array<{
@@ -40,6 +46,14 @@ export type TranscriptionResult = {
     end?: number;
     timestamp?: number[][];
   }>;
+};
+
+export type TranscriptionMetadata = {
+  duration?: number;
+  language?: string;
+  markers?: Array<{ timestamp: number; label?: string }>;
+  originalFilename?: string;
+  sourceUrl?: string;
 };
 
 @Table({ tableName: "transcription_jobs", modelName: "transcription_job" })
@@ -52,6 +66,10 @@ class TranscriptionJob extends IdModel<
   @Column(DataType.STRING(20))
   status: TranscriptionJobStatus;
 
+  @IsIn([Object.values(TranscriptionSourceType)])
+  @Column(DataType.STRING(20))
+  sourceType: TranscriptionSourceType;
+
   @IsInt
   @Min(0)
   @Max(100)
@@ -63,6 +81,9 @@ class TranscriptionJob extends IdModel<
 
   @Column(DataType.JSONB)
   result: TranscriptionResult | null;
+
+  @Column(DataType.JSONB)
+  metadata: TranscriptionMetadata | null;
 
   // methods
 

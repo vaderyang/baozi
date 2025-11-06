@@ -11,6 +11,7 @@ import { AppState, AppContext } from "@server/types";
 import { Hook, PluginManager } from "@server/utils/PluginManager";
 import apiKeys from "./apiKeys";
 import attachments from "./attachments";
+import audio from "./audio";
 import auth from "./auth";
 import authenticationProviders from "./authenticationProviders";
 import ai from "./ai";
@@ -83,6 +84,7 @@ PluginManager.getHooks(Hook.API).forEach((hook) =>
 router.use("/", auth.routes());
 router.use("/", authenticationProviders.routes());
 router.use("/", ai.routes());
+router.use("/", audio.routes());
 router.use("/", health.routes());
 router.use("/", events.routes());
 router.use("/", users.routes());
