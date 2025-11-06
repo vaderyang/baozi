@@ -10,5 +10,5 @@ echo "host_bind=$host_bind"
 echo "port_bind=$port_bind"
 
 #python -m auto_deploy.hook_server --code_base_dir "$code_base_dir" --image_version "$image_version" --host "$host_bind" --port "$port_bind"
-nohup python -m auto_deploy.hook_server --code_base_dir "$code_base_dir" --image_version "$image_version" --host "$host_bind" --port "$port_bind" > ./auto_deploy.staging.log 2>&1 &
+nohup python -m hook_server --code_base_dir "$code_base_dir" --image_version "$image_version" --host "$host_bind" --port "$port_bind" > ./hook_server.log 2>&1 &
 
