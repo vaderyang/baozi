@@ -3,7 +3,7 @@ import { SparklesIcon } from "outline-icons";
 import * as React from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { TeamPreference } from "@shared/types";
+import { TeamPreference, TeamPreferences } from "@shared/types";
 import Heading from "~/components/Heading";
 import Input from "~/components/Input";
 import { InputSelect, Option } from "~/components/InputSelect";
@@ -17,38 +17,32 @@ function AI() {
   const { t } = useTranslation();
   const team = useCurrentTeam();
 
-  const [contextLengthThreshold, setContextLengthThreshold] = React.useState(
-    String(team.getPreference(TeamPreference.AiContextLengthThreshold) ?? 500)
-  );
-  const [generateTextModel, setGenerateTextModel] = React.useState(
-    (team.getPreference(TeamPreference.AiGenerateTextModel) as string) ||
-      "__default__"
-  );
-  const [generateTextFallbackModel, setGenerateTextFallbackModel] =
-    React.useState(
-      (team.getPreference(
-        TeamPreference.AiGenerateTextFallbackModel
-      ) as string) || "__default__"
-    );
-  const [searchModel, setSearchModel] = React.useState(
-    (team.getPreference(TeamPreference.AiSearchModel) as string) ||
-      "__default__"
-  );
-  const [searchFallbackModel, setSearchFallbackModel] = React.useState(
-    (team.getPreference(TeamPreference.AiSearchFallbackModel) as string) ||
-      "__default__"
-  );
-  const [visionModel, setVisionModel] = React.useState(
-    (team.getPreference(TeamPreference.AiVisionModel) as string) ||
-      "__default__"
-  );
-  const [transcriptionEndpoint, setTranscriptionEndpoint] = React.useState(
-    (team.getPreference(TeamPreference.TranscriptionEndpoint) as string) || ""
-  );
-
   const [availableModels, setAvailableModels] = React.useState<string[]>([]);
   const [loadingModels, setLoadingModels] = React.useState(false);
   const [modelsError, setModelsError] = React.useState<string | null>(null);
+
+  // Read values directly from team preferences (MobX will handle reactivity)
+  const contextLengthThreshold = String(
+    team.getPreference(TeamPreference.AiContextLengthThreshold) ?? 500
+  );
+  const generateTextModel =
+    (team.getPreference(TeamPreference.AiGenerateTextModel) as string) ||
+    "__default__";
+  const generateTextFallbackModel =
+    (team.getPreference(
+      TeamPreference.AiGenerateTextFallbackModel
+    ) as string) || "__default__";
+  const searchModel =
+    (team.getPreference(TeamPreference.AiSearchModel) as string) ||
+    "__default__";
+  const searchFallbackModel =
+    (team.getPreference(TeamPreference.AiSearchFallbackModel) as string) ||
+    "__default__";
+  const visionModel =
+    (team.getPreference(TeamPreference.AiVisionModel) as string) ||
+    "__default__";
+  const transcriptionEndpoint =
+    (team.getPreference(TeamPreference.TranscriptionEndpoint) as string) || "";
 
   // Fetch available models from the backend API
   React.useEffect(() => {
@@ -68,7 +62,7 @@ function AI() {
         if (data?.models && Array.isArray(data.models)) {
           const modelIds = data.models
             .map((model: { id: string }) => model.id)
-            .filter((id): id is string => !!id);
+            .filter((id: string | undefined): id is string => !!id);
           setAvailableModels(modelIds);
         } else {
           throw new Error("Invalid response format from models API");
@@ -93,45 +87,36 @@ function AI() {
     };
   }, []);
 
-  const handleSave = React.useCallback(async () => {
-    const threshold = parseInt(contextLengthThreshold, 10);
-    if (isNaN(threshold) || threshold < 1) {
-      toast.error(t("Context length threshold must be a positive number"));
-      return;
-    }
+  const handleSave = React.useCallback(
+    async (updates: Partial<TeamPreferences>) => {
+      // Convert __default__ back to undefined for storage
+      // For string fields, empty string means "use default" so convert to undefined
+      const cleanValue = (key: TeamPreference, val: unknown) => {
+        if (val === "__default__") {
+          return undefined;
+        }
+        // For string preferences, empty string should be saved as undefined
+        if (typeof val === "string" && val.trim() === "") {
+          return undefined;
+        }
+        return val;
+      };
 
-    // Convert __default__ back to undefined for storage
-    const cleanValue = (val: string) =>
-      val === "__default__" || !val ? undefined : val;
+      const cleanedUpdates: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(updates)) {
+        cleanedUpdates[key] = cleanValue(key as TeamPreference, value);
+      }
 
-    await team.save({
-      preferences: {
-        ...team.preferences,
-        [TeamPreference.AiContextLengthThreshold]: threshold,
-        [TeamPreference.AiGenerateTextModel]: cleanValue(generateTextModel),
-        [TeamPreference.AiGenerateTextFallbackModel]: cleanValue(
-          generateTextFallbackModel
-        ),
-        [TeamPreference.AiSearchModel]: cleanValue(searchModel),
-        [TeamPreference.AiSearchFallbackModel]: cleanValue(searchFallbackModel),
-        [TeamPreference.AiVisionModel]: cleanValue(visionModel),
-        [TeamPreference.TranscriptionEndpoint]: cleanValue(
-          transcriptionEndpoint
-        ),
-      },
-    });
-    toast.success(t("AI settings saved"));
-  }, [
-    team,
-    contextLengthThreshold,
-    generateTextModel,
-    generateTextFallbackModel,
-    searchModel,
-    searchFallbackModel,
-    visionModel,
-    transcriptionEndpoint,
-    t,
-  ]);
+      await team.save({
+        preferences: {
+          ...team.preferences,
+          ...cleanedUpdates,
+        },
+      });
+      toast.success(t("AI settings saved"));
+    },
+    [team, t]
+  );
 
   const modelOptions: Option[] = React.useMemo(() => {
     const options: Option[] = [
@@ -194,8 +179,27 @@ function AI() {
       >
         <Input
           value={contextLengthThreshold}
-          onChange={(e) => setContextLengthThreshold(e.target.value)}
-          onBlur={handleSave}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+            const threshold = parseInt(e.target.value, 10);
+            if (!isNaN(threshold) && threshold >= 1) {
+              team.setPreference(
+                TeamPreference.AiContextLengthThreshold,
+                threshold
+              );
+            }
+          }}
+          onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
+            const threshold = parseInt(e.target.value, 10);
+            if (isNaN(threshold) || threshold < 1) {
+              toast.error(
+                t("Context length threshold must be a positive number")
+              );
+              return;
+            }
+            void handleSave({
+              [TeamPreference.AiContextLengthThreshold]: threshold,
+            });
+          }}
           placeholder="500"
         />
       </SettingRow>
@@ -230,8 +234,9 @@ function AI() {
           options={modelOptions}
           value={generateTextModel}
           onChange={(value) => {
-            setGenerateTextModel(value);
-            void handleSave();
+            void handleSave({
+              [TeamPreference.AiGenerateTextModel]: value,
+            });
           }}
           label={t("Primary model")}
           hideLabel
@@ -250,8 +255,9 @@ function AI() {
           options={modelOptions}
           value={generateTextFallbackModel}
           onChange={(value) => {
-            setGenerateTextFallbackModel(value);
-            void handleSave();
+            void handleSave({
+              [TeamPreference.AiGenerateTextFallbackModel]: value,
+            });
           }}
           label={t("Fallback model")}
           hideLabel
@@ -277,8 +283,9 @@ function AI() {
           options={modelOptions}
           value={searchModel}
           onChange={(value) => {
-            setSearchModel(value);
-            void handleSave();
+            void handleSave({
+              [TeamPreference.AiSearchModel]: value,
+            });
           }}
           label={t("Primary model")}
           hideLabel
@@ -297,8 +304,9 @@ function AI() {
           options={modelOptions}
           value={searchFallbackModel}
           onChange={(value) => {
-            setSearchFallbackModel(value);
-            void handleSave();
+            void handleSave({
+              [TeamPreference.AiSearchFallbackModel]: value,
+            });
           }}
           label={t("Fallback model")}
           hideLabel
@@ -318,8 +326,9 @@ function AI() {
           options={modelOptions}
           value={visionModel}
           onChange={(value) => {
-            setVisionModel(value);
-            void handleSave();
+            void handleSave({
+              [TeamPreference.AiVisionModel]: value,
+            });
           }}
           label={t("Vision model")}
           hideLabel
@@ -338,8 +347,17 @@ function AI() {
       >
         <Input
           value={transcriptionEndpoint}
-          onChange={(e) => setTranscriptionEndpoint(e.target.value)}
-          onBlur={handleSave}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+            team.setPreference(
+              TeamPreference.TranscriptionEndpoint,
+              e.target.value
+            );
+          }}
+          onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
+            void handleSave({
+              [TeamPreference.TranscriptionEndpoint]: e.target.value,
+            });
+          }}
           placeholder="http://v.netis.com.cn:13000/transcribe"
         />
       </SettingRow>
