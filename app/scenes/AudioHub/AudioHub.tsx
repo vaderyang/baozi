@@ -19,7 +19,7 @@ import Logger from "~/utils/Logger";
 const AudioHub = observer(function _AudioHub() {
   const { t } = useTranslation();
   const history = useHistory();
-  const { audioInbox, transcriptionJobs } = useStores();
+  const { audioInbox, transcriptionJobs, documents } = useStores();
   const [recentDocuments, setRecentDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -62,8 +62,19 @@ const AudioHub = observer(function _AudioHub() {
       const data = await response.json();
       const { documentId } = data;
 
-      // Navigate to the recording studio with the document
-      history.push(`/recording-studio/${documentId}`);
+      // Fetch the document to get its URL slug
+      const document = documents.get(documentId);
+      if (document) {
+        // Navigate to the document which will show the Recording Studio
+        history.push(document.path);
+      } else {
+        // If document not in store yet, fetch it
+        await documents.fetch(documentId);
+        const doc = documents.get(documentId);
+        if (doc) {
+          history.push(doc.path);
+        }
+      }
     } catch (error) {
       Logger.error(
         "Failed to start recording",
