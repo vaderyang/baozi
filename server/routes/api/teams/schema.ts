@@ -72,6 +72,8 @@ export const TeamsUpdateSchema = BaseSchema.extend({
         aiSearchFallbackModel: z.string().optional(),
         /** Model name for AI vision tasks. */
         aiVisionModel: z.string().optional(),
+        /** Audio transcription service endpoint URL. */
+        transcriptionEndpoint: z.string().optional(),
       })
       .optional(),
   }),
