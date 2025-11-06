@@ -95,15 +95,29 @@ function Conversation() {
                 />
               )}
               {aiAsk.currentStreamingAnswer ? (
-                <Answer
-                  answer={aiAsk.currentStreamingAnswer}
-                  sources={aiAsk.currentStreamingSources}
-                  followups={[]}
-                  isStreaming={true}
-                  onCitationClick={(sourceId: string) =>
-                    aiAsk.setActiveDocument(sourceId)
-                  }
-                />
+                <>
+                  {/* Debug: Show that we have streaming content */}
+                  {process.env.NODE_ENV === "development" && (
+                    <div
+                      style={{
+                        fontSize: "10px",
+                        color: "#999",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Streaming: {aiAsk.currentStreamingAnswer.length} chars
+                    </div>
+                  )}
+                  <Answer
+                    answer={aiAsk.currentStreamingAnswer}
+                    sources={aiAsk.currentStreamingSources}
+                    followups={[]}
+                    isStreaming={true}
+                    onCitationClick={(sourceId: string) =>
+                      aiAsk.setActiveDocument(sourceId)
+                    }
+                  />
+                </>
               ) : (
                 <LoadingState
                   phase={aiAsk.isLoadingPhase}

@@ -244,7 +244,13 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           });
 
           const prompt =
-            "Summarize the following transcript by using the language mainly used in the transcript, if you cannot determine, by default use Chinese(zh-CN). you need to design the best minutes format for the transcript, e.g. professional meeting minutes, interview minutes, personal notes and etc. :";
+            "CRITICAL RULES:\n" +
+            "1. ONLY use information from the provided transcript below - DO NOT add any external information or make up content\n" +
+            "2. If the transcript is too short or unclear, simply state that the content is insufficient for a summary\n" +
+            "3. Use the same language as the transcript (default to Chinese/zh-CN if unclear)\n" +
+            "4. Design an appropriate format based on the transcript content (e.g., meeting minutes, interview notes, personal memo)\n" +
+            "5. If the transcript only contains a single sentence or question, just restate it clearly without elaboration\n\n" +
+            "Summarize the following transcript:";
           const response = await client.post<{ data: { text?: string } }>(
             "/ai.generate",
             {

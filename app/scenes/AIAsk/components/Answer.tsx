@@ -22,6 +22,7 @@ const md = new MarkdownIt({
   html: true,
   linkify: true,
   breaks: true,
+  typographer: true,
 });
 
 type DocumentReference = {
@@ -54,6 +55,19 @@ function Answer({
   const [isExpanded, setIsExpanded] = React.useState(true);
   const [isCopied, setIsCopied] = React.useState(false);
 
+  // Debug: Log when component renders
+  React.useEffect(() => {
+    if (process.env.NODE_ENV === "development") {
+      // eslint-disable-next-line no-console
+      console.log("[Answer] Component rendered/updated:", {
+        answerLength: answer?.length || 0,
+        sourcesCount: sources?.length || 0,
+        isStreaming,
+        answerPreview: answer ? answer.substring(0, 50) : "empty",
+      });
+    }
+  }, [answer, sources, isStreaming]);
+
   const isLongAnswer = answer.length > COLLAPSE_THRESHOLD;
   const shouldShowExpandButton = isLongAnswer && !isStreaming;
 
@@ -85,7 +99,28 @@ function Answer({
 
   // Process markdown and add citation links
   const processedAnswer = React.useMemo(() => {
-    const renderedMarkdown = md.render(answer);
+    // Ensure answer is a string
+    const answerText = String(answer || "");
+
+    // Debug log to verify answer is being received
+    if (
+      answerText &&
+      answerText.length > 0 &&
+      process.env.NODE_ENV === "development"
+    ) {
+      // eslint-disable-next-line no-console
+      console.log("[Answer] Processing answer:", {
+        answerLength: answerText.length,
+        isStreaming,
+        preview: answerText.substring(0, 100),
+      });
+    }
+
+    if (!answerText) {
+      return "";
+    }
+
+    const renderedMarkdown = md.render(answerText);
     // Replace "Document N" with superscript citation links
     return renderedMarkdown.replace(/Document\s+(\d+)/g, (match, num) => {
       const index = parseInt(num, 10) - 1;
@@ -94,7 +129,7 @@ function Answer({
       }
       return match;
     });
-  }, [answer, sources]);
+  }, [answer, sources, isStreaming]);
 
   // Add click handlers to citation links after render
   React.useEffect(() => {
@@ -142,11 +177,17 @@ function Answer({
         $isCollapsed={!isExpanded && shouldShowExpandButton}
         $isStreaming={isStreaming}
       >
-        <MarkdownContent
-          dangerouslySetInnerHTML={{
-            __html: processedAnswer,
-          }}
-        />
+        {answer && answer.length > 0 ? (
+          <MarkdownContent
+            dangerouslySetInnerHTML={{
+              __html: processedAnswer,
+            }}
+          />
+        ) : (
+          <Text type="secondary" size="small">
+            {t("Generating answer...")}
+          </Text>
+        )}
         {isStreaming && <StreamingCursor />}
       </AnswerContent>
 

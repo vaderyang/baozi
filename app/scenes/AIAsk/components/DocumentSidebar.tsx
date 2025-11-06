@@ -39,12 +39,28 @@ function DocumentSidebar({ sources, activeSourceId, onClose }: Props) {
     }
   }, [activeSourceId]);
 
-  // Handle Escape key to close sidebar
+  // Handle clicks outside sidebar to close
   React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        sidebarRef.current &&
+        !sidebarRef.current.contains(event.target as Node)
+      ) {
         onClose();
       }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [onClose]);
+
+  // Handle Escape key and any keyboard input to close sidebar
+  React.useEffect(() => {
+    const handleKeyDown = (_event: KeyboardEvent) => {
+      // Close on Escape or any other keyboard input
+      onClose();
     };
 
     document.addEventListener("keydown", handleKeyDown);
@@ -136,7 +152,7 @@ const Container = styled.div`
   border-left: 1px solid ${s("divider")};
   display: flex;
   flex-direction: column;
-  z-index: 100;
+  z-index: 1000;
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
   animation: slideIn 200ms ease-out;
 
@@ -161,7 +177,7 @@ const Header = styled.div`
   background: ${s("sidebarBackground")};
   border-bottom: 1px solid ${s("divider")};
   padding: 16px;
-  z-index: 1;
+  z-index: 10;
 `;
 
 const HeaderContent = styled.div`

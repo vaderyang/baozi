@@ -436,10 +436,41 @@ export default class AIAskStore {
               }
             } else if (event.type === "content") {
               hasReceivedContent = true;
-              streamingAnswer += event.content;
+              const contentDelta = event.content || "";
+              streamingAnswer += contentDelta;
+
+              // Debug log for first few chunks and periodically
+              const shouldLog =
+                streamingAnswer.length < 200 ||
+                streamingAnswer.length % 500 < contentDelta.length;
+              if (shouldLog && process.env.NODE_ENV === "development") {
+                // eslint-disable-next-line no-console
+                console.log("[AIAsk] Content received:", {
+                  contentLength: contentDelta.length,
+                  totalLength: streamingAnswer.length,
+                  preview: streamingAnswer.substring(0, 100),
+                  currentStreamingAnswerBefore:
+                    this.currentStreamingAnswer.length,
+                });
+              }
+
               runInAction(() => {
                 this.currentStreamingAnswer = streamingAnswer;
+                // Force update by also updating loading phase
+                if (this.isLoadingPhase === "searching") {
+                  this.isLoadingPhase = "generating";
+                }
               });
+
+              if (shouldLog && process.env.NODE_ENV === "development") {
+                // eslint-disable-next-line no-console
+                console.log("[AIAsk] After runInAction:", {
+                  currentStreamingAnswerAfter:
+                    this.currentStreamingAnswer.length,
+                  isStreaming: this.isStreaming,
+                  isLoadingPhase: this.isLoadingPhase,
+                });
+              }
             } else if (event.type === "followups") {
               streamingFollowups = event.followups;
             } else if (event.type === "error") {
