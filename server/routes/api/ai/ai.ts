@@ -717,25 +717,71 @@ const searchWithMultipleKeywords = async (
     );
   }
 
-  // Merge and deduplicate results
+  // Calculate keyword specificity weights
+  // Keywords with fewer results are more specific and get higher weights
+  // This boosts results for specific terms like "回放测试" over generic terms like "进展"
+  const keywordWeights = new Map<string, number>();
+  const maxResults = Math.max(
+    ...allSearchResults.map((r) => r.results.length),
+    1
+  );
+
+  for (const { keyword, results } of allSearchResults) {
+    // Specificity weight: inverse of result count normalized
+    // Fewer results = higher weight (more specific)
+    // More results = lower weight (more generic)
+    const resultCount = results.length || 1;
+    const specificity = maxResults / resultCount;
+
+    // Apply logarithmic scaling to prevent extreme weights
+    // This ensures specific keywords are boosted but not overwhelming
+    const weight = 1 + Math.log(specificity);
+    keywordWeights.set(keyword, weight);
+
+    Logger.info("utils", "Keyword specificity calculated", {
+      keyword,
+      resultCount,
+      specificity: specificity.toFixed(2),
+      weight: weight.toFixed(2),
+      interpretation:
+        weight > 1.5
+          ? "specific/rare term (high weight)"
+          : "common term (lower weight)",
+    });
+  }
+
+  // Merge and deduplicate results with weighted scoring
   const mergingStartTime = Date.now();
   const documentMap = new Map<string, MergedSearchResult>();
 
   for (const { keyword, results } of allSearchResults) {
+    const keywordWeight = keywordWeights.get(keyword) || 1.0;
+
     for (const result of results) {
       const docId = (result.document as { id: string }).id;
+
+      // Apply keyword weight to ranking score
+      const weightedScore = result.ranking * keywordWeight;
 
       if (documentMap.has(docId)) {
         // Document found in multiple searches - boost relevance
         const existing = documentMap.get(docId)!;
-        existing.relevanceScore += result.ranking;
+        existing.relevanceScore += weightedScore;
         existing.matchedKeywords.push(keyword);
+
+        // Additional boost for matching multiple keywords (co-occurrence boost)
+        // Documents matching multiple specific keywords are highly relevant
+        const multiKeywordBoost = existing.matchedKeywords.length * 0.5;
+        existing.relevanceScore += multiKeywordBoost;
 
         // Log documents matching multiple keywords (Task 9.2)
         Logger.info("utils", "Document matched multiple keywords", {
           documentId: docId,
           keyword,
-          newRelevanceScore: existing.relevanceScore,
+          keywordWeight: keywordWeight.toFixed(2),
+          weightedScore: weightedScore.toFixed(2),
+          multiKeywordBoost: multiKeywordBoost.toFixed(2),
+          newRelevanceScore: existing.relevanceScore.toFixed(2),
           matchedKeywords: existing.matchedKeywords,
           matchCount: existing.matchedKeywords.length,
         });
@@ -743,7 +789,7 @@ const searchWithMultipleKeywords = async (
         // New document
         documentMap.set(docId, {
           document: result.document,
-          relevanceScore: result.ranking,
+          relevanceScore: weightedScore,
           matchedKeywords: [keyword],
           context: result.context || "",
           ranking: result.ranking,
@@ -897,6 +943,19 @@ router.post(
       ctx.throw(InvalidRequestError("AI configuration is incomplete"));
     }
 
+    // Set up SSE response headers early, before any writes
+    ctx.respond = false;
+    ctx.res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+
+    Logger.info("utils", "AI Ask SSE headers sent", {
+      userId: user.id,
+      statusCode: ctx.res.statusCode,
+    });
+
     try {
       // Import models dynamically
       const { Document } = await import("@server/models");
@@ -906,13 +965,51 @@ router.post(
 
       // Build conversation context for better search
       let contextualQuery = query;
+      let firstQueryKeywords: string[] = [];
+
       if (conversationHistory && conversationHistory.length > 0) {
+        // CRITICAL: Preserve the first query's intent keywords
+        // This prevents the conversation from drifting off-topic in multi-turn dialogs
+        const firstQuery = conversationHistory[0].question;
+
+        // Extract keywords from first query to preserve core topic
+        try {
+          firstQueryKeywords = await extractKeywords(
+            firstQuery,
+            apiKey,
+            apiBase,
+            model
+          );
+          Logger.info("utils", "First query keywords extracted for context", {
+            firstQuery,
+            firstQueryKeywords,
+            userId: user.id,
+          });
+        } catch (error) {
+          Logger.warn(
+            "Failed to extract first query keywords, continuing without them",
+            {
+              firstQuery,
+              error: error instanceof Error ? error.message : String(error),
+              userId: user.id,
+            }
+          );
+        }
+
         // Use last 3 turns for context
         const recentHistory = conversationHistory.slice(-3);
         const contextParts = recentHistory.map(
           (turn) => `Q: ${turn.question}\nA: ${turn.answer}`
         );
-        contextualQuery = `Previous conversation:\n${contextParts.join("\n\n")}\n\nCurrent question: ${query}`;
+
+        // Include first query context to maintain topic focus
+        contextualQuery = `IMPORTANT: The conversation started with this question: "${firstQuery}"
+Keep this original topic in mind when extracting keywords.
+
+Recent conversation:
+${contextParts.join("\n\n")}
+
+Current question: ${query}`;
       }
 
       // Extract individual keywords from the contextual query
@@ -922,6 +1019,29 @@ router.post(
         apiBase,
         model
       );
+
+      // Merge first query keywords with current keywords
+      // This ensures we don't lose the original topic focus
+      if (firstQueryKeywords.length > 0) {
+        // Add first query keywords that aren't already in the current search
+        const uniqueFirstKeywords = firstQueryKeywords.filter(
+          (kw) => !searchKeywordsArray.includes(kw)
+        );
+        if (uniqueFirstKeywords.length > 0) {
+          // Prepend first query keywords to prioritize original topic
+          searchKeywordsArray.unshift(...uniqueFirstKeywords);
+          Logger.info(
+            "utils",
+            "Merged first query keywords to maintain topic focus",
+            {
+              firstQueryKeywords,
+              currentKeywords: searchKeywordsArray,
+              addedKeywords: uniqueFirstKeywords,
+              userId: user.id,
+            }
+          );
+        }
+      }
 
       // Detect when keyword extraction returns empty array (should not happen due to fallback)
       if (searchKeywordsArray.length === 0) {
@@ -1139,6 +1259,85 @@ router.post(
           })}\n\n`
         );
 
+        // Generate a helpful response even when no documents are found
+        // Let LLM respond in user's language
+        const noResultsPrompt = `You are a helpful assistant. The user asked: "${query}"
+
+Unfortunately, we couldn't find any relevant documents in the knowledge base for this question.
+
+Please provide a friendly response that:
+1. MUST be in the same language as the user's question
+2. Acknowledges that no relevant information was found
+3. Suggests trying different keywords or checking document access
+4. Keep it concise (under 100 words)`;
+
+        try {
+          const trimmedBase = apiBase.replace(/\/$/, "");
+          const endpoint = /\/chat\/completions$/i.test(trimmedBase)
+            ? trimmedBase
+            : `${trimmedBase}/chat/completions`;
+
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model,
+              messages: [
+                {
+                  role: "system",
+                  content: noResultsPrompt,
+                },
+              ],
+              stream: true,
+            }),
+          });
+
+          if (response.ok && response.body) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) {break;}
+
+              const chunk = decoder.decode(value, { stream: true });
+              const lines = chunk.split("\n");
+
+              for (const line of lines) {
+                if (!line.trim() || !line.startsWith("data: ")) {continue;}
+                if (line.includes("[DONE]")) {continue;}
+
+                try {
+                  const data = JSON.parse(line.slice(6)) as {
+                    choices?: ChatCompletionChoice[];
+                  };
+                  const content = parseAiResponse(data.choices?.[0] || {});
+
+                  if (content) {
+                    ctx.res.write(
+                      `data: ${JSON.stringify({
+                        type: "content",
+                        content,
+                      })}\n\n`
+                    );
+                  }
+                } catch (_e) {
+                  // Skip invalid JSON
+                }
+              }
+            }
+          }
+        } catch (error) {
+          Logger.error(
+            "Failed to generate no-results response",
+            error instanceof Error ? error : new Error(String(error)),
+            { query, userId: user.id }
+          );
+        }
+
         ctx.res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
         ctx.res.end();
         return;
@@ -1286,10 +1485,14 @@ ${strippedMarkdown}`;
       }
 
       // Build sources list - only includes authorized documents
+      // Ensure URL is properly generated with title slug
       const sources = documents.map((doc) => ({
         id: doc.id,
         title: doc.title,
-        url: doc.url,
+        url: Document.getPath({
+          title: doc.title,
+          urlId: doc.urlId,
+        }),
         collectionId: doc.collectionId,
       }));
 
@@ -1312,17 +1515,22 @@ ${strippedMarkdown}`;
 
       const languageInstruction = language
         ? `IMPORTANT: Answer in ${language === "zh_CN" || language === "zh-CN" ? "Chinese (Simplified)" : language === "zh_TW" || language === "zh-TW" ? "Chinese (Traditional)" : language.replace("_", "-")}. `
-        : "";
+        : "CRITICAL: Detect the language of the user's question and answer in THE EXACT SAME LANGUAGE. If the user asks in Chinese, answer in Chinese. If in English, answer in English. If in Japanese, answer in Japanese. Match the user's language perfectly. ";
 
       let systemPrompt = `You are a conversational knowledge base assistant. Answer questions based on the provided documents.
 
 CRITICAL RULES:
-1. ${languageInstruction}Maximum 150 words - be extremely concise
+1. ${languageInstruction}Provide detailed, comprehensive answers (300-500 words recommended)
 2. ONLY use information from the provided documents
-3. If the documents don't contain the answer, clearly state "The provided documents don't contain information about this"
-4. Use simple, clear language
+3. If the documents don't contain the answer, clearly state "The provided documents don't contain information about this" (in the user's language)
+4. Explain thoroughly with:
+   - Key concepts and definitions
+   - Step-by-step explanations when applicable
+   - Specific examples and details from the documents
+   - Context and background information
 5. Reference documents using: [Document Title](doc-id)
-6. Use bullet points for lists, avoid tables and complex structures`;
+6. Use bullet points, numbered lists, and clear paragraph structure for readability
+7. Include relevant details, technical specifics, and concrete examples rather than high-level summaries`;
 
       if (conversationHistory && conversationHistory.length > 0) {
         const recentHistory = conversationHistory.slice(-3);
@@ -1471,16 +1679,6 @@ CRITICAL RULES:
         ctx.throw(InvalidRequestError("No stream returned from AI provider"));
       }
 
-      // Set up SSE headers
-      ctx.set({
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      });
-
-      ctx.respond = false;
-      ctx.status = 200;
-
       // PERMISSION CHECK: Send only authorized sources to client
       // At this point, sources array only contains documents the user has permission to access
       Logger.info("utils", "AI Ask sending authorized sources to client", {
@@ -1502,12 +1700,25 @@ CRITICAL RULES:
       const decoder = new TextDecoder();
       let buffer = "";
       let fullAnswer = "";
+      let chunkCount = 0;
+
+      Logger.info("utils", "AI Ask starting LLM response stream", {
+        model: currentModel,
+        userId: user.id,
+        teamId: user.teamId,
+      });
 
       try {
         while (true) {
           const { done, value } = await reader.read();
 
           if (done) {
+            Logger.info("utils", "AI Ask LLM stream completed", {
+              model: currentModel,
+              totalChunks: chunkCount,
+              fullAnswerLength: fullAnswer.length,
+              userId: user.id,
+            });
             break;
           }
 
@@ -1531,17 +1742,48 @@ CRITICAL RULES:
                   "";
 
                 if (delta) {
+                  chunkCount++;
                   fullAnswer += delta;
+
+                  // Log first few chunks and periodic updates
+                  if (chunkCount <= 3 || chunkCount % 10 === 0) {
+                    Logger.info("utils", "AI Ask LLM response chunk received", {
+                      chunkNumber: chunkCount,
+                      deltaLength: delta.length,
+                      totalLength: fullAnswer.length,
+                      deltaPreview: delta.substring(0, 50),
+                      userId: user.id,
+                    });
+                  }
+
                   ctx.res.write(
                     `data: ${JSON.stringify({ type: "content", content: delta })}\n\n`
                   );
                 }
-              } catch {
+              } catch (parseError) {
+                Logger.warn("Failed to parse LLM stream chunk", {
+                  jsonStr: jsonStr.substring(0, 100),
+                  error:
+                    parseError instanceof Error
+                      ? parseError.message
+                      : String(parseError),
+                  userId: user.id,
+                });
                 // Skip invalid JSON
               }
             }
           }
         }
+
+        // Log final answer before generating follow-ups
+        Logger.info("utils", "AI Ask LLM response complete", {
+          model: currentModel,
+          fullAnswerLength: fullAnswer.length,
+          answerPreview: fullAnswer.substring(0, 200),
+          totalChunks: chunkCount,
+          userId: user.id,
+          teamId: user.teamId,
+        });
 
         // Generate follow-up questions
         const followups = await generateFollowups(
@@ -1555,12 +1797,20 @@ CRITICAL RULES:
 
         // Send follow-ups
         if (followups.length > 0) {
+          Logger.info("utils", "AI Ask sending follow-ups to client", {
+            followupCount: followups.length,
+            followups,
+            userId: user.id,
+          });
           ctx.res.write(
             `data: ${JSON.stringify({ type: "followups", followups })}\n\n`
           );
         }
 
         // Send completion event
+        Logger.info("utils", "AI Ask sending done event to client", {
+          userId: user.id,
+        });
         ctx.res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
         ctx.res.end();
 
@@ -1627,6 +1877,19 @@ router.post(
     if (!apiKey || !apiBase || !model) {
       ctx.throw(InvalidRequestError("AI configuration is incomplete"));
     }
+
+    // Set up SSE response headers early, before any writes
+    ctx.respond = false;
+    ctx.res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+
+    Logger.info("utils", "AI Search SSE headers sent", {
+      userId: user.id,
+      statusCode: ctx.res.statusCode,
+    });
 
     try {
       // Import models dynamically
@@ -1753,10 +2016,14 @@ ${strippedMarkdown}`;
       const context = contextParts.join("\n\n---\n\n");
 
       // Build sources list
+      // Ensure URL is properly generated with title slug
       const sources = documents.map((doc) => ({
         id: doc.id,
         title: doc.title,
-        url: doc.url,
+        url: Document.getPath({
+          title: doc.title,
+          urlId: doc.urlId,
+        }),
         collectionId: doc.collectionId,
       }));
 
@@ -1923,19 +2190,6 @@ ${context}`;
         ctx.throw(InvalidRequestError("No stream returned from AI provider"));
       }
 
-      // Set up SSE headers
-      ctx.set({
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      });
-
-      // Tell Koa we're handling the response manually
-      ctx.respond = false;
-
-      // Set status code
-      ctx.status = 200;
-
       // Send sources first
       ctx.res.write(
         `data: ${JSON.stringify({ type: "sources", sources })}\n\n`
@@ -2090,11 +2344,13 @@ router.post(
 
     try {
       let instructions =
-        "You write Markdown Text upon user's request" +
+        "You write Markdown Text upon user's request. " +
         "Always emit valid Markdown that renders correctly. " +
         "IMPORTANT: Do NOT wrap your output in triple backticks (```) unless the user explicitly requests code blocks or code formatting. " +
-        "When asked for a diagram, respond with a fenced mermaid code block using ```mermaid and omit any surrounding text." +
-        "If writing a meeting minutes or so, be professional thinking the sections and the format.";
+        "When asked for a diagram, respond with a fenced mermaid code block using ```mermaid and omit any surrounding text. " +
+        "If writing a meeting minutes or summary, be professional thinking the sections and the format. " +
+        "CRITICAL: When summarizing or processing provided context, ONLY use information from that context - DO NOT add external information or make up content. " +
+        "If the provided context is insufficient or unclear, state that clearly instead of fabricating information.";
 
       let referencedDocumentsText = "";
       const visionImageUrls: string[] = [];

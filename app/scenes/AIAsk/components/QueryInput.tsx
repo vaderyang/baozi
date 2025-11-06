@@ -135,12 +135,12 @@ const Container = styled.div`
 const InputWrapper = styled.div<{ $hasError: boolean }>`
   position: relative;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   background: ${s("background")};
   border: 2px solid
     ${(props) => (props.$hasError ? props.theme.danger : s("inputBorder"))};
   border-radius: 12px;
-  padding: 12px 16px;
+  padding: 10px 16px;
   transition: border-color 100ms ease-in-out;
 
   &:focus-within {
@@ -158,7 +158,7 @@ const StyledTextarea = styled.textarea`
   line-height: 1.5;
   color: ${s("text")};
   resize: none;
-  min-height: 24px;
+  min-height: 20px;
   max-height: 200px;
   overflow-y: auto;
   font-family: inherit;
