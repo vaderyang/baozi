@@ -39,6 +39,7 @@ export const TeamPreferenceDefaults: TeamPreferences = {
   [TeamPreference.AiSearchModel]: undefined,
   [TeamPreference.AiSearchFallbackModel]: undefined,
   [TeamPreference.AiVisionModel]: undefined,
+  [TeamPreference.TranscriptionEndpoint]: undefined,
 };
 
 export const UserPreferenceDefaults: UserPreferences = {
