@@ -420,11 +420,6 @@ const stripTranscriptCodeBlocks = (markdown: string): string => {
 };
 
 /**
- * Detect if a query contains Chinese characters
- */
-const containsChinese = (text: string): boolean => /[\u4e00-\u9fa5]/.test(text);
-
-/**
  * Extract individual keywords from a natural language query using LLM
  * Returns an array of individual words (not multi-word phrases)
  */
@@ -440,37 +435,35 @@ const extractKeywords = async (
     : `${trimmedBase}/chat/completions`;
 
   // Detect language for better keyword extraction
-  const isChinese = containsChinese(query);
-  const languageNote = isChinese
-    ? "The query is in Chinese. Extract Chinese keywords as individual words/characters."
-    : "The query is in English. Extract English keywords as individual words.";
+  // const isChinese = containsChinese(query);
+  // const languageNote = isChinese
+  //   ? "The query is in Chinese. Extract Chinese keywords as individual words/characters."
+  //   : "The query is in English. Extract English keywords as individual words.";
 
   const systemPrompt = `You are a keyword extraction assistant. Extract INDIVIDUAL WORDS (NOT multi-word phrases) from the user's question for document search.
 
 CRITICAL RULES - SINGLE WORDS ONLY:
 1. Extract 1-5 INDIVIDUAL WORDS (NOT phrases, NOT multi-word terms)
-2. Each keyword MUST be a SINGLE WORD - no spaces within keywords
+2. Each keyword MUST be a intent word, you can use english translation regarding professional IT word if user input is not english.
 3. Focus on nouns, technical terms, and specific concepts
 4. Remove question words (what, how, why, when, where, who)
 5. Remove common words (is, the, a, an, of, in, on, at, for, with, to)
 6. Keep technical abbreviations and acronyms as single words (e.g., FTP, API, HTTP)
-7. Return ONLY the individual words separated by spaces, no explanation, no numbering
-
-${languageNote}
+7. Return ONLY the individual words separated by comma, no explanation, no numbering
+8. Use the same language of user based on the question to reply the user.
 
 CORRECT Examples (SINGLE WORDS):
 - "什么是FTP" → "FTP"
 - "How does authentication work?" → "authentication"
-- "What is the difference between REST and GraphQL?" → "REST GraphQL"
-- "如何配置数据库连接" → "配置 数据库 连接"
-- "How to set up user authentication?" → "user authentication setup"
+- "What is the difference between REST and GraphQL?" → "REST,GraphQL"
+- "如何配置数据库连接" → "配置,数据库,连接"
+- "如何配置数据库连接" → "Database Connection"
+- "How to set up user authentication?" → "user authentication,authentication setup"
 
-WRONG Examples (multi-word phrases - DO NOT DO THIS):
-- "user authentication" (WRONG - this is a phrase)
-- "database connection" (WRONG - this is a phrase)
-- "REST API" (WRONG - this is a phrase)
+WRONG Examples (long sentence - DO NOT DO THIS):
+- "how does user authentication" (WRONG - this is a sentence)
 
-Remember: Extract ONLY individual words, NOT phrases!`;
+`;
 
   const messages = [
     {
@@ -523,7 +516,7 @@ Remember: Extract ONLY individual words, NOT phrases!`;
 
     // Parse LLM response and split by whitespace into array
     const keywords = keywordsText
-      .split(/\s+/)
+      .split(",")
       .map((word) => word.trim())
       .filter((word) => word.length > 0)
       .slice(0, 5); // Limit to 5 keywords maximum
@@ -534,7 +527,6 @@ Remember: Extract ONLY individual words, NOT phrases!`;
       extractedKeywords: keywords,
       keywordCount: keywords.length,
       extractionTime,
-      isChinese,
       rawResponse: keywordsText,
       fallbackUsed: false,
     });
@@ -1301,14 +1293,20 @@ Please provide a friendly response that:
 
             while (true) {
               const { done, value } = await reader.read();
-              if (done) {break;}
+              if (done) {
+                break;
+              }
 
               const chunk = decoder.decode(value, { stream: true });
               const lines = chunk.split("\n");
 
               for (const line of lines) {
-                if (!line.trim() || !line.startsWith("data: ")) {continue;}
-                if (line.includes("[DONE]")) {continue;}
+                if (!line.trim() || !line.startsWith("data: ")) {
+                  continue;
+                }
+                if (line.includes("[DONE]")) {
+                  continue;
+                }
 
                 try {
                   const data = JSON.parse(line.slice(6)) as {
