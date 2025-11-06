@@ -1,6 +1,13 @@
 import { action, computed, observable, runInAction } from "mobx";
 import { v4 as uuidv4 } from "uuid";
-import { DateFilter, StatusFilter } from "@shared/types";
+import {
+  DateFilter,
+  StatusFilter,
+  AIAskSearchStrategy,
+  AIAskSearchProgress,
+} from "@shared/types";
+import { CSRF } from "@shared/constants";
+import { getCookie } from "tiny-cookie";
 import RootStore from "./RootStore";
 
 export type ConversationTurn = {
@@ -15,6 +22,24 @@ export type ConversationTurn = {
   }>;
   followups: string[];
   timestamp: Date;
+  searchStrategy?: AIAskSearchStrategy;
+  searchComplete?: boolean;
+  totalDocuments?: number;
+};
+
+export type ErrorType =
+  | "network"
+  | "no_results"
+  | "permission"
+  | "llm"
+  | "timeout"
+  | "unknown";
+
+export type ErrorState = {
+  type: ErrorType;
+  message: string;
+  retryable: boolean;
+  suggestions?: string[];
 };
 
 export type SearchFilters = {
@@ -45,10 +70,25 @@ export default class AIAskStore {
   currentStreamingSources: ConversationTurn["sources"] = [];
 
   @observable
-  error: string | null = null;
+  currentStreamingQuestion = "";
+
+  @observable
+  error: ErrorState | null = null;
+
+  @observable
+  isLoadingPhase: "searching" | "generating" | null = null;
+
+  @observable
+  startTime: number | null = null;
 
   @observable
   filters: SearchFilters = {};
+
+  @observable
+  searchStrategy: AIAskSearchStrategy | null = null;
+
+  @observable
+  searchProgress: Map<string, AIAskSearchProgress> = new Map();
 
   rootStore: RootStore;
 
@@ -91,6 +131,16 @@ export default class AIAskStore {
     this.error = null;
     this.currentStreamingAnswer = "";
     this.currentStreamingSources = [];
+    this.currentStreamingQuestion = "";
+    this.isLoadingPhase = null;
+    this.startTime = null;
+    this.searchStrategy = null;
+    this.searchProgress.clear();
+  }
+
+  @action
+  clearError() {
+    this.error = null;
   }
 
   @action
@@ -102,6 +152,39 @@ export default class AIAskStore {
     this.isStreaming = false;
     this.currentStreamingAnswer = "";
     this.currentStreamingSources = [];
+    this.currentStreamingQuestion = "";
+    this.isLoadingPhase = null;
+    this.startTime = null;
+    this.searchStrategy = null;
+    this.searchProgress.clear();
+  }
+
+  @computed
+  get elapsedTime(): number {
+    if (!this.startTime) {
+      return 0;
+    }
+    return Date.now() - this.startTime;
+  }
+
+  @computed
+  get showEstimatedTime(): boolean {
+    return this.isStreaming && this.elapsedTime > 5000;
+  }
+
+  @computed
+  get isSearchComplete(): boolean {
+    if (!this.searchStrategy) {
+      return false;
+    }
+    // Check if all keywords have completed their search
+    const allKeywordsComplete = this.searchStrategy.keywords.every(
+      (keyword) => {
+        const progress = this.searchProgress.get(keyword);
+        return progress && progress.status === "complete";
+      }
+    );
+    return allKeywordsComplete;
   }
 
   @action
@@ -114,9 +197,29 @@ export default class AIAskStore {
     this.error = null;
     this.currentStreamingAnswer = "";
     this.currentStreamingSources = [];
+    this.currentStreamingQuestion = question;
+    this.isLoadingPhase = "searching";
+    this.startTime = Date.now();
+    this.searchStrategy = null;
+    this.searchProgress.clear();
 
     // Create abort controller for this request
     this.abortController = new AbortController();
+
+    // Set up timeout (30 seconds)
+    const timeoutId = setTimeout(() => {
+      if (this.abortController) {
+        this.abortController.abort();
+        runInAction(() => {
+          this.error = {
+            type: "timeout",
+            message:
+              "This is taking longer than expected. Please try a more specific question.",
+            retryable: true,
+          };
+        });
+      }
+    }, 30000);
 
     try {
       const { user } = this.rootStore.auth;
@@ -127,12 +230,21 @@ export default class AIAskStore {
       // Get language from user preferences or browser
       const language = user.language || navigator.language;
 
+      // Get CSRF token for authentication
+      const csrfToken = getCookie(CSRF.cookieName);
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      };
+
+      // Add CSRF token to headers
+      if (csrfToken) {
+        headers[CSRF.headerName] = csrfToken;
+      }
+
       const response = await fetch("/api/ai.ask", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "text/event-stream",
-        },
+        headers,
         credentials: "same-origin",
         signal: this.abortController.signal,
         body: JSON.stringify({
@@ -145,31 +257,93 @@ export default class AIAskStore {
         }),
       });
 
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
+        // Handle different HTTP error codes
+        if (response.status === 403) {
+          throw {
+            type: "permission",
+            message:
+              "You don't have permission to access the requested documents.",
+            retryable: false,
+          };
+        } else if (response.status === 429) {
+          throw {
+            type: "llm",
+            message: "Too many requests. Please wait a moment and try again.",
+            retryable: true,
+          };
+        } else if (response.status >= 500) {
+          throw {
+            type: "llm",
+            message:
+              "The AI service is temporarily unavailable. Please try again.",
+            retryable: true,
+          };
+        } else {
+          throw {
+            type: "unknown",
+            message: `Request failed with status ${response.status}`,
+            retryable: true,
+          };
+        }
       }
 
       const reader = response.body?.getReader();
       if (!reader) {
-        throw new Error("No response body");
+        throw {
+          type: "network",
+          message: "No response body received from server.",
+          retryable: true,
+        };
       }
 
       await this.handleStreamEvent(reader, question);
+      clearTimeout(timeoutId);
     } catch (error) {
+      clearTimeout(timeoutId);
+
       if (error instanceof Error) {
         if (error.name === "AbortError") {
           // User cancelled, don't set error
           return;
         }
+
+        // Network error
         runInAction(() => {
-          this.error =
-            error.message || "Failed to get AI answer. Please try again.";
+          this.error = {
+            type: "network",
+            message:
+              "Unable to connect. Please check your connection and try again.",
+            retryable: true,
+          };
+        });
+      } else if (
+        typeof error === "object" &&
+        error !== null &&
+        "type" in error
+      ) {
+        // Structured error from our code
+        runInAction(() => {
+          this.error = error as ErrorState;
+        });
+      } else {
+        // Unknown error
+        runInAction(() => {
+          this.error = {
+            type: "unknown",
+            message: "An unexpected error occurred. Please try again.",
+            retryable: true,
+          };
         });
       }
     } finally {
       runInAction(() => {
         this.isStreaming = false;
         this.abortController = null;
+        this.isLoadingPhase = null;
+        this.startTime = null;
       });
     }
   }
@@ -184,6 +358,7 @@ export default class AIAskStore {
     let streamingAnswer = "";
     let streamingSources: ConversationTurn["sources"] = [];
     let streamingFollowups: string[] = [];
+    let hasReceivedContent = false;
 
     try {
       while (true) {
@@ -207,12 +382,60 @@ export default class AIAskStore {
           try {
             const event = JSON.parse(jsonStr);
 
-            if (event.type === "sources") {
+            if (event.type === "search_strategy") {
+              // Handle search strategy event
+              runInAction(() => {
+                this.searchStrategy = {
+                  keywords: event.keywords,
+                  timestamp: new Date(),
+                  usedFallback: event.usedFallback,
+                };
+              });
+            } else if (event.type === "search_progress") {
+              // Handle search progress event
+              runInAction(() => {
+                this.searchProgress.set(event.keyword, {
+                  keyword: event.keyword,
+                  resultCount: event.resultCount,
+                  status: event.status,
+                });
+              });
+            } else if (event.type === "search_complete") {
+              // Handle search complete event
+              runInAction(() => {
+                if (this.currentTurn) {
+                  this.currentTurn.searchComplete = true;
+                  this.currentTurn.totalDocuments = event.totalDocuments;
+                }
+              });
+            } else if (event.type === "warning") {
+              // Handle warning event (non-fatal issues)
+              // Warning received but don't stop the stream
+              // Could optionally show a toast notification here
+              // For now, just log it
+            } else if (event.type === "sources") {
               streamingSources = event.sources;
               runInAction(() => {
                 this.currentStreamingSources = streamingSources;
+                this.isLoadingPhase = "generating";
               });
+
+              // Check if no sources found
+              if (streamingSources.length === 0) {
+                throw {
+                  type: "no_results",
+                  message:
+                    "I couldn't find any documents related to your question.",
+                  retryable: false,
+                  suggestions: [
+                    "Try using different keywords",
+                    "Check if you have access to the relevant documents",
+                    "Broaden your search terms",
+                  ],
+                };
+              }
             } else if (event.type === "content") {
+              hasReceivedContent = true;
               streamingAnswer += event.content;
               runInAction(() => {
                 this.currentStreamingAnswer = streamingAnswer;
@@ -220,7 +443,44 @@ export default class AIAskStore {
             } else if (event.type === "followups") {
               streamingFollowups = event.followups;
             } else if (event.type === "error") {
-              throw new Error(event.error || "Stream error");
+              // Handle error event from server
+              const errorMessage = event.error || "Stream error";
+              const errorCode = event.code || "unknown";
+              const suggestions = event.suggestions || [];
+
+              if (errorCode === "no_results") {
+                throw {
+                  type: "no_results",
+                  message: errorMessage,
+                  retryable: false,
+                  suggestions:
+                    suggestions.length > 0
+                      ? suggestions
+                      : [
+                          "Try using different keywords",
+                          "Check if you have access to the relevant documents",
+                          "Broaden your search terms",
+                        ],
+                };
+              } else if (errorCode === "permission_denied") {
+                throw {
+                  type: "permission",
+                  message: errorMessage,
+                  retryable: false,
+                };
+              } else if (errorCode === "llm_error") {
+                throw {
+                  type: "llm",
+                  message: errorMessage,
+                  retryable: true,
+                };
+              } else {
+                throw {
+                  type: "unknown",
+                  message: errorMessage,
+                  retryable: true,
+                };
+              }
             } else if (event.type === "done") {
               // Stream complete, add to conversation
               runInAction(() => {
@@ -231,19 +491,48 @@ export default class AIAskStore {
                   sources: streamingSources,
                   followups: streamingFollowups,
                   timestamp: new Date(),
+                  searchStrategy: this.searchStrategy || undefined,
+                  searchComplete: true,
+                  totalDocuments: this.searchStrategy
+                    ? Array.from(this.searchProgress.values()).reduce(
+                        (sum, p) => sum + p.resultCount,
+                        0
+                      )
+                    : undefined,
                 });
                 this.currentStreamingAnswer = "";
                 this.currentStreamingSources = [];
+                this.currentStreamingQuestion = "";
+                this.isLoadingPhase = null;
               });
               break;
             }
           } catch (e) {
-            if (e instanceof Error && e.message.includes("Stream error")) {
+            if (
+              typeof e === "object" &&
+              e !== null &&
+              "type" in e &&
+              "message" in e
+            ) {
               throw e;
             }
             // Skip invalid JSON
           }
         }
+      }
+
+      // If stream ended without content, treat as no results
+      if (!hasReceivedContent && streamingSources.length === 0) {
+        throw {
+          type: "no_results",
+          message: "I couldn't find any documents related to your question.",
+          retryable: false,
+          suggestions: [
+            "Try using different keywords",
+            "Check if you have access to the relevant documents",
+            "Broaden your search terms",
+          ],
+        };
       }
     } finally {
       reader.releaseLock();

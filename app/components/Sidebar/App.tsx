@@ -13,7 +13,7 @@ import useCurrentUser from "~/hooks/useCurrentUser";
 import usePolicy from "~/hooks/usePolicy";
 import useStores from "~/hooks/useStores";
 import TeamMenu from "~/menus/TeamMenu";
-import { homePath, searchPath } from "~/utils/routeHelpers";
+import { homePath, aiAskPath } from "~/utils/routeHelpers";
 import TeamLogo from "../TeamLogo";
 import Tooltip from "../Tooltip";
 import Sidebar from "./Sidebar";
@@ -103,9 +103,9 @@ function AppSidebar() {
                 label={t("Home")}
               />
               <SidebarLink
-                to={searchPath()}
+                to={aiAskPath()}
                 icon={<SearchIcon />}
-                label={t("Search")}
+                label={t("AI Ask")}
                 exact={false}
               />
               {can.createDocument && <DraftsLink />}

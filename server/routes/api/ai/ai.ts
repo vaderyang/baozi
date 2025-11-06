@@ -420,34 +420,57 @@ const stripTranscriptCodeBlocks = (markdown: string): string => {
 };
 
 /**
- * Extract keywords from a natural language query using LLM
+ * Detect if a query contains Chinese characters
+ */
+const containsChinese = (text: string): boolean => /[\u4e00-\u9fa5]/.test(text);
+
+/**
+ * Extract individual keywords from a natural language query using LLM
+ * Returns an array of individual words (not multi-word phrases)
  */
 const extractKeywords = async (
   query: string,
   apiKey: string,
   apiBase: string,
   model: string
-): Promise<string> => {
+): Promise<string[]> => {
   const trimmedBase = apiBase.replace(/\/$/, "");
   const endpoint = /\/chat\/completions$/i.test(trimmedBase)
     ? trimmedBase
     : `${trimmedBase}/chat/completions`;
 
-  const systemPrompt = `You are a keyword extraction assistant. Extract the most important keywords from the user's question for document search.
+  // Detect language for better keyword extraction
+  const isChinese = containsChinese(query);
+  const languageNote = isChinese
+    ? "The query is in Chinese. Extract Chinese keywords as individual words/characters."
+    : "The query is in English. Extract English keywords as individual words.";
 
-RULES:
-1. Extract 1-5 key terms that would be most useful for searching documents
-2. Focus on nouns, technical terms, and specific concepts
-3. Remove question words (what, how, why, when, where, who)
-4. Remove common words (is, the, a, an, of, in, on, at)
-5. Keep technical abbreviations and acronyms (e.g., FTP, API, HTTP)
-6. Return ONLY the keywords separated by spaces, no explanation
+  const systemPrompt = `You are a keyword extraction assistant. Extract INDIVIDUAL WORDS (NOT multi-word phrases) from the user's question for document search.
 
-Examples:
+CRITICAL RULES - SINGLE WORDS ONLY:
+1. Extract 1-5 INDIVIDUAL WORDS (NOT phrases, NOT multi-word terms)
+2. Each keyword MUST be a SINGLE WORD - no spaces within keywords
+3. Focus on nouns, technical terms, and specific concepts
+4. Remove question words (what, how, why, when, where, who)
+5. Remove common words (is, the, a, an, of, in, on, at, for, with, to)
+6. Keep technical abbreviations and acronyms as single words (e.g., FTP, API, HTTP)
+7. Return ONLY the individual words separated by spaces, no explanation, no numbering
+
+${languageNote}
+
+CORRECT Examples (SINGLE WORDS):
 - "什么是FTP" → "FTP"
 - "How does authentication work?" → "authentication"
-- "What is the difference between REST and GraphQL?" → "REST GraphQL difference"
-- "如何配置数据库连接" → "配置 数据库 连接"`;
+- "What is the difference between REST and GraphQL?" → "REST GraphQL"
+- "如何配置数据库连接" → "配置 数据库 连接"
+- "How to set up user authentication?" → "user authentication setup"
+
+WRONG Examples (multi-word phrases - DO NOT DO THIS):
+- "user authentication" (WRONG - this is a phrase)
+- "database connection" (WRONG - this is a phrase)
+- "REST API" (WRONG - this is a phrase)
+
+Remember: Extract ONLY individual words, NOT phrases!`;
 
   const messages = [
     {
@@ -459,6 +482,8 @@ Examples:
       content: query,
     },
   ];
+
+  const startTime = Date.now();
 
   try {
     const response = await fetch(endpoint, {
@@ -475,31 +500,288 @@ Examples:
       }),
     });
 
+    const extractionTime = Date.now() - startTime;
+
     if (!response.ok) {
-      Logger.warn("Keyword extraction failed, using original query", {
-        status: response.status,
-        query,
-      });
-      return query;
+      Logger.warn(
+        "Keyword extraction failed, using original query as fallback",
+        {
+          status: response.status,
+          query,
+          extractionTime,
+          fallbackUsed: true,
+        }
+      );
+      // Fallback: use original query as single keyword
+      return [query];
     }
 
     const data = (await response.json()) as {
       choices?: ChatCompletionChoice[];
     };
-    const keywords = parseAiResponse(data.choices?.[0] || {}).trim();
+    const keywordsText = parseAiResponse(data.choices?.[0] || {}).trim();
 
-    Logger.info("utils", "Keywords extracted", {
+    // Parse LLM response and split by whitespace into array
+    const keywords = keywordsText
+      .split(/\s+/)
+      .map((word) => word.trim())
+      .filter((word) => word.length > 0)
+      .slice(0, 5); // Limit to 5 keywords maximum
+
+    // Log extracted keywords for monitoring (Task 9.1)
+    Logger.info("utils", "Individual keywords extracted", {
       originalQuery: query,
       extractedKeywords: keywords,
+      keywordCount: keywords.length,
+      extractionTime,
+      isChinese,
+      rawResponse: keywordsText,
+      fallbackUsed: false,
     });
 
-    return keywords || query;
+    // Fallback if no keywords extracted
+    if (keywords.length === 0) {
+      Logger.warn(
+        "Keyword extraction returned empty array, using original query as fallback",
+        {
+          query,
+          rawResponse: keywordsText,
+          extractionTime,
+          fallbackUsed: true,
+        }
+      );
+      return [query];
+    }
+
+    return keywords;
   } catch (error) {
+    const extractionTime = Date.now() - startTime;
     const wrappedError =
       error instanceof Error ? error : new Error(String(error));
-    Logger.warn("Keyword extraction error, using original query", wrappedError);
-    return query;
+    Logger.warn("Keyword extraction error, using original query as fallback", {
+      query,
+      error: wrappedError.message,
+      extractionTime,
+      fallbackUsed: true,
+    });
+    // Fallback: use original query as single keyword
+    return [query];
   }
+};
+
+/**
+ * Execute parallel searches for multiple keywords and merge results
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+interface SearchWithMultipleKeywordsOptions {
+  collectionId?: string;
+  userId?: string;
+  documentId?: string;
+  dateFilter?: DateFilter;
+  statusFilter?: StatusFilter[];
+  maxDocuments?: number;
+  collaboratorIds?: string[];
+  documentIds?: string[];
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+interface MergedSearchResult {
+  document: unknown;
+  relevanceScore: number;
+  matchedKeywords: string[];
+  context: string;
+  ranking: number;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const searchWithMultipleKeywords = async (
+  keywords: string[],
+  user: { id: string; teamId: string; [key: string]: unknown },
+  searchOptions: SearchWithMultipleKeywordsOptions,
+  onProgress?: (keyword: string, resultCount: number) => void
+): Promise<MergedSearchResult[]> => {
+  const SearchHelper = (await import("@server/models/helpers/SearchHelper"))
+    .default;
+
+  // Get configuration from environment
+  const maxResultsPerKeyword = parseInt(
+    process.env.AI_ASK_RESULTS_PER_KEYWORD || "10",
+    10
+  );
+
+  const userId = user.id;
+  const teamId = user.teamId;
+
+  Logger.info("utils", "Starting parallel keyword searches", {
+    keywords,
+    keywordCount: keywords.length,
+    maxResultsPerKeyword,
+    userId,
+    teamId,
+  });
+
+  const parallelSearchStartTime = Date.now();
+
+  // Execute searches in parallel with individual error handling
+  const searchPromises = keywords.map(async (keyword) => {
+    const keywordSearchStartTime = Date.now();
+
+    try {
+      const results = await SearchHelper.searchForUser(user as never, {
+        ...searchOptions,
+        query: keyword,
+        limit: maxResultsPerKeyword,
+      });
+
+      const keywordSearchTime = Date.now() - keywordSearchStartTime;
+
+      // Log each keyword search with result count (Task 9.2)
+      Logger.info("utils", "Keyword search completed", {
+        keyword,
+        resultCount: results.results.length,
+        searchTime: keywordSearchTime,
+        userId,
+      });
+
+      // Emit progress event
+      if (onProgress) {
+        onProgress(keyword, results.results.length);
+      }
+
+      return {
+        keyword,
+        results: results.results,
+        success: true,
+        searchTime: keywordSearchTime,
+      };
+    } catch (error) {
+      const keywordSearchTime = Date.now() - keywordSearchStartTime;
+      const wrappedError =
+        error instanceof Error ? error : new Error(String(error));
+      Logger.warn("Keyword search failed, continuing with other searches", {
+        keyword,
+        error: wrappedError.message,
+        searchTime: keywordSearchTime,
+        userId,
+      });
+
+      // Emit progress event with zero results
+      if (onProgress) {
+        onProgress(keyword, 0);
+      }
+
+      return {
+        keyword,
+        results: [],
+        success: false,
+        searchTime: keywordSearchTime,
+      };
+    }
+  });
+
+  const allSearchResults = await Promise.all(searchPromises);
+
+  // Log parallel search execution time (Task 9.2)
+  const parallelSearchTime = Date.now() - parallelSearchStartTime;
+
+  // Log any failed searches
+  const failedSearches = allSearchResults.filter((r) => !r.success);
+  const successfulSearches = allSearchResults.filter((r) => r.success);
+
+  if (failedSearches.length > 0) {
+    Logger.warn(
+      "Some keyword searches failed, continuing with successful searches",
+      {
+        failedKeywords: failedSearches.map((r) => r.keyword),
+        failedCount: failedSearches.length,
+        successfulCount: successfulSearches.length,
+        totalCount: keywords.length,
+        failureRate: `${((failedSearches.length / keywords.length) * 100).toFixed(1)}%`,
+        userId,
+      }
+    );
+  }
+
+  // Check if too many searches failed (more than 50%)
+  if (failedSearches.length > keywords.length / 2) {
+    Logger.error(
+      "Majority of keyword searches failed",
+      new Error("Partial search failure"),
+      {
+        failedKeywords: failedSearches.map((r) => r.keyword),
+        failedCount: failedSearches.length,
+        successfulCount: successfulSearches.length,
+        totalCount: keywords.length,
+        userId,
+      }
+    );
+  }
+
+  // Merge and deduplicate results
+  const mergingStartTime = Date.now();
+  const documentMap = new Map<string, MergedSearchResult>();
+
+  for (const { keyword, results } of allSearchResults) {
+    for (const result of results) {
+      const docId = (result.document as { id: string }).id;
+
+      if (documentMap.has(docId)) {
+        // Document found in multiple searches - boost relevance
+        const existing = documentMap.get(docId)!;
+        existing.relevanceScore += result.ranking;
+        existing.matchedKeywords.push(keyword);
+
+        // Log documents matching multiple keywords (Task 9.2)
+        Logger.info("utils", "Document matched multiple keywords", {
+          documentId: docId,
+          keyword,
+          newRelevanceScore: existing.relevanceScore,
+          matchedKeywords: existing.matchedKeywords,
+          matchCount: existing.matchedKeywords.length,
+        });
+      } else {
+        // New document
+        documentMap.set(docId, {
+          document: result.document,
+          relevanceScore: result.ranking,
+          matchedKeywords: [keyword],
+          context: result.context || "",
+          ranking: result.ranking,
+        });
+      }
+    }
+  }
+
+  // Sort by combined relevance score and limit results
+  const maxFinalResults = parseInt(
+    process.env.AI_ASK_MAX_DOCUMENTS || "20",
+    10
+  );
+
+  const mergedResults = Array.from(documentMap.values())
+    .sort((a, b) => b.relevanceScore - a.relevanceScore)
+    .slice(0, maxFinalResults);
+
+  const mergingTime = Date.now() - mergingStartTime;
+
+  // Log result merging time and final document count (Task 9.2)
+  Logger.info("utils", "Parallel search merge complete", {
+    keywords,
+    totalSearches: allSearchResults.length,
+    successfulSearches: allSearchResults.filter((r) => r.success).length,
+    uniqueDocuments: documentMap.size,
+    finalResultCount: mergedResults.length,
+    multiKeywordMatches: mergedResults.filter(
+      (r) => r.matchedKeywords.length > 1
+    ).length,
+    parallelSearchTime,
+    mergingTime,
+    totalSearchAndMergeTime: parallelSearchTime + mergingTime,
+    userId,
+    teamId,
+  });
+
+  return mergedResults;
 };
 
 /**
@@ -621,8 +903,6 @@ router.post(
       const { DocumentHelper } = await import(
         "@server/models/helpers/DocumentHelper"
       );
-      const SearchHelper = (await import("@server/models/helpers/SearchHelper"))
-        .default;
 
       // Build conversation context for better search
       let contextualQuery = query;
@@ -635,12 +915,52 @@ router.post(
         contextualQuery = `Previous conversation:\n${contextParts.join("\n\n")}\n\nCurrent question: ${query}`;
       }
 
-      // Extract keywords from the contextual query
-      const searchKeywords = await extractKeywords(
+      // Extract individual keywords from the contextual query
+      const searchKeywordsArray = await extractKeywords(
         contextualQuery,
         apiKey,
         apiBase,
         model
+      );
+
+      // Detect when keyword extraction returns empty array (should not happen due to fallback)
+      if (searchKeywordsArray.length === 0) {
+        Logger.warn(
+          "Keyword extraction returned empty array, using original query as fallback",
+          {
+            originalQuery: query,
+            contextualQuery,
+            userId: user.id,
+            teamId: user.teamId,
+          }
+        );
+        // Fallback to using original query as single keyword
+        searchKeywordsArray.push(query);
+      }
+
+      // Log keyword extraction results
+      Logger.info("utils", "AI Ask keywords extracted", {
+        originalQuery: query,
+        contextualQuery: conversationHistory?.length
+          ? "with conversation context"
+          : "no context",
+        extractedKeywords: searchKeywordsArray,
+        keywordCount: searchKeywordsArray.length,
+        usedFallback:
+          searchKeywordsArray.length === 1 && searchKeywordsArray[0] === query,
+        userId: user.id,
+        teamId: user.teamId,
+      });
+
+      // Emit search_strategy SSE event with extracted keywords
+      ctx.res.write(
+        `data: ${JSON.stringify({
+          type: "search_strategy",
+          keywords: searchKeywordsArray,
+          usedFallback:
+            searchKeywordsArray.length === 1 &&
+            searchKeywordsArray[0] === query,
+        })}\n\n`
       );
 
       // Search for relevant documents
@@ -658,62 +978,265 @@ router.post(
       }
 
       const searchOptions = {
-        query: searchKeywords,
         collectionId: collectionId || undefined,
         dateFilter: (dateFilter as DateFilter) || undefined,
         statusFilter: (statusFilter as StatusFilter[]) || undefined,
-        limit: maxDocuments,
+        maxDocuments: maxDocuments,
         collaboratorIds: userId ? [userId] : undefined,
         documentIds,
       };
 
       Logger.info("utils", "AI Ask search options", {
         originalQuery: query,
-        searchKeywords,
+        extractedKeywords: searchKeywordsArray,
         hasConversationHistory: !!conversationHistory?.length,
         historyLength: conversationHistory?.length || 0,
         searchOptions,
         userId: user.id,
+        teamId: user.teamId,
       });
 
-      const searchResults = await SearchHelper.searchForUser(
-        user,
-        searchOptions
+      // PERMISSION CHECK: SearchHelper.searchForUser automatically filters by user permissions
+      // It uses Document.withMembershipScope which includes:
+      // 1. Collection membership filtering
+      // 2. Document membership filtering
+      // 3. Group membership filtering
+      Logger.info(
+        "utils",
+        "AI Ask initiating parallel multi-keyword search with permission filtering",
+        {
+          userId: user.id,
+          teamId: user.teamId,
+          keywords: searchKeywordsArray,
+          keywordCount: searchKeywordsArray.length,
+          filters: searchOptions,
+        }
       );
 
-      Logger.info("utils", "AI Ask search results", {
-        resultCount: searchResults.results.length,
-        total: searchResults.total,
+      // Track permission filtering per keyword (Task 9.3)
+      const keywordPermissionStats = new Map<
+        string,
+        { requested: number; authorized: number }
+      >();
+
+      // Execute parallel multi-keyword search with progress callback
+      const mergedResults = await searchWithMultipleKeywords(
+        searchKeywordsArray,
+        user as never,
+        searchOptions,
+        (keyword: string, resultCount: number) => {
+          // Track authorized document count per keyword (Task 9.3)
+          keywordPermissionStats.set(keyword, {
+            requested: resultCount,
+            authorized: resultCount, // SearchHelper.searchForUser already applies permission filtering
+          });
+
+          // Emit search_progress event for each keyword search completion
+          ctx.res.write(
+            `data: ${JSON.stringify({
+              type: "search_progress",
+              keyword,
+              resultCount,
+              status: "complete",
+            })}\n\n`
+          );
+
+          Logger.info("utils", "AI Ask search progress event emitted", {
+            keyword,
+            resultCount,
+            userId: user.id,
+          });
+        }
+      );
+
+      // Log requested vs authorized document counts per keyword (Task 9.3)
+      Logger.info(
+        "utils",
+        "AI Ask parallel search complete - permission filtered",
+        {
+          mergedResultCount: mergedResults.length,
+          userId: user.id,
+          teamId: user.teamId,
+          permissionCheck:
+            "SearchHelper.searchForUser applied user permission filtering to each keyword search",
+          keywordPermissionStats: Array.from(
+            keywordPermissionStats.entries()
+          ).map(([keyword, stats]) => ({
+            keyword,
+            requestedCount: stats.requested,
+            authorizedCount: stats.authorized,
+          })),
+        }
+      );
+
+      // Emit search_complete event with result counts
+      ctx.res.write(
+        `data: ${JSON.stringify({
+          type: "search_complete",
+          totalDocuments: mergedResults.length,
+          uniqueDocuments: mergedResults.length,
+        })}\n\n`
+      );
+
+      Logger.info("utils", "AI Ask search complete event emitted", {
+        totalDocuments: mergedResults.length,
+        uniqueDocuments: mergedResults.length,
+        userId: user.id,
       });
 
-      if (!searchResults.results.length) {
-        ctx.body = {
-          data: {
-            answer:
-              "I couldn't find any relevant documents to answer your question. Please try a different search query or check if you have access to the documents you're looking for.",
-            sources: [],
-            followups: [],
-          },
-        };
+      // Check if we need to warn about partial failures
+      // Count failed searches from searchWithMultipleKeywords
+      const totalKeywords = searchKeywordsArray.length;
+      const successfulKeywords =
+        mergedResults.length > 0
+          ? new Set(mergedResults.flatMap((r) => r.matchedKeywords)).size
+          : 0;
+      const failedKeywords = totalKeywords - successfulKeywords;
+
+      // Warn if more than 50% of searches failed but we still have some results
+      if (failedKeywords > totalKeywords / 2 && mergedResults.length > 0) {
+        Logger.warn("AI Ask partial search failure detected", {
+          totalKeywords,
+          successfulKeywords,
+          failedKeywords,
+          failureRate: `${((failedKeywords / totalKeywords) * 100).toFixed(1)}%`,
+          userId: user.id,
+        });
+
+        // Emit warning event to frontend
+        ctx.res.write(
+          `data: ${JSON.stringify({
+            type: "warning",
+            code: "partial_search_failure",
+            message:
+              "Some search terms didn't return results, but we found documents for others.",
+          })}\n\n`
+        );
+      }
+
+      if (!mergedResults.length) {
+        Logger.warn("AI Ask all searches returned zero results", {
+          query,
+          keywords: searchKeywordsArray,
+          keywordCount: searchKeywordsArray.length,
+          userId: user.id,
+          teamId: user.teamId,
+          searchOptions,
+          reason: "No documents found for any search terms",
+        });
+
+        // Emit error event with helpful suggestions
+        ctx.res.write(
+          `data: ${JSON.stringify({
+            type: "error",
+            code: "no_results",
+            error: "No documents found for any search terms",
+            suggestions: [
+              "Try using different or broader keywords",
+              "Check if you have access to the relevant documents",
+              "Verify that documents exist for this topic",
+            ],
+          })}\n\n`
+        );
+
+        ctx.res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+        ctx.res.end();
         return;
       }
 
-      // Fetch full document content for top results
-      const resultDocumentIds = searchResults.results.map(
-        (r: { document: { id: string } }) => r.document.id
+      // PERMISSION CHECK: Fetch full document content with permission filtering
+      // Using Document.withMembershipScope ensures only authorized documents are included
+      // Extract document IDs from merged results
+      const resultDocumentIds = mergedResults.map(
+        (r) => (r.document as { id: string }).id
       );
-      const documents = await Document.findAll({
+
+      // Log permission check attempt
+      Logger.info("utils", "AI Ask fetching documents with permission check", {
+        requestedDocumentIds: resultDocumentIds,
+        requestedCount: resultDocumentIds.length,
+        userId: user.id,
+        teamId: user.teamId,
+        permissionScope: "Document.withMembershipScope",
+        scopeIncludes: [
+          "collection membership filtering",
+          "document membership filtering",
+          "group membership filtering",
+        ],
+      });
+
+      // Maintain existing Document.withMembershipScope permission filtering
+      const documents = await Document.withMembershipScope(user.id, {
+        includeDrafts: true,
+      }).findAll({
         where: {
           id: resultDocumentIds,
           teamId: user.teamId,
         },
       });
 
+      // Log permission filtering results (Task 9.3)
+      const authorizedDocumentIds = documents.map((doc) => doc.id);
+      const unauthorizedDocumentIds = resultDocumentIds.filter(
+        (id) => !authorizedDocumentIds.includes(id)
+      );
+
+      // Calculate permission filtering per keyword
+      const keywordFilteringDetails = searchKeywordsArray.map((keyword) => {
+        const keywordDocs = mergedResults.filter((r) =>
+          r.matchedKeywords.includes(keyword)
+        );
+        const keywordAuthorizedDocs = keywordDocs.filter((r) =>
+          authorizedDocumentIds.includes((r.document as { id: string }).id)
+        );
+        return {
+          keyword,
+          totalMatches: keywordDocs.length,
+          authorizedMatches: keywordAuthorizedDocs.length,
+          filteredMatches: keywordDocs.length - keywordAuthorizedDocs.length,
+        };
+      });
+
+      if (unauthorizedDocumentIds.length > 0) {
+        // Log any permission filtering that occurs (Task 9.3)
+        Logger.warn(
+          "AI Ask permission filtering removed unauthorized documents",
+          {
+            userId: user.id,
+            teamId: user.teamId,
+            requestedCount: resultDocumentIds.length,
+            authorizedCount: authorizedDocumentIds.length,
+            filteredCount: unauthorizedDocumentIds.length,
+            unauthorizedDocumentIds,
+            keywordFilteringDetails,
+            securityNote:
+              "User attempted to access documents without proper permissions",
+            auditTrail:
+              "Permission filtering applied via Document.withMembershipScope",
+          }
+        );
+      } else {
+        Logger.info("utils", "AI Ask all requested documents authorized", {
+          userId: user.id,
+          teamId: user.teamId,
+          documentCount: authorizedDocumentIds.length,
+          permissionCheckPassed: true,
+          keywordFilteringDetails,
+          auditTrail:
+            "All documents passed permission check via Document.withMembershipScope",
+        });
+      }
+
       // Build context from search results
+      // Map merged results to documents preserving relevance scores
       const contextParts = documents.map((doc, index) => {
         const markdown = DocumentHelper.toMarkdown(doc);
         const strippedMarkdown = stripTranscriptCodeBlocks(markdown);
-        const result = searchResults.results[index];
+
+        // Find the corresponding merged result to get context and relevance info
+        const mergedResult = mergedResults.find(
+          (r) => (r.document as { id: string }).id === doc.id
+        );
 
         const charsReduced = markdown.length - strippedMarkdown.length;
         if (charsReduced > 0) {
@@ -729,20 +1252,57 @@ router.post(
 Document ID: ${doc.id}
 Collection: ${doc.collection?.name || "N/A"}
 URL: ${doc.url}
-${result.context ? `\nRelevant excerpt:\n${result.context}\n` : ""}
+Relevance Score: ${mergedResult?.relevanceScore.toFixed(2) || "N/A"}
+Matched Keywords: ${mergedResult?.matchedKeywords.join(", ") || "N/A"}
+${mergedResult?.context ? `\nRelevant excerpt:\n${mergedResult.context}\n` : ""}
 Full content:
 ${strippedMarkdown}`;
       });
 
       const context = contextParts.join("\n\n---\n\n");
 
-      // Build sources list
+      // PERMISSION CHECK: Verify we have authorized documents before proceeding
+      if (documents.length === 0) {
+        Logger.warn(
+          "AI Ask no authorized documents after permission filtering",
+          {
+            userId: user.id,
+            teamId: user.teamId,
+            query,
+            keywords: searchKeywordsArray,
+            requestedDocumentCount: resultDocumentIds.length,
+          }
+        );
+
+        ctx.body = {
+          data: {
+            answer:
+              "I found some documents related to your question, but you don't have permission to access them. Please contact your administrator if you believe you should have access.",
+            sources: [],
+            followups: [],
+          },
+        };
+        return;
+      }
+
+      // Build sources list - only includes authorized documents
       const sources = documents.map((doc) => ({
         id: doc.id,
         title: doc.title,
         url: doc.url,
         collectionId: doc.collectionId,
       }));
+
+      Logger.info(
+        "utils",
+        "AI Ask building context from authorized documents",
+        {
+          userId: user.id,
+          teamId: user.teamId,
+          documentCount: documents.length,
+          sourceIds: sources.map((s) => s.id),
+        }
+      );
 
       // Generate AI answer with conversation context
       const trimmedBase = apiBase.replace(/\/$/, "");
@@ -897,7 +1457,18 @@ CRITICAL RULES:
       ctx.respond = false;
       ctx.status = 200;
 
-      // Send sources first
+      // PERMISSION CHECK: Send only authorized sources to client
+      // At this point, sources array only contains documents the user has permission to access
+      Logger.info("utils", "AI Ask sending authorized sources to client", {
+        userId: user.id,
+        teamId: user.teamId,
+        sourceCount: sources.length,
+        sourceIds: sources.map((s) => s.id),
+        permissionVerification:
+          "All sources verified through Document.withMembershipScope",
+        securityCompliance: "Only authorized documents included in response",
+      });
+
       ctx.res.write(
         `data: ${JSON.stringify({ type: "sources", sources })}\n\n`
       );
@@ -969,13 +1540,24 @@ CRITICAL RULES:
         ctx.res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
         ctx.res.end();
 
-        Logger.info("utils", "AI Ask streaming completed", {
-          model: currentModel,
-          sourceCount: sources.length,
-          followupCount: followups.length,
-          answerLength: fullAnswer.length,
-          userId: user.id,
-        });
+        Logger.info(
+          "utils",
+          "AI Ask streaming completed with permission checks",
+          {
+            model: currentModel,
+            sourceCount: sources.length,
+            followupCount: followups.length,
+            answerLength: fullAnswer.length,
+            userId: user.id,
+            teamId: user.teamId,
+            permissionSummary: {
+              requestedDocuments: resultDocumentIds.length,
+              authorizedDocuments: authorizedDocumentIds.length,
+              filteredDocuments: unauthorizedDocumentIds.length,
+              allAuthorized: unauthorizedDocumentIds.length === 0,
+            },
+          }
+        );
       } catch (streamError) {
         Logger.error("Stream processing error", streamError as Error);
         ctx.res.write(
@@ -1031,13 +1613,17 @@ router.post(
       const SearchHelper = (await import("@server/models/helpers/SearchHelper"))
         .default;
 
-      // Extract keywords from the natural language query
-      const searchKeywords = await extractKeywords(
+      // Extract individual keywords from the natural language query
+      const searchKeywordsArray = await extractKeywords(
         query,
         apiKey,
         apiBase,
         model
       );
+
+      // Join keywords into a single search query string for now
+      // TODO: In future tasks, this will be used for parallel multi-keyword search
+      const searchKeywords = searchKeywordsArray.join(" ");
 
       // Search for relevant documents using extracted keywords
       let documentIds = undefined;
@@ -1065,6 +1651,7 @@ router.post(
 
       Logger.info("utils", "AI search options", {
         originalQuery: query,
+        extractedKeywords: searchKeywordsArray,
         searchKeywords,
         searchOptions,
         userId: user.id,
@@ -1620,10 +2207,7 @@ router.post(
                 } catch (error) {
                   Logger.warn(
                     "Failed converting vision image to base64",
-                    error,
-                    {
-                      url,
-                    }
+                    error
                   );
                   return null;
                 }

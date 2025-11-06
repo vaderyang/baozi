@@ -69,7 +69,7 @@
 [INFO] task: Sending transcription request to ASR server
   jobId: xxx
   attachmentId: xxx
-  endpoint: http://172.16.103.100:8000/transcribe
+  endpoint: http://v.netis.com.cn:13000/transcribe
   fileSizeBytes: 1234567
   fileName: audio.mp3
 ```

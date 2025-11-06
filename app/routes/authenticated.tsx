@@ -12,6 +12,7 @@ import useCurrentTeam from "~/hooks/useCurrentTeam";
 import usePolicy from "~/hooks/usePolicy";
 import lazy from "~/utils/lazyWithRetry";
 import {
+  aiAskPath,
   archivePath,
   draftsPath,
   homePath,
@@ -28,6 +29,7 @@ const Document = lazy(() => import("~/scenes/Document"));
 const Drafts = lazy(() => import("~/scenes/Drafts"));
 const Home = lazy(() => import("~/scenes/Home"));
 const Search = lazy(() => import("~/scenes/Search"));
+const AIAsk = lazy(() => import("~/scenes/AIAsk"));
 const Trash = lazy(() => import("~/scenes/Trash"));
 
 const RedirectDocument = ({
@@ -101,6 +103,7 @@ function AuthenticatedRoutes() {
                 path={`${searchPath()}/:query?`}
                 component={Search}
               />
+              <Route exact path={aiAskPath()} component={AIAsk} />
               <Route path="/404" component={Error404} />
               <SettingsRoutes />
               <Route component={Error404} />

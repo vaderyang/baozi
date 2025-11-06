@@ -129,6 +129,10 @@ export function searchPath({
   return `/search${search}`;
 }
 
+export function aiAskPath(): string {
+  return "/ai-ask";
+}
+
 export function sharedModelPath(shareId: string, modelPath?: string) {
   if (shareId === env.ROOT_SHARE_ID) {
     return modelPath ? modelPath : "/";

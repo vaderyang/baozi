@@ -782,12 +782,12 @@ export class Environment {
 
   /**
    * Audio transcription service endpoint URL.
-   * Defaults to http://172.16.103.100:8000/transcribe if not set.
+   * Defaults to http://v.netis.com.cn:13000/transcribe if not set.
    */
   @IsOptional()
   public TRANSCRIPTION_ENDPOINT =
     this.toOptionalString(environment.TRANSCRIPTION_ENDPOINT) ??
-    "http://172.16.103.100:8000/transcribe";
+    "http://v.netis.com.cn:13000/transcribe";
 
   /**
    * Whether to delete audio files after successful transcription.
@@ -823,6 +823,85 @@ export class Environment {
   public TRANSCRIPTION_MAX_CONCURRENT_PER_USER =
     this.toOptionalNumber(environment.TRANSCRIPTION_MAX_CONCURRENT_PER_USER) ??
     10;
+
+  /**
+   * Enable or disable the AI Ask feature.
+   * When disabled, the AI Ask interface will not be accessible.
+   * Defaults to true.
+   */
+  @Public
+  @IsBoolean()
+  public AI_ASK_ENABLED = this.toBoolean(environment.AI_ASK_ENABLED ?? "true");
+
+  /**
+   * Maximum number of documents to include in the LLM context for AI Ask.
+   * Higher values provide more context but increase token usage and latency.
+   * Defaults to 20.
+   */
+  @IsNumber()
+  @IsOptional()
+  public AI_ASK_MAX_DOCUMENTS =
+    this.toOptionalNumber(environment.AI_ASK_MAX_DOCUMENTS) ?? 20;
+
+  /**
+   * Maximum number of conversation turns to maintain in session context.
+   * Each turn consists of one question and one answer.
+   * Defaults to 10.
+   */
+  @IsNumber()
+  @IsOptional()
+  public AI_ASK_MAX_CONVERSATION_TURNS =
+    this.toOptionalNumber(environment.AI_ASK_MAX_CONVERSATION_TURNS) ?? 10;
+
+  /**
+   * Session timeout in milliseconds for AI Ask conversations.
+   * Sessions inactive for longer than this duration will be cleared.
+   * Defaults to 3600000 (1 hour).
+   */
+  @IsNumber()
+  @IsOptional()
+  public AI_ASK_SESSION_TIMEOUT_MS =
+    this.toOptionalNumber(environment.AI_ASK_SESSION_TIMEOUT_MS) ?? 3600000;
+
+  /**
+   * Maximum number of individual keywords to extract from a user query for parallel search.
+   * Higher values provide broader search coverage but increase search time.
+   * Defaults to 5.
+   */
+  @IsNumber()
+  @IsOptional()
+  public AI_ASK_MAX_KEYWORDS =
+    this.toOptionalNumber(environment.AI_ASK_MAX_KEYWORDS) ?? 5;
+
+  /**
+   * Maximum number of search results to retrieve per individual keyword.
+   * Controls the breadth of results before merging and deduplication.
+   * Defaults to 10.
+   */
+  @IsNumber()
+  @IsOptional()
+  public AI_ASK_RESULTS_PER_KEYWORD =
+    this.toOptionalNumber(environment.AI_ASK_RESULTS_PER_KEYWORD) ?? 10;
+
+  /**
+   * Minimum number of total search results required before proceeding to answer generation.
+   * If fewer results are found, the system will display a no-results message.
+   * Defaults to 5.
+   */
+  @IsNumber()
+  @IsOptional()
+  public AI_ASK_MIN_TOTAL_RESULTS =
+    this.toOptionalNumber(environment.AI_ASK_MIN_TOTAL_RESULTS) ?? 5;
+
+  /**
+   * Maximum number of parallel keyword searches to execute concurrently.
+   * Limits concurrent load on the search system.
+   * Defaults to 5.
+   */
+  @IsNumber()
+  @IsOptional()
+  public AI_ASK_PARALLEL_SEARCH_LIMIT =
+    this.toOptionalNumber(environment.AI_ASK_PARALLEL_SEARCH_LIMIT) ?? 5;
 
   /**
    * The product name
