@@ -13,12 +13,16 @@ interface ServiceHealth {
   details?: Record<string, unknown>;
 }
 
+interface ModelHealth extends ServiceHealth {
+  modelName: string;
+}
+
 interface HealthCheckResponse {
   overall: "healthy" | "degraded" | "unhealthy";
   timestamp: string;
   services: {
     database: ServiceHealth;
-    llm: ServiceHealth;
+    llmModels: ModelHealth[];
     asr: ServiceHealth;
   };
 }
@@ -57,9 +61,9 @@ async function checkDatabase(): Promise<ServiceHealth> {
 }
 
 /**
- * Check LLM service connectivity
+ * Check a specific LLM model
  */
-async function checkLLM(): Promise<ServiceHealth> {
+async function checkLLMModel(modelName: string): Promise<ModelHealth> {
   const startTime = Date.now();
 
   // Check for API key and base URL from various env variables
@@ -72,6 +76,7 @@ async function checkLLM(): Promise<ServiceHealth> {
 
   if (!apiBase || !apiKey) {
     return {
+      modelName,
       status: "unknown",
       error: "LLM service not configured (missing API key or base URL)",
     };
@@ -81,30 +86,49 @@ async function checkLLM(): Promise<ServiceHealth> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    const response = await fetch(`${apiBase}/models`, {
-      method: "GET",
+    const trimmedBase = apiBase.replace(/\/$/, "");
+    const endpoint = /\/chat\/completions$/i.test(trimmedBase)
+      ? trimmedBase
+      : `${trimmedBase}/v1/chat/completions`;
+
+    // Test with a minimal request
+    const response = await fetch(endpoint, {
+      method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        model: modelName,
+        messages: [{ role: "user", content: "test" }],
+        max_tokens: 1,
+      }),
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
     const responseTime = Date.now() - startTime;
 
-    if (response.ok) {
-      const data = await response.json();
+    if (response.ok || response.status === 400) {
+      // 400 is ok - means the endpoint is reachable and model exists
       return {
+        modelName,
         status: "healthy",
         responseTime,
         details: {
           endpoint: apiBase,
-          modelsAvailable: data?.data?.length || 0,
         },
+      };
+    } else if (response.status === 404) {
+      return {
+        modelName,
+        status: "unhealthy",
+        responseTime,
+        error: "Model not found",
       };
     } else {
       return {
+        modelName,
         status: "unhealthy",
         responseTime,
         error: `HTTP ${response.status}: ${response.statusText}`,
@@ -114,17 +138,57 @@ async function checkLLM(): Promise<ServiceHealth> {
     const responseTime = Date.now() - startTime;
     if (error instanceof Error && error.name === "AbortError") {
       return {
+        modelName,
         status: "unhealthy",
         responseTime,
         error: "Request timeout (>5s)",
       };
     }
     return {
+      modelName,
       status: "unhealthy",
       responseTime,
       error: error instanceof Error ? error.message : "LLM service unreachable",
     };
   }
+}
+
+/**
+ * Check all configured LLM models
+ */
+async function checkLLMModels(): Promise<ModelHealth[]> {
+  const models: string[] = [];
+
+  // Collect all configured models
+  const primaryModel =
+    process.env.LLM_MODEL_NAME ||
+    process.env.LLM_MODEL ||
+    process.env.AI_MODEL_NAME ||
+    process.env.AI_MODEL;
+  const searchModel =
+    process.env.LLM_MODEL_NAME_AI_SEARCH || process.env.AI_SEARCH_MODEL;
+  const sensitiveModel = process.env.LLM_MODEL_NAME_SENSITIVE;
+  const visionModel =
+    process.env.LLM_MODEL_NAME_VISION || process.env.AI_VISION_MODEL;
+
+  if (primaryModel) {models.push(primaryModel);}
+  if (searchModel && searchModel !== primaryModel) {models.push(searchModel);}
+  if (sensitiveModel && !models.includes(sensitiveModel))
+    {models.push(sensitiveModel);}
+  if (visionModel && !models.includes(visionModel)) {models.push(visionModel);}
+
+  if (models.length === 0) {
+    return [
+      {
+        modelName: "No models configured",
+        status: "unknown",
+        error: "No LLM models configured in environment",
+      },
+    ];
+  }
+
+  // Test all models in parallel
+  return Promise.all(models.map((model) => checkLLMModel(model)));
 }
 
 /**
@@ -197,26 +261,27 @@ async function checkASR(): Promise<ServiceHealth> {
 }
 
 router.post("health.check", auth(), async (ctx: APIContext) => {
-  const [database, llm, asr] = await Promise.all([
+  const [database, llmModels, asr] = await Promise.all([
     checkDatabase(),
-    checkLLM(),
+    checkLLMModels(),
     checkASR(),
   ]);
 
-  const services = { database, llm, asr };
+  const services = { database, llmModels, asr };
 
   // Determine overall health
-  const healthyCount = Object.values(services).filter(
-    (s) => s.status === "healthy"
-  ).length;
-  const unhealthyCount = Object.values(services).filter(
+  const allServices = [database, ...llmModels, asr];
+
+  const healthyCount = allServices.filter((s) => s.status === "healthy").length;
+  const unhealthyCount = allServices.filter(
     (s) => s.status === "unhealthy"
   ).length;
+  const totalCount = allServices.length;
 
   let overall: "healthy" | "degraded" | "unhealthy";
-  if (unhealthyCount === 0 && healthyCount === 3) {
+  if (unhealthyCount === 0 && healthyCount === totalCount) {
     overall = "healthy";
-  } else if (unhealthyCount >= 2) {
+  } else if (unhealthyCount >= totalCount / 2) {
     overall = "unhealthy";
   } else {
     overall = "degraded";
