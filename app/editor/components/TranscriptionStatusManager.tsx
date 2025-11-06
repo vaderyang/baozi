@@ -42,7 +42,9 @@ export function TranscriptionStatusManager({ documentId }: Props) {
   const { audioRecorder } = useStores();
   const editorRef = React.useRef(editor);
   const isMountedRef = React.useRef(true);
+  const pollingIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
   const [pendingJobsLoaded, setPendingJobsLoaded] = React.useState(false);
+  const [, setHasActiveTasks] = React.useState(false);
 
   // Keep editor ref up to date and track mount status
   React.useEffect(() => {
@@ -733,6 +735,22 @@ export function TranscriptionStatusManager({ documentId }: Props) {
               }
 
               dispatch(tr);
+
+              // Update active tasks state
+              if (isMountedRef.current) {
+                setHasActiveTasks(true);
+              }
+            } else {
+              // No status cards and no pending jobs - keep polling in case a new recording starts
+              Logger.info(
+                "editor",
+                "No pending transcription tasks found, continuing to poll",
+                { documentId }
+              );
+
+              if (isMountedRef.current) {
+                setHasActiveTasks(false);
+              }
             }
           } catch (error) {
             // Silently log errors to avoid noise
@@ -745,6 +763,11 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             );
           }
           return;
+        }
+
+        // We have status cards, so we have active tasks
+        if (isMountedRef.current) {
+          setHasActiveTasks(true);
         }
 
         // Check the actual status of each job
@@ -861,16 +884,41 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       }
     };
 
-    // Poll immediately on mount
-    void pollStatusUpdates();
+    // Start polling function
+    const startPolling = () => {
+      // Clear any existing interval first
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
 
-    // Set up polling interval (every 5 seconds)
-    const intervalId = setInterval(() => {
+      Logger.info("editor", "Starting transcription status polling", {
+        documentId,
+      });
+
+      // Poll immediately
       void pollStatusUpdates();
-    }, 5000);
+
+      // Set up polling interval (every 5 seconds)
+      pollingIntervalRef.current = setInterval(() => {
+        void pollStatusUpdates();
+      }, 5000);
+    };
+
+    // Start polling on mount
+    startPolling();
 
     return () => {
-      clearInterval(intervalId);
+      if (pollingIntervalRef.current) {
+        Logger.info(
+          "editor",
+          "Stopping transcription status polling (cleanup)",
+          {
+            documentId,
+          }
+        );
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
     };
   }, [
     documentId,

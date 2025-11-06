@@ -20,7 +20,10 @@ const fallbackPulse = keyframes`
   }
 `;
 
-const SuspenseFallbackContainer = styled.div`
+const SuspenseFallbackContainer = styled.div.attrs({
+  contentEditable: false,
+  suppressContentEditableWarning: true,
+})`
   box-sizing: border-box;
   padding: 12px 16px;
   margin: 16px 0;

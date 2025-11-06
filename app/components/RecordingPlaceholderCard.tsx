@@ -161,7 +161,9 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
 
     React.useEffect(() => {
       const computeDuration = () => {
-        if (!isMatchingRecording || !audioRecorder.startTime) {return 0;}
+        if (!isMatchingRecording || !audioRecorder.startTime) {
+          return 0;
+        }
         const now = Date.now();
         const pausedExtra =
           audioRecorder.isPaused && audioRecorder.pauseStartTime
@@ -207,8 +209,9 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
     ]);
 
     React.useEffect(() => {
+      // Insert a status card once we have a job id, even if this placeholder is not the active insertion point.
+      // This avoids losing the polling linkage when the recording session context changes quickly.
       if (
-        !isMatchingRecording ||
         hasReplacedWithStatusCardRef.current ||
         !editor ||
         !editor.view ||
@@ -549,7 +552,7 @@ const compactContainerStyles = css`
 `;
 
 const Container = styled.div.attrs({
-  contentEditable: "false",
+  contentEditable: false,
   suppressContentEditableWarning: true,
 })`
   background: ${s("sidebarBackground")};
@@ -663,7 +666,7 @@ const ErrorText = styled.span`
   color: ${s("danger")};
 `;
 
-const ButtonSection = styled(Flex).attrs({ contentEditable: "false" })`
+const ButtonSection = styled(Flex).attrs({ contentEditable: false })`
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-start;
