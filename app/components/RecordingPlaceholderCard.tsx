@@ -12,6 +12,7 @@ import { useDocumentContext } from "~/components/DocumentContext";
 import useStores from "~/hooks/useStores";
 import type { RecordingStatus } from "~/stores/AudioRecorderStore";
 import Logger from "~/utils/Logger";
+import AudioWaveform from "~/components/AudioWaveform";
 
 const COMPACT_STATUS_SET: ReadonlySet<RecordingStatus> =
   new Set<RecordingStatus>([
@@ -82,6 +83,11 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
       status: initialStatus,
       startTime: initialStartTime ?? null,
     });
+
+    // Mini waveform data buffer for the level meter
+    const [waveformData, setWaveformData] = React.useState<Uint8Array>(
+      () => new Uint8Array(0)
+    );
 
     const isMatchingRecording = audioRecorder.insertionPoint?.nodeId === nodeId;
 
@@ -207,6 +213,34 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
       audioRecorder.isPaused,
       audioRecorder.pauseStartTime,
     ]);
+
+    // Pull analyser data at ~10 FPS for the mini level meter (only when active card)
+    React.useEffect(() => {
+      if (!isMatchingRecording || !audioRecorder.analyser) {
+        return undefined;
+      }
+
+      let cancelled = false;
+      const analyser = audioRecorder.analyser;
+
+      const tick = () => {
+        if (cancelled) {
+          return;
+        }
+        if (!audioRecorder.isPaused) {
+          const buf = new Uint8Array(analyser.frequencyBinCount);
+          analyser.getByteFrequencyData(buf);
+          setWaveformData(buf);
+        }
+      };
+
+      // 50ms interval ≈ 20 FPS
+      const id = window.setInterval(tick, 50);
+      return () => {
+        cancelled = true;
+        window.clearInterval(id);
+      };
+    }, [isMatchingRecording, audioRecorder.analyser, audioRecorder.isPaused]);
 
     React.useEffect(() => {
       // Insert a status card once we have a job id, even if this placeholder is not the active insertion point.
@@ -421,6 +455,18 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
             {statusDisplay.showPulse && <PulsingDot />}
             <StatusText>{statusDisplay.text}</StatusText>
             <Duration>{formatDuration(displayDuration)}</Duration>
+            {canControlRecording &&
+            (displayStatus === "recording" || displayStatus === "paused") &&
+            audioRecorder.analyser ? (
+              <LevelMeterWrapper>
+                <AudioWaveform
+                  data={waveformData}
+                  width={120}
+                  height={14}
+                  isPaused={isPaused}
+                />
+              </LevelMeterWrapper>
+            ) : null}
             {isLongRecording && (
               <Tooltip
                 content={t(
@@ -612,6 +658,14 @@ const Duration = styled.span`
   font-family: ${s("fontFamilyMono")};
   font-size: 14px;
   color: ${s("textSecondary")};
+`;
+
+const LevelMeterWrapper = styled.div`
+  width: 120px;
+  height: 14px;
+  margin-left: 8px;
+  pointer-events: none;
+  opacity: 0.9;
 `;
 
 const WarningIconWrapper = styled.span`
