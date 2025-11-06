@@ -17,12 +17,16 @@ interface ServiceHealth {
   details?: Record<string, unknown>;
 }
 
+interface ModelHealth extends ServiceHealth {
+  modelName: string;
+}
+
 interface HealthData {
   overall: "healthy" | "degraded" | "unhealthy";
   timestamp: string;
   services: {
     database: ServiceHealth;
-    llm: ServiceHealth;
+    llmModels: ModelHealth[];
     asr: ServiceHealth;
   };
 }
@@ -155,49 +159,37 @@ function Health() {
                 )}
               </ServiceCard>
 
-              <ServiceCard>
-                <ServiceHeader>
-                  <Flex align="center" gap={8}>
-                    {getStatusIcon(healthData.services.llm.status)}
-                    <ServiceName>{t("LLM Service")}</ServiceName>
-                  </Flex>
-                  <StatusBadge $status={healthData.services.llm.status}>
-                    {healthData.services.llm.status}
-                  </StatusBadge>
-                </ServiceHeader>
+              {healthData.services.llmModels.map((model, index) => (
+                <ServiceCard key={index}>
+                  <ServiceHeader>
+                    <Flex align="center" gap={8}>
+                      {getStatusIcon(model.status)}
+                      <ServiceName>
+                        {t("LLM")}: {model.modelName}
+                      </ServiceName>
+                    </Flex>
+                    <StatusBadge $status={model.status}>
+                      {model.status}
+                    </StatusBadge>
+                  </ServiceHeader>
 
-                {healthData.services.llm.responseTime !== undefined && (
-                  <ServiceDetail>
-                    <DetailLabel>{t("Response Time")}:</DetailLabel>
-                    <DetailValue>
-                      {healthData.services.llm.responseTime}ms
-                    </DetailValue>
-                  </ServiceDetail>
-                )}
+                  {model.responseTime !== undefined && (
+                    <ServiceDetail>
+                      <DetailLabel>{t("Response Time")}:</DetailLabel>
+                      <DetailValue>{model.responseTime}ms</DetailValue>
+                    </ServiceDetail>
+                  )}
 
-                {healthData.services.llm.details?.endpoint && (
-                  <ServiceDetail>
-                    <DetailLabel>{t("Endpoint")}:</DetailLabel>
-                    <DetailValue>
-                      {healthData.services.llm.details.endpoint}
-                    </DetailValue>
-                  </ServiceDetail>
-                )}
+                  {model.details?.endpoint && (
+                    <ServiceDetail>
+                      <DetailLabel>{t("Endpoint")}:</DetailLabel>
+                      <DetailValue>{model.details.endpoint}</DetailValue>
+                    </ServiceDetail>
+                  )}
 
-                {healthData.services.llm.details?.modelsAvailable !==
-                  undefined && (
-                  <ServiceDetail>
-                    <DetailLabel>{t("Models")}:</DetailLabel>
-                    <DetailValue>
-                      {healthData.services.llm.details.modelsAvailable}
-                    </DetailValue>
-                  </ServiceDetail>
-                )}
-
-                {healthData.services.llm.error && (
-                  <ErrorMessage>{healthData.services.llm.error}</ErrorMessage>
-                )}
-              </ServiceCard>
+                  {model.error && <ErrorMessage>{model.error}</ErrorMessage>}
+                </ServiceCard>
+              ))}
 
               <ServiceCard>
                 <ServiceHeader>
