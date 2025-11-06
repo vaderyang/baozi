@@ -14,6 +14,7 @@ import Scene from "~/components/Scene";
 import Subheading from "~/components/Subheading";
 import type Document from "~/models/Document";
 import useStores from "~/hooks/useStores";
+import { client } from "~/utils/ApiClient";
 import Logger from "~/utils/Logger";
 
 const AudioHub = observer(function _AudioHub() {
@@ -47,20 +48,11 @@ const AudioHub = observer(function _AudioHub() {
   const handleRecordAudio = async () => {
     try {
       // Call API to create document and start recording session
-      const response = await fetch("/api/audio.start-recording", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({}),
-      });
+      const response = await client.post<{
+        data: { documentId: string; sessionId: string; audioInboxId: string };
+      }>("audio.start-recording", {});
 
-      if (!response.ok) {
-        throw new Error("Failed to start recording");
-      }
-
-      const data = await response.json();
-      const { documentId } = data;
+      const { documentId } = response.data;
 
       // Fetch the document to get its URL slug
       const document = documents.get(documentId);
