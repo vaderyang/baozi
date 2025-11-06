@@ -133,6 +133,10 @@ export function aiAskPath(): string {
   return "/ai-ask";
 }
 
+export function healthPath(): string {
+  return "/health";
+}
+
 export function sharedModelPath(shareId: string, modelPath?: string) {
   if (shareId === env.ROOT_SHARE_ID) {
     return modelPath ? modelPath : "/";

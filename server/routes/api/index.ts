@@ -20,6 +20,7 @@ import cron from "./cron";
 import developer from "./developer";
 import documents from "./documents";
 import events from "./events";
+import health from "./health";
 import fileOperationsRoute from "./fileOperations";
 import groupMemberships from "./groupMemberships";
 import groups from "./groups";
@@ -82,6 +83,7 @@ PluginManager.getHooks(Hook.API).forEach((hook) =>
 router.use("/", auth.routes());
 router.use("/", authenticationProviders.routes());
 router.use("/", ai.routes());
+router.use("/", health.routes());
 router.use("/", events.routes());
 router.use("/", users.routes());
 router.use("/", collections.routes());
