@@ -1,11 +1,5 @@
 import { observer } from "mobx-react";
-import {
-  CameraIcon,
-  ImportIcon,
-  LinkIcon,
-  CollectionIcon,
-  ClockIcon,
-} from "outline-icons";
+import { ImportIcon, LinkIcon, CollectionIcon, ClockIcon } from "outline-icons";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useHistory } from "react-router-dom";
@@ -15,6 +9,7 @@ import Button from "~/components/Button";
 import CenteredContent from "~/components/CenteredContent";
 import Flex from "~/components/Flex";
 import Heading from "~/components/Heading";
+import MicrophoneIcon from "~/components/Icons/MicrophoneIcon";
 import Scene from "~/components/Scene";
 import Subheading from "~/components/Subheading";
 import type Document from "~/models/Document";
@@ -112,7 +107,7 @@ const AudioHub = observer(function _AudioHub() {
   const activeJobs = transcriptionJobs.activeJobs;
 
   return (
-    <Scene icon={<CameraIcon />} title={t("Audio Hub")} centered={false}>
+    <Scene icon={<MicrophoneIcon />} title={t("Audio Hub")} centered={false}>
       <CenteredContent>
         <HeroSection>
           <HeroHeading>{t("Capture Audio, Create Knowledge")}</HeroHeading>
@@ -126,7 +121,7 @@ const AudioHub = observer(function _AudioHub() {
         <ActionCardsGrid>
           <ActionCard onClick={handleRecordAudio}>
             <ActionCardIcon>
-              <CameraIcon size={48} />
+              <MicrophoneIcon size={48} />
             </ActionCardIcon>
             <ActionCardTitle>{t("Record Audio")}</ActionCardTitle>
             <ActionCardDescription>
@@ -221,7 +216,7 @@ const AudioHub = observer(function _AudioHub() {
           activeJobs.length === 0 && (
             <EmptyState>
               <EmptyStateIcon>
-                <CameraIcon size={64} />
+                <MicrophoneIcon size={64} />
               </EmptyStateIcon>
               <EmptyStateText>
                 {t("Get started by recording, uploading, or importing audio")}
