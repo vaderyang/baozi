@@ -3,6 +3,7 @@ import { AttachmentPreset } from "@shared/types";
 import { client } from "~/utils/ApiClient";
 import { uploadFile } from "~/utils/files";
 import Logger from "~/utils/Logger";
+import * as audioRecovery from "~/utils/audioRecovery";
 import type RootStore from "./RootStore";
 
 export interface InsertionPoint {
@@ -15,6 +16,19 @@ export interface RecordingAttachmentMetadata {
   id: string;
   name: string;
   size: number;
+}
+
+export interface RecordingMarker {
+  timestamp: number;
+  label?: string;
+}
+
+export interface ActiveSession {
+  documentId: string;
+  sessionId: string;
+  startTime: number;
+  isPaused: boolean;
+  markers: RecordingMarker[];
 }
 
 export type RecordingStatus =
@@ -95,6 +109,24 @@ class AudioRecorderStore {
 
   @observable
   autoGenerateSummary = true;
+
+  @observable
+  markers: RecordingMarker[] = [];
+
+  @observable
+  isMinimized = false;
+
+  @observable
+  realtimeTranscript = "";
+
+  @observable
+  sessionId: string | null = null;
+
+  @observable
+  chunkSaveInterval: number | null = null;
+
+  @observable
+  lastChunkIndex = 0;
 
   rootStore: RootStore;
 
@@ -181,6 +213,24 @@ class AudioRecorderStore {
     return this.insertionPoint;
   }
 
+  /**
+   * Get the active recording session
+   */
+  @computed
+  get activeSession(): ActiveSession | null {
+    if (!this.sourceDocumentId || !this.sessionId || !this.startTime) {
+      return null;
+    }
+
+    return {
+      documentId: this.sourceDocumentId,
+      sessionId: this.sessionId,
+      startTime: this.startTime,
+      isPaused: this.isPaused,
+      markers: this.markers,
+    };
+  }
+
   @action
   startRecording = async (
     documentId: string,
@@ -198,6 +248,9 @@ class AudioRecorderStore {
     // Generate nodeId if not provided
     const recordingNodeId = nodeId || this.generateNodeId();
 
+    // Generate a unique session ID
+    const newSessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
     try {
       // Request microphone permission
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -207,6 +260,7 @@ class AudioRecorderStore {
       runInAction(() => {
         this.mediaStream = stream;
         this.sourceDocumentId = documentId;
+        this.sessionId = newSessionId;
         this.insertionPoint = {
           documentId,
           position,
@@ -216,12 +270,15 @@ class AudioRecorderStore {
         this.pausedDuration = 0;
         this.pauseStartTime = null;
         this.audioChunks = [];
+        this.markers = [];
         this.isRecording = true;
         this.isPaused = false;
         this.status = "recording";
         this.error = null;
         this.transcriptionResult = null;
         this.lastAttachment = null;
+        this.isMinimized = false;
+        this.realtimeTranscript = "";
       });
 
       // Initialize audio analysis for level meter
@@ -256,6 +313,11 @@ class AudioRecorderStore {
 
       // Start recording
       this.mediaRecorder.start(1000); // Collect data every second
+
+      // Start saving chunks to IndexedDB every 10 seconds
+      if (audioRecovery.isIndexedDBSupported()) {
+        this.startChunkSaving();
+      }
     } catch (error) {
       runInAction(() => {
         this.error =
@@ -309,7 +371,7 @@ class AudioRecorderStore {
     }
 
     // Create a promise to wait for the recording to stop
-    Logger.debug("audioRecorder", "stopRecording invoked", {
+    Logger.debug("store", "stopRecording invoked", {
       mediaRecorderState: this.mediaRecorder.state,
       isRecording: this.isRecording,
       isPaused: this.isPaused,
@@ -343,11 +405,11 @@ class AudioRecorderStore {
 
       // Stop the recorder
       if (this.mediaRecorder.state === "inactive") {
-        Logger.debug("audioRecorder", "MediaRecorder already inactive on stop");
+        Logger.debug("store", "MediaRecorder already inactive on stop");
         finalizeBlob();
       } else {
         try {
-          Logger.debug("audioRecorder", "Calling MediaRecorder.stop()");
+          Logger.debug("store", "Calling MediaRecorder.stop()");
           this.mediaRecorder.stop();
         } catch (error) {
           Logger.error(
@@ -364,6 +426,9 @@ class AudioRecorderStore {
       this.isRecording = false;
       this.isPaused = false;
 
+      // Stop chunk saving
+      this.stopChunkSaving();
+
       // Stop media stream tracks
       if (this.mediaStream) {
         this.mediaStream.getTracks().forEach((track) => track.stop());
@@ -375,8 +440,13 @@ class AudioRecorderStore {
       }
     });
 
+    // Clean up IndexedDB chunks for this session
+    if (this.sessionId) {
+      void audioRecovery.deleteSession(this.sessionId);
+    }
+
     // Start upload and transcription flow asynchronously
-    Logger.debug("audioRecorder", "Starting upload and transcription", {
+    Logger.debug("store", "Starting upload and transcription", {
       blobSize: audioBlob.size,
     });
     void this.uploadAndTranscribe(audioBlob);
@@ -384,6 +454,14 @@ class AudioRecorderStore {
 
   @action
   cancelRecording = (): void => {
+    // Stop chunk saving
+    this.stopChunkSaving();
+
+    // Clean up IndexedDB chunks for this session
+    if (this.sessionId) {
+      void audioRecovery.deleteSession(this.sessionId);
+    }
+
     // Stop MediaRecorder immediately if it's active
     if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
       this.mediaRecorder.stop();
@@ -420,6 +498,118 @@ class AudioRecorderStore {
   @action
   setAutoGenerateSummary = (value: boolean): void => {
     this.autoGenerateSummary = value;
+  };
+
+  /**
+   * Add a marker at the current recording timestamp
+   */
+  @action
+  addMarker = (label?: string): void => {
+    if (!this.isActive) {
+      return;
+    }
+
+    const marker: RecordingMarker = {
+      timestamp: this.duration,
+      label,
+    };
+
+    this.markers.push(marker);
+  };
+
+  /**
+   * Minimize the Recording Studio (show Global Recording Control instead)
+   */
+  @action
+  minimizeStudio = (): void => {
+    if (!this.isActive) {
+      return;
+    }
+
+    this.isMinimized = true;
+  };
+
+  /**
+   * Reopen the Recording Studio (hide Global Recording Control)
+   */
+  @action
+  reopenStudio = (): void => {
+    this.isMinimized = false;
+  };
+
+  /**
+   * Update the realtime transcript text
+   */
+  @action
+  setRealtimeTranscript = (text: string): void => {
+    this.realtimeTranscript = text;
+  };
+
+  /**
+   * Start saving audio chunks to IndexedDB every 10 seconds
+   */
+  @action
+  private startChunkSaving = (): void => {
+    if (this.chunkSaveInterval) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void this.saveCurrentChunks();
+    }, 10000); // Save every 10 seconds
+
+    this.chunkSaveInterval = interval;
+  };
+
+  /**
+   * Stop saving chunks to IndexedDB
+   */
+  @action
+  private stopChunkSaving = (): void => {
+    if (this.chunkSaveInterval) {
+      window.clearInterval(this.chunkSaveInterval);
+      this.chunkSaveInterval = null;
+    }
+  };
+
+  /**
+   * Save current audio chunks to IndexedDB
+   */
+  @action
+  private saveCurrentChunks = async (): Promise<void> => {
+    if (
+      !this.sessionId ||
+      !this.sourceDocumentId ||
+      this.audioChunks.length === 0
+    ) {
+      return;
+    }
+
+    try {
+      // Save each new chunk
+      for (let i = this.lastChunkIndex; i < this.audioChunks.length; i++) {
+        const chunk: audioRecovery.RecordingChunk = {
+          sessionId: this.sessionId,
+          documentId: this.sourceDocumentId,
+          chunkIndex: i,
+          blob: this.audioChunks[i],
+          timestamp: Date.now(),
+          duration: this.duration,
+        };
+
+        await audioRecovery.saveChunk(chunk);
+      }
+
+      runInAction(() => {
+        this.lastChunkIndex = this.audioChunks.length;
+      });
+    } catch (error) {
+      // Silently fail - chunk saving is optional
+      Logger.error(
+        "Failed to save audio chunks",
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
   };
 
   /**
@@ -666,6 +856,9 @@ class AudioRecorderStore {
 
   @action
   private cleanup = (): void => {
+    // Stop chunk saving
+    this.stopChunkSaving();
+
     // Stop all media tracks
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => track.stop());
@@ -683,8 +876,10 @@ class AudioRecorderStore {
     this.pausedDuration = 0;
     this.pauseStartTime = null;
     this.sourceDocumentId = null;
+    this.sessionId = null;
     this.insertionPoint = null;
     this.audioChunks = [];
+    this.markers = [];
     this.mediaRecorder = null;
     this.mediaStream = null;
     this.audioContext = null;
@@ -696,6 +891,10 @@ class AudioRecorderStore {
     this.error = null;
     this.lastAttachment = null;
     this.autoGenerateSummary = true;
+    this.isMinimized = false;
+    this.realtimeTranscript = "";
+    this.chunkSaveInterval = null;
+    this.lastChunkIndex = 0;
   };
 
   private selectBestCodec(): string {
@@ -733,6 +932,103 @@ class AudioRecorderStore {
       // Audio analysis is optional, silently fail
     }
   }
+
+  /**
+   * Check for incomplete recordings on app load
+   */
+  @action
+  checkForIncompleteRecordings = async (): Promise<
+    audioRecovery.RecoverySession[]
+  > => {
+    if (!audioRecovery.isIndexedDBSupported()) {
+      return [];
+    }
+
+    try {
+      const sessions = await audioRecovery.getIncompleteSessions();
+      return sessions;
+    } catch (error) {
+      Logger.error(
+        "Failed to check for incomplete recordings",
+        error instanceof Error ? error : new Error(String(error))
+      );
+      return [];
+    }
+  };
+
+  /**
+   * Recover a recording from IndexedDB
+   */
+  @action
+  recoverRecording = async (sessionId: string): Promise<void> => {
+    try {
+      const { blob } = await audioRecovery.reconstructAudio(sessionId);
+
+      // Get the session info
+      const sessions = await audioRecovery.getIncompleteSessions();
+      const session = sessions.find((s) => s.sessionId === sessionId);
+
+      if (!session) {
+        throw new Error("Session not found");
+      }
+
+      // Set up state for upload
+      runInAction(() => {
+        this.sourceDocumentId = session.documentId;
+        this.sessionId = sessionId;
+        this.status = "uploading";
+      });
+
+      // Upload and transcribe the recovered audio
+      await this.uploadAndTranscribe(blob);
+
+      // Clean up IndexedDB
+      await audioRecovery.deleteSession(sessionId);
+    } catch (error) {
+      runInAction(() => {
+        this.error =
+          error instanceof Error
+            ? error.message
+            : "Failed to recover recording";
+        this.status = "error";
+      });
+      throw error;
+    }
+  };
+
+  /**
+   * Discard a recovered recording
+   */
+  @action
+  discardRecoveredRecording = async (sessionId: string): Promise<void> => {
+    try {
+      await audioRecovery.deleteSession(sessionId);
+    } catch (error) {
+      Logger.error(
+        "Failed to discard recovered recording",
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  };
+
+  /**
+   * Clean up old chunks from IndexedDB
+   */
+  @action
+  cleanupOldChunks = async (): Promise<void> => {
+    if (!audioRecovery.isIndexedDBSupported()) {
+      return;
+    }
+
+    try {
+      await audioRecovery.cleanupOldChunks();
+    } catch (error) {
+      Logger.error(
+        "Failed to cleanup old chunks",
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  };
 
   /**
    * Destroy the store and clean up resources

@@ -7,7 +7,7 @@
   - Add audioMetadata field to Document model to store sourceType, duration, markers, aiArchiveSuggestion
   - _Requirements: 1.1, 4_
 
-- [ ] 2. Implement Audio Inbox Collection
+- [x] 2. Implement Audio Inbox Collection
   - [x] 2.1 Create AudioInboxStore with ensureInboxExists(), getInboxDocuments(), moveDocumentFromInbox() methods
     - Auto-create Audio Inbox Collection on first use with type 'audio-inbox', private: true, special inbox icon
     - Implement computed properties: unarchivedCount, recentDocuments
@@ -27,14 +27,14 @@
     - Preserve search/filter state on navigation
     - _Requirements: 12_
 
-- [ ] 3. Build Recording Studio interface
-  - [ ] 3.1 Create AudioRecorderStore
+- [x] 3. Build Recording Studio interface
+  - [x] 3.1 Create AudioRecorderStore
     - Implement state: activeSession (documentId, sessionId, startTime, isPaused, markers), isMinimized, realtimeTranscript
     - Implement actions: startRecording(), pauseRecording(), resumeRecording(), stopRecording(), cancelRecording(), addMarker(), minimizeStudio(), reopenStudio()
     - Integrate Web Audio API for audio capture
     - _Requirements: 2, 3_
   
-  - [ ] 3.2 Build Recording Studio component
+  - [x] 3.2 Build Recording Studio component
     - Create full-screen/dedicated recording interface at app/scenes/RecordingStudio/RecordingStudio.tsx
     - Add large waveform visualization using Web Audio API and Canvas
     - Display real-time transcript. Optimize for multiple speaker.
@@ -45,7 +45,7 @@
     - Show visual recording indicator (pulsing red dot)
     - _Requirements: 2, 7_
   
-  - [ ] 3.3 Reuse current Global Recording Control
+  - [x] 3.3 Reuse current Global Recording Control
     - Create floating UI component at app/components/GlobalRecordingControl.tsx
     - Position at bottom-right corner, show recording icon and duration
     - Make clickable to reopen Recording Studio
@@ -53,7 +53,7 @@
     - Ensure visibility across all pages
     - _Requirements: 3_
   
-  - [ ] 3.4 Add IndexedDB recovery system
+  - [x] 3.4 Add IndexedDB recovery system
     - Create IndexedDB database 'outline-audio-recovery' with 'recording-chunks' object store
     - Save audio chunks every 10 seconds during recording
     - Detect incomplete recordings on app load
