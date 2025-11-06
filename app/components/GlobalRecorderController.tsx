@@ -9,7 +9,6 @@ import Flex from "~/components/Flex";
 import Tooltip from "~/components/Tooltip";
 import useStores from "~/hooks/useStores";
 import history from "~/utils/history";
-import { documentPath } from "~/utils/routeHelpers";
 
 // Simple icon components for media controls
 const StopIcon: React.FC<{ size?: number }> = ({ size = 20 }) => (
@@ -24,7 +23,7 @@ const StopIcon: React.FC<{ size?: number }> = ({ size = 20 }) => (
  * quick access to recording controls and navigation back to the source document.
  */
 const GlobalRecorderController: React.FC = observer(() => {
-  const { audioRecorder, documents, ui } = useStores();
+  const { audioRecorder, documents } = useStores();
   const { t } = useTranslation();
   const [displayDuration, setDisplayDuration] = React.useState(0);
 
@@ -35,7 +34,9 @@ const GlobalRecorderController: React.FC = observer(() => {
     }
 
     const computeDuration = () => {
-      if (!audioRecorder.startTime) {return 0;}
+      if (!audioRecorder.startTime) {
+        return 0;
+      }
       const now = Date.now();
       const pausedExtra =
         audioRecorder.isPaused && audioRecorder.pauseStartTime
@@ -72,22 +73,11 @@ const GlobalRecorderController: React.FC = observer(() => {
   };
 
   // Determine if controller should be visible
-  // Show only when recording is active AND user is not on source document
-  // This ensures the controller appears when navigating away from the recording
-  // and hides when returning to the source document (where the placeholder card is visible)
-  const isVisible = React.useMemo(() => {
-    if (!audioRecorder.isActive || !audioRecorder.sourceDocumentId) {
-      return false;
-    }
-
-    // Hide if user is on the source document
-    // The ui.activeDocumentId is updated by the router when navigating between documents
-    return ui.activeDocumentId !== audioRecorder.sourceDocumentId;
-  }, [
-    audioRecorder.isActive,
-    audioRecorder.sourceDocumentId,
-    ui.activeDocumentId,
-  ]);
+  // Show only when recording is active AND the Recording Studio is minimized
+  const isVisible = React.useMemo(
+    () => audioRecorder.isActive && audioRecorder.isMinimized,
+    [audioRecorder.isActive, audioRecorder.isMinimized]
+  );
 
   // Get source document
   const sourceDocument = React.useMemo(() => {
@@ -97,17 +87,15 @@ const GlobalRecorderController: React.FC = observer(() => {
     return documents.get(audioRecorder.sourceDocumentId);
   }, [audioRecorder.sourceDocumentId, documents]);
 
-  // Handle navigation to source document
-  const handleNavigateToSource = React.useCallback(() => {
-    if (!sourceDocument) {
-      return;
+  // Handle reopening the Recording Studio
+  const handleReopenStudio = React.useCallback(() => {
+    audioRecorder.reopenStudio();
+
+    // Navigate to the Recording Studio route
+    if (sourceDocument) {
+      history.push(`/recording/${sourceDocument.id}`);
     }
-
-    history.push(documentPath(sourceDocument));
-
-    // TODO: Scroll to recording placeholder if needed
-    // This will be implemented when we have access to the editor instance
-  }, [sourceDocument]);
+  }, [audioRecorder, sourceDocument]);
 
   // Handle stop recording
   const handleStop = React.useCallback(() => {
@@ -143,12 +131,9 @@ const GlobalRecorderController: React.FC = observer(() => {
 
   return (
     <Container>
-      <Tooltip
-        content={t("Recording in") + ` "${documentTitle}"`}
-        placement="left"
-      >
+      <Tooltip content={t("Click to reopen Recording Studio")} placement="left">
         <IndicatorButton
-          onClick={handleNavigateToSource}
+          onClick={handleReopenStudio}
           $isRecording={isRecording}
         >
           <PulsingRing $isRecording={isRecording} />
@@ -167,9 +152,9 @@ const GlobalRecorderController: React.FC = observer(() => {
           <Duration>{formatDuration(displayDuration)}</Duration>
         </StatusSection>
 
-        <DocumentInfo onClick={handleNavigateToSource}>
+        <DocumentInfo onClick={handleReopenStudio}>
           <DocumentTitle>{documentTitle}</DocumentTitle>
-          <ViewDocumentText>{t("View Document")}</ViewDocumentText>
+          <ViewDocumentText>{t("Reopen Recording Studio")}</ViewDocumentText>
         </DocumentInfo>
 
         <ButtonSection>
