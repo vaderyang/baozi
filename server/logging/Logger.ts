@@ -56,10 +56,11 @@ class Logger {
         format: env.isProduction
           ? winston.format.json()
           : winston.format.combine(
+              winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss.SSS" }),
               winston.format.colorize(),
               winston.format.printf(
-                ({ message, level, label, ...extra }) =>
-                  `${level}: ${
+                ({ timestamp, message, level, label, ...extra }) =>
+                  `${timestamp} ${level}: ${
                     label ? chalk.bold("[" + label + "] ") : ""
                   }${message} ${isEmpty(extra) ? "" : JSON.stringify(extra)}`
               )
