@@ -21,6 +21,7 @@ const AudioWaveform: React.FC<AudioWaveformProps> = React.memo(
     const MAX_BARS = 32;
     const MIN_BAR_HEIGHT = 2;
     const BAR_GAP = 2;
+    const AMPLIFY = 1.6; // slight gain to make bars visually larger
 
     React.useEffect(() => {
       const canvas = canvasRef.current;
@@ -82,10 +83,8 @@ const AudioWaveform: React.FC<AudioWaveformProps> = React.memo(
 
         const normalized = bucketSize > 0 ? sum / (bucketSize * 255) : 0;
         const clamped = Math.min(1, Math.max(0, normalized));
-        const barHeight = Math.max(
-          MIN_BAR_HEIGHT,
-          clamped * (targetHeight - 8)
-        );
+        const scaled = Math.min(1, clamped * AMPLIFY);
+        const barHeight = Math.max(MIN_BAR_HEIGHT, scaled * (targetHeight - 2));
 
         const x = i * (barWidth + BAR_GAP);
         const y = baseline - barHeight / 2;

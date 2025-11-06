@@ -224,6 +224,9 @@ class AudioRecorderStore {
         this.lastAttachment = null;
       });
 
+      // Initialize audio analysis for level meter
+      this.setupAudioAnalysis(stream);
+
       // Initialize MediaRecorder with best available codec
       const mimeType = this.selectBestCodec();
       this.mediaRecorder = new MediaRecorder(stream, {
