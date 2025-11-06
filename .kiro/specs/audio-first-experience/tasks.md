@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Set up core data models and API infrastructure
+- [x] 1. Set up core data models and API infrastructure
   - Create TranscriptionJob model with fields: id, documentId, userId, teamId, sourceType, status, progress, audioAttachmentId, transcriptText, metadata, error, timestamps
   - Create API endpoint POST /api/audio/start-recording that creates an Audio Document in Audio Inbox and returns documentId and sessionId
   - Create API endpoint POST /api/audio/stop-recording that accepts audio blob, creates attachment, and creates TranscriptionJob
@@ -8,19 +8,19 @@
   - _Requirements: 1.1, 4_
 
 - [ ] 2. Implement Audio Inbox Collection
-  - [ ] 2.1 Create AudioInboxStore with ensureInboxExists(), getInboxDocuments(), moveDocumentFromInbox() methods
+  - [x] 2.1 Create AudioInboxStore with ensureInboxExists(), getInboxDocuments(), moveDocumentFromInbox() methods
     - Auto-create Audio Inbox Collection on first use with type 'audio-inbox', private: true, special inbox icon
     - Implement computed properties: unarchivedCount, recentDocuments
     - _Requirements: 1.1, 6_
   
-  - [ ] 2.2 Create Audio Inbox UI view
+  - [x] 2.2 Create Audio Inbox UI view
     - Build collection view with special inbox icon and count badge
     - Display documents in reverse chronological order with compact card layout
     - Show title, recording date, duration, transcription status for each document
     - Add "New Recording" button at top
     - _Requirements: 6, 10_
   
-  - [ ] 2.3 Add search and filter functionality
+  - [x] 2.3 Add search and filter functionality
     - Implement search input matching title and Summary text
     - Add filter options: All, Transcribing, Ready to Archive
     - Add sort options: Newest First, Oldest First, Longest Duration, Shortest Duration

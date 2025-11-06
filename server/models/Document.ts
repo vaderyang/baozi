@@ -578,6 +578,25 @@ class Document extends ArchivableModel<
   @Column(DataType.JSONB)
   sourceMetadata: SourceMetadata | null;
 
+  @AllowNull
+  @Column(DataType.JSONB)
+  audioMetadata: {
+    sourceType?: "recording" | "upload" | "url";
+    duration?: number;
+    markers?: Array<{ timestamp: number; label?: string }>;
+    aiArchiveSuggestion?: {
+      suggestions: Array<{
+        targetId: string;
+        targetType: "collection" | "document";
+        targetName: string;
+        reason: string;
+        confidence: number;
+      }>;
+      status: "pending" | "accepted" | "dismissed";
+      acceptedSuggestionId?: string;
+    };
+  } | null;
+
   @BelongsTo(() => Document, "parentDocumentId")
   parentDocument: Document | null;
 
