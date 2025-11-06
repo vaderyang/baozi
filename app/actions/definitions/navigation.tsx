@@ -13,6 +13,7 @@ import {
   ShapesIcon,
   DraftsIcon,
   BugIcon,
+  BeakerIcon,
 } from "outline-icons";
 import { UrlHelper } from "@shared/utils/UrlHelper";
 import { isMac } from "@shared/utils/browser";
@@ -35,6 +36,7 @@ import {
   archivePath,
   trashPath,
   settingsPath,
+  healthPath,
 } from "~/utils/routeHelpers";
 
 export const navigateToHome = createAction({
@@ -147,6 +149,15 @@ export const navigateToAccountPreferences = createInternalLinkActionV2({
   iconInContextMenu: false,
   icon: <SettingsIcon />,
   to: settingsPath("preferences"),
+});
+
+export const navigateToHealth = createInternalLinkActionV2({
+  name: ({ t }) => t("System Health"),
+  analyticsName: "Navigate to system health",
+  section: NavigationSection,
+  iconInContextMenu: false,
+  icon: <BeakerIcon />,
+  to: healthPath(),
 });
 
 export const openDocumentation = createExternalLinkActionV2({

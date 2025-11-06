@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   navigateToProfileSettings,
   navigateToAccountPreferences,
+  navigateToHealth,
   openKeyboardShortcuts,
   openChangelog,
   openDocumentation,
@@ -36,6 +37,7 @@ const AccountMenu: React.FC = ({ children }: Props) => {
       changeTheme,
       navigateToProfileSettings,
       navigateToAccountPreferences,
+      navigateToHealth,
       ActionV2Separator,
       logout,
     ],

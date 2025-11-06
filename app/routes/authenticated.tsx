@@ -15,6 +15,7 @@ import {
   aiAskPath,
   archivePath,
   draftsPath,
+  healthPath,
   homePath,
   searchPath,
   settingsPath,
@@ -30,6 +31,7 @@ const Drafts = lazy(() => import("~/scenes/Drafts"));
 const Home = lazy(() => import("~/scenes/Home"));
 const Search = lazy(() => import("~/scenes/Search"));
 const AIAsk = lazy(() => import("~/scenes/AIAsk"));
+const Health = lazy(() => import("~/scenes/Health"));
 const Trash = lazy(() => import("~/scenes/Trash"));
 
 const RedirectDocument = ({
@@ -104,6 +106,7 @@ function AuthenticatedRoutes() {
                 component={Search}
               />
               <Route exact path={aiAskPath()} component={AIAsk} />
+              <Route exact path={healthPath()} component={Health} />
               <Route path="/404" component={Error404} />
               <SettingsRoutes />
               <Route component={Error404} />

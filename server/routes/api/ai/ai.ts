@@ -1345,7 +1345,31 @@ CRITICAL RULES:
         },
       ];
 
+      // Check if we need to use fallback model based on context length
+      // Some models like qwen3-30b-a3b-instruct can only handle ~15000 characters
+      // Use fallback model for contexts that exceed the primary model's capacity
+      const MAX_CONTEXT_LENGTH = parseInt(
+        process.env.LLM_MAX_CONTEXT_LENGTH || "15000",
+        10
+      );
       let currentModel = model;
+
+      if (context.length > MAX_CONTEXT_LENGTH && fallbackModel) {
+        Logger.info(
+          "utils",
+          "Context too large for primary model, using fallback",
+          {
+            primaryModel: model,
+            fallbackModel,
+            contextLength: context.length,
+            maxContextLength: MAX_CONTEXT_LENGTH,
+            userId: user.id,
+          }
+        );
+        currentModel = fallbackModel;
+        // Swap so we don't retry with the model that can't handle large contexts
+        fallbackModel = undefined;
+      }
 
       const makeRequest = async (modelToUse: string) => {
         const requestBody = JSON.stringify({
@@ -1772,7 +1796,31 @@ ${context}`;
         },
       ];
 
+      // Check if we need to use fallback model based on context length
+      // Some models like qwen3-30b-a3b-instruct can only handle ~15000 characters
+      // Use fallback model for contexts that exceed the primary model's capacity
+      const MAX_CONTEXT_LENGTH = parseInt(
+        process.env.LLM_MAX_CONTEXT_LENGTH || "15000",
+        10
+      );
       let currentModel = model;
+
+      if (context.length > MAX_CONTEXT_LENGTH && fallbackModel) {
+        Logger.info(
+          "utils",
+          "Context too large for primary model, using fallback",
+          {
+            primaryModel: model,
+            fallbackModel,
+            contextLength: context.length,
+            maxContextLength: MAX_CONTEXT_LENGTH,
+            userId: user.id,
+          }
+        );
+        currentModel = fallbackModel;
+        // Swap so we don't retry with the model that can't handle large contexts
+        fallbackModel = undefined;
+      }
 
       const makeRequest = async (modelToUse: string) => {
         const requestBody = JSON.stringify({
