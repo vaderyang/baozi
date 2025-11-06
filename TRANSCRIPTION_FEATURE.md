@@ -7,7 +7,7 @@ Added a new audio transcription feature that allows users to upload audio files 
 
 ### 1. Environment Configuration
 - Added `TRANSCRIPTION_ENDPOINT` environment variable in `.env` and `.env.sample`
-- Default value: `http://172.16.103.100:8000/transcribe`
+- Default value: `http://v.netis.com.cn:13000/transcribe`
 - Added to `server/env.ts` with proper validation
 
 ### 2. Backend API

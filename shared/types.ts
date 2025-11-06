@@ -616,3 +616,48 @@ export type ReactionSummary = {
   emoji: string;
   userIds: string[];
 };
+
+// AI Ask SSE Event Types
+export type AIAskSearchStrategy = {
+  keywords: string[];
+  timestamp: Date;
+  usedFallback?: boolean;
+};
+
+export type AIAskSearchProgress = {
+  keyword: string;
+  resultCount: number;
+  status: "searching" | "complete";
+};
+
+export type AIAskSearchComplete = {
+  totalDocuments: number;
+  uniqueDocuments: number;
+};
+
+export type AIAskSSEEvent =
+  | { type: "search_strategy"; keywords: string[] }
+  | {
+      type: "search_progress";
+      keyword: string;
+      resultCount: number;
+      status: "searching" | "complete";
+    }
+  | {
+      type: "search_complete";
+      totalDocuments: number;
+      uniqueDocuments: number;
+    }
+  | {
+      type: "sources";
+      sources: Array<{
+        id: string;
+        title: string;
+        url: string;
+        collectionId: string | null;
+      }>;
+    }
+  | { type: "content"; content: string }
+  | { type: "followups"; followups: string[] }
+  | { type: "done" }
+  | { type: "error"; error: string; code?: string };

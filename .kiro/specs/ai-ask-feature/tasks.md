@@ -22,8 +22,8 @@ This implementation plan builds upon the existing AI search infrastructure (`AIS
   - Add SSE event type for `followups` in addition to existing `sources`, `content`, `done`, `error`
   - _Requirements: 2.1, 2.2, 2.3, 5.1, 5.2, 5.4, 6.4_
 
-- [-] 2. Create AIAskStore for state management
-  - [-] 2.1 Implement MobX store with conversation state management
+- [ ] 2. Create AIAskStore for state management
+  - [x] 2.1 Implement MobX store with conversation state management
     - Create `AIAskStore` class extending `BaseStore`
     - Add observable properties: `conversation`, `activeDocumentId`, `sessionId`
     - Implement `submitQuestion` action to handle SSE streaming
@@ -32,13 +32,13 @@ This implementation plan builds upon the existing AI search infrastructure (`AIS
     - Add computed property `currentTurn` for latest conversation turn
     - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
 
-  - [ ] 2.2 Integrate AIAskStore into RootStore
+  - [x] 2.2 Integrate AIAskStore into RootStore
     - Add AIAskStore to RootStore initialization
     - Export store type for TypeScript support
     - _Requirements: 6.1_
 
 - [ ] 3. Build AIAsk scene and core components
-  - [ ] 3.1 Create AIAskScene with Google-like landing page
+  - [x] 3.1 Create AIAskScene with Google-like landing page
     - Create `app/scenes/AIAsk/AIAsk.tsx` scene component
     - Implement landing page view with centered query input
     - Implement conversation view that displays Q&A history
@@ -46,7 +46,7 @@ This implementation plan builds upon the existing AI search infrastructure (`AIS
     - Add navigation helper in route helpers
     - _Requirements: 1.1, 1.2, 1.5, 6.2_
 
-  - [ ] 3.2 Create AIAskQueryInput component
+  - [x] 3.2 Create AIAskQueryInput component
     - Build specialized input component at `app/scenes/AIAsk/components/QueryInput.tsx`
     - Implement 500 character limit with counter
     - Add placeholder with example questions
@@ -54,7 +54,7 @@ This implementation plan builds upon the existing AI search infrastructure (`AIS
     - Add clear button and auto-focus
     - _Requirements: 1.3, 1.4, 6.1_
 
-  - [ ] 3.3 Create AIAskConversation component
+  - [x] 3.3 Create AIAskConversation component
     - Build conversation display at `app/scenes/AIAsk/components/Conversation.tsx`
     - Display chronological Q&A pairs
     - Implement streaming answer animation
@@ -62,7 +62,7 @@ This implementation plan builds upon the existing AI search infrastructure (`AIS
     - Auto-scroll to latest answer
     - _Requirements: 3.1, 3.2, 3.3, 4.1, 6.2, 6.3_
 
-  - [ ] 3.4 Enhance AIAskAnswer component from existing AISearchAnswer
+  - [x] 3.4 Enhance AIAskAnswer component from existing AISearchAnswer
     - Create `app/scenes/AIAsk/components/Answer.tsx` based on `AISearchAnswer`
     - Add markdown rendering with syntax highlighting
     - Implement superscript citation links
@@ -72,7 +72,7 @@ This implementation plan builds upon the existing AI search infrastructure (`AIS
     - _Requirements: 3.3, 3.4, 4.1_
 
 - [ ] 4. Implement document sidebar for source exploration
-  - [ ] 4.1 Create AIAskDocumentSidebar component
+  - [x] 4.1 Create AIAskDocumentSidebar component
     - Build sidebar at `app/scenes/AIAsk/components/DocumentSidebar.tsx`
     - Display list of referenced documents with metadata
     - Show document title, collection, and summary
@@ -82,14 +82,14 @@ This implementation plan builds upon the existing AI search infrastructure (`AIS
     - Highlight active document when citation clicked
     - _Requirements: 4.2, 4.3, 4.4, 4.5_
 
-  - [ ] 4.2 Wire citation clicks to sidebar
+  - [x] 4.2 Wire citation clicks to sidebar
     - Connect citation click handlers to `setActiveDocument` action
     - Implement sidebar open/close logic
     - Add smooth scroll to active document in sidebar
     - _Requirements: 4.1, 4.2_
 
 - [ ] 5. Add follow-up suggestions feature
-  - [ ] 5.1 Create AIAskFollowups component
+  - [x] 5.1 Create AIAskFollowups component
     - Build component at `app/scenes/AIAsk/components/Followups.tsx`
     - Display 3-5 follow-up suggestions as chips
     - Implement horizontal scrollable layout
@@ -97,14 +97,14 @@ This implementation plan builds upon the existing AI search infrastructure (`AIS
     - Add fade-in animation when loaded
     - _Requirements: 5.1, 5.2, 5.3_
 
-  - [ ] 5.2 Integrate follow-up generation in backend
+  - [x] 5.2 Integrate follow-up generation in backend
     - Implement `generateFollowups` method in AIService
     - Add LLM prompt template for follow-up generation
     - Emit `followups` SSE event after answer completion
     - _Requirements: 5.1, 5.4, 5.5_
 
 - [ ] 6. Implement error handling and edge cases
-  - [ ] 6.1 Add comprehensive error states
+  - [x] 6.1 Add comprehensive error states
     - Implement network error handling with retry button
     - Add no results found state with alternative suggestions
     - Handle permission errors with helpful messaging
@@ -112,7 +112,7 @@ This implementation plan builds upon the existing AI search infrastructure (`AIS
     - Implement timeout handling (>30 seconds) with cancel option
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 9.4_
 
-  - [ ] 6.2 Add loading indicators and progress states
+  - [x] 6.2 Add loading indicators and progress states
     - Implement loading indicator on question submission
     - Add progress messages during search and generation phases
     - Show estimated time remaining when processing exceeds 5 seconds
@@ -127,7 +127,7 @@ This implementation plan builds upon the existing AI search infrastructure (`AIS
     - Add logging for permission-related access attempts
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
 
-- [ ] 8. Add configuration and settings support
+- [-] 8. Add configuration and settings support
   - [ ] 8.1 Implement environment variable configuration
     - Add `AI_ASK_ENABLED` feature flag
     - Add `AI_ASK_MAX_DOCUMENTS` configuration
