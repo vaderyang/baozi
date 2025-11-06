@@ -6,6 +6,7 @@ import ApiKeysStore from "./ApiKeysStore";
 import AudioInboxStore from "./AudioInboxStore";
 import AudioRecorderStore from "./AudioRecorderStore";
 import AuthStore from "./AuthStore";
+import TranscriptionJobsStore from "./TranscriptionJobsStore";
 import AuthenticationProvidersStore from "./AuthenticationProvidersStore";
 import CollectionsStore from "./CollectionsStore";
 import CommentsStore from "./CommentsStore";
@@ -43,6 +44,7 @@ export default class RootStore {
   apiKeys: ApiKeysStore;
   audioInbox: AudioInboxStore;
   audioRecorder: AudioRecorderStore;
+  transcriptionJobs: TranscriptionJobsStore;
   auth: AuthStore;
   authenticationProviders: AuthenticationProvidersStore;
   collections: CollectionsStore;
@@ -113,6 +115,7 @@ export default class RootStore {
     this.registerStore(UiStore, "ui");
     this.registerStore(AudioInboxStore, "audioInbox");
     this.registerStore(AudioRecorderStore, "audioRecorder");
+    this.registerStore(TranscriptionJobsStore, "transcriptionJobs");
 
     // AuthStore must be initialized last as it makes use of the other stores.
     this.registerStore(AuthStore, "auth");
@@ -138,9 +141,14 @@ export default class RootStore {
     Object.getOwnPropertyNames(this)
       .filter(
         (key) =>
-          ["auth", "ui", "audioRecorder", "audioInbox", "aiAsk"].includes(
-            key
-          ) === false
+          [
+            "auth",
+            "ui",
+            "audioRecorder",
+            "audioInbox",
+            "aiAsk",
+            "transcriptionJobs",
+          ].includes(key) === false
       )
       .forEach((key: keyof RootStore) => {
         if ("clear" in this[key]) {

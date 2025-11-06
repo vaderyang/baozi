@@ -1,6 +1,5 @@
 import { action, computed, observable, runInAction } from "mobx";
 import { AttachmentPreset } from "@shared/types";
-import { client } from "~/utils/ApiClient";
 import { uploadFile } from "~/utils/files";
 import Logger from "~/utils/Logger";
 import * as audioRecovery from "~/utils/audioRecovery";
@@ -720,23 +719,18 @@ class AudioRecorderStore {
         this.status = "transcribing";
       });
 
-      // Call transcriptions.create API
-      const response = await client.post<{
-        data: { jobId: string; status: string };
-      }>("/transcriptions.create", {
+      // Create transcription job using TranscriptionJobsStore
+      const job = await this.rootStore.transcriptionJobs.createJob(
         attachmentId,
-        documentId: this.sourceDocumentId,
-        autoSummary: this.autoGenerateSummary,
-      });
-
-      const jobId = response.data.jobId;
+        this.sourceDocumentId
+      );
 
       runInAction(() => {
-        this.currentJobId = jobId;
+        this.currentJobId = job.id;
       });
 
       // Poll for transcription completion
-      await this.pollTranscriptionStatus(jobId);
+      await this.pollTranscriptionStatus(job.id);
     } catch (error) {
       // Log error details for debugging
 
@@ -762,19 +756,12 @@ class AudioRecorderStore {
       await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 seconds
 
       try {
-        const response = await client.post<{
-          data: {
-            id: string;
-            status: string;
-            progress: number | null;
-            error: string | null;
-            result: { text: string } | null;
-          };
-        }>("/transcriptions.info", {
-          jobId,
-        });
+        // Get job from TranscriptionJobsStore
+        const job = this.rootStore.transcriptionJobs.getJob(jobId);
 
-        const job = response.data;
+        if (!job) {
+          throw new Error("Transcription job not found");
+        }
 
         if (job.status === "completed") {
           // Transcription completed successfully (even if empty)

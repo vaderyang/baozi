@@ -63,7 +63,7 @@
     - _Requirements: 11_
 
 - [ ] 4. Integrate with existing transcription infrastructure
-  - [ ] 4.1 Review existing transcription system
+  - [x] 4.1 Review existing transcription system
     - Note: TranscriptionJob model already exists with status, progress, error, result fields
     - Note: API endpoints already exist: transcriptions.create, transcriptions.info, transcriptions.retry, transcriptions.cancel, transcriptions.list
     - Note: TranscriptionTask already handles background processing with retry logic and WebSocket events
@@ -71,7 +71,7 @@
     - Verify existing system works correctly with audio attachments
     - _Requirements: 4_
   
-  - [ ] 4.2 Build TranscriptionJobsStore for frontend
+  - [x] 4.2 Build TranscriptionJobsStore for frontend
     - Create app/stores/TranscriptionJobsStore.ts
     - Implement state: jobs Map<stic (exponescriptionJob>
     - Implement actions: createJob() calling transcriptions.create API, pollJobStatus() calling transcriptions.info, retryJob() calling transcriptions.retry, cancelJob() calling transcriptions.cancel
@@ -79,7 +79,7 @@
     - Subscribe to WebSocket 'transcription:status' events for real-time updates
     - _Requirements: 4, 16_
   
-  - [ ] 4.3 Create Audio Document view with transcript display
+  - [x] 4.3 Create Audio Document view with transcript display
     - Extend document view to display audio player with waveform
     - Show transcript section with "## Transcript" heading using result.text from TranscriptionJob
     - Display speaker segments if available (result.speakerSegments with spk, text, timestamps)
@@ -88,7 +88,7 @@
     - Auto-refresh view when transcription completes via WebSocket event
     - _Requirements: 4, 7_
   
-  - [ ] 4.4 Wire Recording Studio to transcription API
+  - [x] 4.4 Wire Recording Studio to transcription API
     - After recording stops, upload audio as Attachment
     - Call transcriptions.create API with attachmentId and documentId
     - Store returned jobId in recording session
@@ -99,11 +99,10 @@
 - [ ] 5. Build AI Archive Suggestion feature
   - [ ] 5.1 Create AI Archive Suggestion Service
     - Create server/services/AIArchiveSuggestionService.ts
-    - Implement analyzeTranscript() method using existing AI service (OpenAI/Anthropic)
+    - Implement analyzeTranscript() method using existing AI service
     - Extract key topics, entities, and document type from transcript
-    - Search user's Collections and Documents for semantic matches
     - Rank matches and generate top 3 suggestions with explanations
-    - Optionally suggest improved title based on content
+    - suggest improved title based on content
     - _Requirements: 5_
   
   - [ ] 5.2 Create API endpoints for archive suggestions
