@@ -316,6 +316,8 @@ export enum TeamPreference {
   AiSearchFallbackModel = "aiSearchFallbackModel",
   /** Model name for AI vision tasks. */
   AiVisionModel = "aiVisionModel",
+  /** Audio transcription service endpoint URL. */
+  TranscriptionEndpoint = "transcriptionEndpoint",
 }
 
 export type TeamPreferences = {
@@ -336,6 +338,7 @@ export type TeamPreferences = {
   [TeamPreference.AiSearchModel]?: string;
   [TeamPreference.AiSearchFallbackModel]?: string;
   [TeamPreference.AiVisionModel]?: string;
+  [TeamPreference.TranscriptionEndpoint]?: string;
 };
 
 export enum NavigationNodeType {

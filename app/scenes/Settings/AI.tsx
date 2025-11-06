@@ -42,6 +42,9 @@ function AI() {
     (team.getPreference(TeamPreference.AiVisionModel) as string) ||
       "__default__"
   );
+  const [transcriptionEndpoint, setTranscriptionEndpoint] = React.useState(
+    (team.getPreference(TeamPreference.TranscriptionEndpoint) as string) || ""
+  );
 
   const [availableModels, setAvailableModels] = React.useState<string[]>([]);
   const [loadingModels, setLoadingModels] = React.useState(false);
@@ -112,6 +115,9 @@ function AI() {
         [TeamPreference.AiSearchModel]: cleanValue(searchModel),
         [TeamPreference.AiSearchFallbackModel]: cleanValue(searchFallbackModel),
         [TeamPreference.AiVisionModel]: cleanValue(visionModel),
+        [TeamPreference.TranscriptionEndpoint]: cleanValue(
+          transcriptionEndpoint
+        ),
       },
     });
     toast.success(t("AI settings saved"));
@@ -123,6 +129,7 @@ function AI() {
     searchModel,
     searchFallbackModel,
     visionModel,
+    transcriptionEndpoint,
     t,
   ]);
 
@@ -306,7 +313,6 @@ function AI() {
         description={t(
           "Model used for image analysis and vision tasks. Example: grok-4-fast-non-reasoning"
         )}
-        border={false}
       >
         <InputSelect
           options={modelOptions}
@@ -318,6 +324,23 @@ function AI() {
           label={t("Vision model")}
           hideLabel
           disabled={loadingModels}
+        />
+      </SettingRow>
+
+      <Heading as="h2">{t("Transcription")}</Heading>
+      <SettingRow
+        label={t("Transcription endpoint")}
+        name="transcriptionEndpoint"
+        description={t(
+          "Audio transcription service endpoint URL. Leave empty to use environment default."
+        )}
+        border={false}
+      >
+        <Input
+          value={transcriptionEndpoint}
+          onChange={(e) => setTranscriptionEndpoint(e.target.value)}
+          onBlur={handleSave}
+          placeholder="http://v.netis.com.cn:13000/transcribe"
         />
       </SettingRow>
     </Scene>

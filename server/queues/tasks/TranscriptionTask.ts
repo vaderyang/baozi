@@ -1,9 +1,10 @@
 import FormData from "form-data";
 import env from "@server/env";
 import Logger from "@server/logging/Logger";
-import { Attachment, TranscriptionJob } from "@server/models";
+import { Attachment, Team, TranscriptionJob } from "@server/models";
 import { TranscriptionJobStatus } from "@server/models/TranscriptionJob";
 import fetch from "@server/utils/fetch";
+import { TeamPreference } from "@shared/types";
 import BaseTask, { TaskPriority } from "./BaseTask";
 
 type Props = {
@@ -49,6 +50,35 @@ export default class TranscriptionTask extends BaseTask<Props> {
       });
       await job.fail(error);
       throw new Error(error);
+    }
+
+    // Get transcription endpoint from team preferences or environment
+    let transcriptionEndpoint = env.TRANSCRIPTION_ENDPOINT;
+
+    try {
+      const team = await Team.findByPk(job.teamId);
+      if (team) {
+        const teamEndpoint = team.getPreference(
+          TeamPreference.TranscriptionEndpoint
+        );
+        if (typeof teamEndpoint === "string" && teamEndpoint.trim()) {
+          transcriptionEndpoint = teamEndpoint.trim();
+          Logger.info("task", "Using team-configured transcription endpoint", {
+            jobId,
+            teamId: job.teamId,
+            endpoint: transcriptionEndpoint,
+          });
+        }
+      }
+    } catch (error) {
+      Logger.warn(
+        "Failed to load team transcription endpoint, using environment default",
+        {
+          jobId,
+          teamId: job.teamId,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
     }
 
     try {
@@ -124,14 +154,14 @@ export default class TranscriptionTask extends BaseTask<Props> {
       Logger.info("task", "Sending transcription request to ASR server", {
         jobId,
         attachmentId,
-        endpoint: env.TRANSCRIPTION_ENDPOINT,
+        endpoint: transcriptionEndpoint,
         fileSizeBytes: fileBuffer.length,
         fileName: attachment.name,
       });
 
       // Send to transcription service
       const requestStartTime = Date.now();
-      const response = await fetch(env.TRANSCRIPTION_ENDPOINT, {
+      const response = await fetch(transcriptionEndpoint, {
         method: "POST",
         body: form,
         headers: form.getHeaders(),
