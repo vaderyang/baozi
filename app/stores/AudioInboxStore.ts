@@ -1,5 +1,4 @@
-import { action, computed, observable, runInAction } from "mobx";
-import Collection from "~/models/Collection";
+import { action, computed } from "mobx";
 import Document from "~/models/Document";
 import type RootStore from "./RootStore";
 
@@ -10,16 +9,10 @@ export interface FilterOptions {
 }
 
 /**
- * AudioInboxStore manages the Audio Inbox collection - a special private collection
- * where all new audio recordings are created before being archived to their final location.
+ * AudioInboxStore manages audio documents in Drafts.
+ * Audio recordings are created as drafts before being archived to their final location.
  */
 class AudioInboxStore {
-  @observable
-  inboxCollection: Collection | null = null;
-
-  @observable
-  isInitializing = false;
-
   rootStore: RootStore;
 
   constructor(rootStore: RootStore) {
@@ -27,90 +20,38 @@ class AudioInboxStore {
   }
 
   /**
-   * Ensures the Audio Inbox collection exists, creating it if necessary.
+   * Ensures drafts are loaded. Audio recordings use the Drafts collection.
    * This is called automatically when needed.
-   *
-   * @returns The Audio Inbox collection
    */
   @action
-  ensureInboxExists = async (): Promise<Collection> => {
-    // If we already have the inbox collection loaded, return it
-    if (this.inboxCollection) {
-      return this.inboxCollection;
-    }
-
-    // Check if inbox already exists in the collections store
-    const existingInbox = this.rootStore.collections.orderedData.find(
-      (collection) =>
-        collection.name === "Audio Inbox" || collection.icon === "inbox"
-    );
-
-    if (existingInbox) {
-      runInAction(() => {
-        this.inboxCollection = existingInbox;
-      });
-      return existingInbox;
-    }
-
-    // Create new Audio Inbox collection
-    if (this.isInitializing) {
-      // Wait for existing initialization to complete
-      return new Promise((resolve) => {
-        const checkInterval = setInterval(() => {
-          if (!this.isInitializing && this.inboxCollection) {
-            clearInterval(checkInterval);
-            resolve(this.inboxCollection);
-          }
-        }, 100);
-      });
-    }
-
-    try {
-      runInAction(() => {
-        this.isInitializing = true;
-      });
-
-      const collection = await this.rootStore.collections.create({
-        name: "Audio Inbox",
-        icon: "inbox",
-        permission: undefined, // undefined means private
-        sharing: false,
-      });
-
-      runInAction(() => {
-        this.inboxCollection = collection;
-        this.isInitializing = false;
-      });
-
-      return collection;
-    } catch (error) {
-      runInAction(() => {
-        this.isInitializing = false;
-      });
-      throw error;
-    }
+  ensureInboxExists = async (): Promise<void> => {
+    // Audio recordings use Drafts, so just ensure drafts are fetched
+    await this.rootStore.documents.fetchDrafts();
   };
 
   /**
-   * Get documents in the Audio Inbox with optional filtering and sorting.
+   * Get audio documents in Drafts with optional filtering and sorting.
    *
    * @param options Filter and sort options
-   * @returns Array of documents in the Audio Inbox
+   * @returns Array of audio documents in Drafts
    */
   @action
   getInboxDocuments = async (options?: FilterOptions): Promise<Document[]> => {
-    const inbox = await this.ensureInboxExists();
+    await this.ensureInboxExists();
 
-    // Get all documents in the inbox collection
+    // Get all draft documents that have audio metadata (indicating they're audio recordings)
     let documents = this.rootStore.documents
-      .inCollection(inbox.id)
-      .filter((doc) => !doc.isDeleted && !doc.isArchived);
+      .drafts()
+      .filter(
+        (doc: Document) =>
+          !doc.isDeleted && !doc.isArchived && doc.audioMetadata
+      );
 
     // Apply search filter
     if (options?.search) {
       const searchLower = options.search.toLowerCase();
       documents = documents.filter(
-        (doc) =>
+        (doc: Document) =>
           doc.title.toLowerCase().includes(searchLower) ||
           doc
             .getSummary()
@@ -139,13 +80,13 @@ class AudioInboxStore {
       switch (options.sort) {
         case "newest":
           documents.sort(
-            (a, b) =>
+            (a: Document, b: Document) =>
               new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           );
           break;
         case "oldest":
           documents.sort(
-            (a, b) =>
+            (a: Document, b: Document) =>
               new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
           );
           break;
@@ -154,21 +95,21 @@ class AudioInboxStore {
           // Duration sorting would require audio metadata
           // For now, fall back to newest
           documents.sort(
-            (a, b) =>
+            (a: Document, b: Document) =>
               new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           );
           break;
         default:
           // Default to newest first
           documents.sort(
-            (a, b) =>
+            (a: Document, b: Document) =>
               new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           );
       }
     } else {
       // Default to newest first (reverse chronological)
       documents.sort(
-        (a, b) =>
+        (a: Document, b: Document) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
     }
@@ -215,33 +156,31 @@ class AudioInboxStore {
   };
 
   /**
-   * Returns the count of unarchived documents in the Audio Inbox.
+   * Returns the count of unarchived audio documents in Drafts.
    */
   @computed
   get unarchivedCount(): number {
-    if (!this.inboxCollection) {
-      return 0;
-    }
-
     return this.rootStore.documents
-      .inCollection(this.inboxCollection.id)
-      .filter((doc) => !doc.isDeleted && !doc.isArchived).length;
+      .drafts()
+      .filter(
+        (doc: Document) =>
+          !doc.isDeleted && !doc.isArchived && doc.audioMetadata
+      ).length;
   }
 
   /**
-   * Returns the most recent documents in the Audio Inbox (up to 5).
+   * Returns the most recent audio documents in Drafts (up to 5).
    */
   @computed
   get recentDocuments(): Document[] {
-    if (!this.inboxCollection) {
-      return [];
-    }
-
     const documents = this.rootStore.documents
-      .inCollection(this.inboxCollection.id)
-      .filter((doc) => !doc.isDeleted && !doc.isArchived)
+      .drafts()
+      .filter(
+        (doc: Document) =>
+          !doc.isDeleted && !doc.isArchived && doc.audioMetadata
+      )
       .sort(
-        (a, b) =>
+        (a: Document, b: Document) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
 

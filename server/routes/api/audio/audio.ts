@@ -27,42 +27,7 @@ import * as T from "./schema";
 
 const router = new Router();
 
-/**
- * Ensure the Audio Inbox collection exists for the user, creating it if necessary.
- */
-async function ensureAudioInbox(
-  userId: string,
-  teamId: string
-): Promise<Collection> {
-  // Try to find existing Audio Inbox - private collections have permission = null
-  let audioInbox = await Collection.findOne({
-    where: {
-      teamId,
-      name: "Audio Inbox",
-      permission: null,
-    },
-  });
-
-  // Create if it doesn't exist
-  if (!audioInbox) {
-    audioInbox = await Collection.create({
-      name: "Audio Inbox",
-      description: "Your audio recordings and uploads",
-      teamId,
-      createdById: userId,
-      permission: null, // null permission makes it private
-      icon: "inbox",
-    });
-
-    Logger.info("utils", "Created Audio Inbox collection", {
-      collectionId: audioInbox.id,
-      userId,
-      teamId,
-    });
-  }
-
-  return audioInbox;
-}
+// Audio recordings are created as drafts (no collection)
 
 router.post(
   "audio.start-recording",
@@ -73,9 +38,6 @@ router.post(
     const { user } = ctx.state.auth;
     const { title } = ctx.input.body;
 
-    // Ensure Audio Inbox exists
-    const audioInbox = await ensureAudioInbox(user.id, user.teamId);
-
     // Generate session ID
     const sessionId = uuidv4();
 
@@ -83,14 +45,14 @@ router.post(
     const timestamp = new Date().toISOString();
     const defaultTitle = title || `Recording ${timestamp}`;
 
-    // Create Audio Document in Audio Inbox
+    // Create Audio Document as a draft (no collection)
     const document = await Document.create({
       title: defaultTitle,
-      collectionId: audioInbox.id,
+      collectionId: null, // null means it's a draft
       teamId: user.teamId,
       createdById: user.id,
       lastModifiedById: user.id,
-      publishedAt: new Date(),
+      publishedAt: null, // drafts are not published
       audioMetadata: {
         sourceType: "recording",
       },
@@ -100,14 +62,12 @@ router.post(
       documentId: document.id,
       sessionId,
       userId: user.id,
-      collectionId: audioInbox.id,
     });
 
     ctx.body = {
       data: {
         documentId: document.id,
         sessionId,
-        audioInboxId: audioInbox.id,
       },
     };
   }
