@@ -2,7 +2,7 @@ import { autorun } from "mobx";
 import * as React from "react";
 import { toast } from "sonner";
 import { TextSelection } from "prosemirror-state";
-import { Node as ProsemirrorNode, Slice } from "prosemirror-model";
+import { Node as ProsemirrorNode, Slice, Fragment } from "prosemirror-model";
 import normalizePastedMarkdown from "@shared/editor/lib/markdown/normalize";
 import Logger from "~/utils/Logger";
 import { client } from "~/utils/ApiClient";
@@ -249,9 +249,8 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       }
 
       // Build content to insert based on auto-summary mode
-      // When auto-summary is enabled: Summary + Audio Attachment + Collapsed Transcript
-      // When auto-summary is disabled: Audio Attachment + Transcript
-      let contentMarkdown = "";
+      // When auto-summary is enabled: Summary + Audio Attachment + TranscriptCard
+      // When auto-summary is disabled: Audio Attachment + TranscriptCard
       let summaryMarkdown = "";
 
       // Generate AI summary if enabled (either from recorder or from card node)
@@ -305,18 +304,27 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         }
       }
 
+      // Build nodes array to insert
+      const nodesToInsert: ProsemirrorNode[] = [];
+
       // Add summary first if generated
       if (summaryMarkdown) {
-        contentMarkdown += summaryMarkdown;
-        Logger.info("editor", "Added summary to markdown", {
-          jobId,
-          summaryLength: summaryMarkdown.length,
-        });
+        const normalizedSummary = normalizePastedMarkdown(summaryMarkdown);
+        const summaryContent = pasteParser.parse(normalizedSummary);
+        if (summaryContent) {
+          summaryContent.content.forEach((node) => {
+            nodesToInsert.push(node);
+          });
+          Logger.info("editor", "Added summary nodes", {
+            jobId,
+            summaryLength: summaryMarkdown.length,
+            nodeCount: summaryContent.content.childCount,
+          });
+        }
       }
 
       // Add audio attachment if attachmentId is provided, attachment node type exists,
       // and skipAttachmentLink flag is not set (to avoid duplicates when transcribing existing attachments)
-      // Use the correct markdown format for attachments: [title size](href)
       if (
         attachmentId &&
         view.state.schema.nodes.attachment &&
@@ -324,15 +332,22 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         !summaryCardNode.attrs?.skipAttachmentLink
       ) {
         const attachmentUrl = `/api/attachments.redirect?id=${attachmentId}`;
-        contentMarkdown += `[${fileName} ${fileSize}](${attachmentUrl})\n\n`;
-        Logger.info("editor", "Added audio attachment to markdown", {
-          jobId,
-          attachmentId,
-          fileName,
-          fileSize,
-          attachmentUrl,
-          currentMarkdownLength: contentMarkdown.length,
-        });
+        const attachmentMarkdown = `[${fileName} ${fileSize}](${attachmentUrl})\n\n`;
+        const normalizedAttachment =
+          normalizePastedMarkdown(attachmentMarkdown);
+        const attachmentContent = pasteParser.parse(normalizedAttachment);
+        if (attachmentContent) {
+          attachmentContent.content.forEach((node) => {
+            nodesToInsert.push(node);
+          });
+          Logger.info("editor", "Added audio attachment node", {
+            jobId,
+            attachmentId,
+            fileName,
+            fileSize,
+            attachmentUrl,
+          });
+        }
       } else {
         Logger.info("editor", "Skipping audio attachment", {
           jobId,
@@ -343,130 +358,94 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         });
       }
 
-      // Add transcript heading and code block
-      // Always use a regular heading - we'll set collapsed attribute programmatically if needed
-      const transcriptHeading = dictionary.transcript || "Transcript";
-      contentMarkdown += `## ${transcriptHeading}\n\n\`\`\`\n${formattedText}\n\`\`\`\n\n`;
+      // Create TranscriptCard node instead of markdown heading + code block
+      const transcriptCardType = view.state.schema.nodes.transcript_card;
+      if (transcriptCardType) {
+        // Prepare speaker segments if available
+        const speakerSegments = result.speakerSegments?.map((segment) => ({
+          spk: String(segment.spk),
+          text: segment.text,
+          start: segment.start,
+          end: segment.end,
+        }));
 
-      Logger.info("editor", "Built markdown content for transcript", {
+        const transcriptCard = transcriptCardType.create({
+          transcript: formattedText,
+          speakerSegments: speakerSegments || null,
+          jobId,
+        });
+
+        nodesToInsert.push(transcriptCard);
+
+        Logger.info("editor", "Created TranscriptCard node", {
+          jobId,
+          hasSpeakerSegments: !!speakerSegments,
+          speakerSegmentCount: speakerSegments?.length || 0,
+          transcriptLength: formattedText.length,
+        });
+      } else {
+        Logger.error("transcript_card node type not found in schema", {
+          jobId,
+        });
+        return;
+      }
+
+      // Create slice from nodes
+      const slice = new Slice(Fragment.from(nodesToInsert), 0, 0);
+
+      Logger.info("editor", "Built content slice with TranscriptCard", {
         jobId,
-        markdownLength: contentMarkdown.length,
+        nodeCount: nodesToInsert.length,
+        sliceSize: slice.content.size,
         hasAttachment: !!attachmentId,
         hasSummary: !!summaryMarkdown,
-        transcriptHeading,
-        formattedTextLength: formattedText.length,
-        markdownPreview: contentMarkdown.substring(0, 200),
       });
 
-      // Parse the markdown into ProseMirror nodes
-      const normalizeStartTime = Date.now();
-      const normalizedMarkdown = normalizePastedMarkdown(contentMarkdown);
-      const normalizeDuration = Date.now() - normalizeStartTime;
+      // Replace the status card with the transcript content
+      const { state, dispatch } = view;
+      const latestDoc = state.doc;
+      cardInfo = locateStatusCard(latestDoc) ?? cardInfo;
 
-      Logger.debug("editor", "Normalized markdown", {
-        jobId,
-        normalizeDurationMs: normalizeDuration,
-        originalLength: contentMarkdown.length,
-        normalizedLength: normalizedMarkdown.length,
-      });
+      const { pos: position, node: cardNode } = cardInfo ?? {
+        pos: latestDoc.content.size,
+        node: null,
+      };
+      const nodeSize = cardNode?.nodeSize ?? 0;
 
-      const parseStartTime = Date.now();
-      const transcriptContent = pasteParser.parse(normalizedMarkdown);
-      const parseDuration = Date.now() - parseStartTime;
+      const { tr } = state;
+      const transaction = cardNode
+        ? tr.replaceRange(position, position + nodeSize, slice)
+        : tr.replaceRange(position, position, slice);
 
-      if (transcriptContent) {
-        let slice = transcriptContent.slice(0);
+      // Set selection at the beginning of the inserted content (summary start)
+      // This allows the user to immediately start editing the summary
+      const insertionStart = position;
+      transaction.setSelection(
+        TextSelection.near(transaction.doc.resolve(insertionStart), 1)
+      );
 
-        // If auto-summary is enabled, find the transcript heading and set it to collapsed
-        if (shouldGenerateSummary) {
-          const nodes: ProsemirrorNode[] = [];
-          slice.content.forEach((node) => {
-            // Check if this is the transcript heading
-            if (
-              node.type.name === "heading" &&
-              node.textContent === transcriptHeading
-            ) {
-              // Create a new heading node with collapsed attribute set to true
-              nodes.push(
-                node.type.create(
-                  { ...node.attrs, collapsed: true },
-                  node.content,
-                  node.marks
-                )
-              );
-            } else {
-              nodes.push(node);
-            }
-          });
-          // Create a new slice with the modified content
-          const newContent = view.state.schema.nodes.doc.create(
-            null,
-            nodes
-          ).content;
-          slice = new Slice(newContent, slice.openStart, slice.openEnd);
-        }
+      dispatch(
+        transaction
+          .scrollIntoView()
+          .setMeta("paste", true)
+          .setMeta("uiEvent", "paste")
+      );
 
-        Logger.info("editor", "Parsed transcript content successfully", {
+      Logger.info(
+        "editor",
+        "Successfully replaced status card with TranscriptCard",
+        {
           jobId,
-          parseDurationMs: parseDuration,
-          sliceSize: slice.content.size,
-          sliceChildCount: slice.content.childCount,
-          contentMarkdownLength: contentMarkdown.length,
-          collapsedHeading: shouldGenerateSummary,
-        });
-
-        // Replace the status card with the transcript content
-        const { state, dispatch } = view;
-        const latestDoc = state.doc;
-        cardInfo = locateStatusCard(latestDoc) ?? cardInfo;
-
-        const { pos: position, node: cardNode } = cardInfo ?? {
-          pos: latestDoc.content.size,
-          node: null,
-        };
-        const nodeSize = cardNode?.nodeSize ?? 0;
-
-        const { tr } = state;
-        const transaction = cardNode
-          ? tr.replaceRange(position, position + nodeSize, slice)
-          : tr.replaceRange(position, position, slice);
-
-        // Set selection at the beginning of the inserted content (summary start)
-        // This allows the user to immediately start editing the summary
-        const insertionStart = position;
-        transaction.setSelection(
-          TextSelection.near(transaction.doc.resolve(insertionStart), 1)
-        );
-
-        dispatch(
-          transaction
-            .scrollIntoView()
-            .setMeta("paste", true)
-            .setMeta("uiEvent", "paste")
-        );
-
-        Logger.info(
-          "editor",
-          "Successfully replaced status card with transcript",
-          {
-            jobId,
-            insertionStart,
-            cursorPosition: "summary_start",
-          }
-        );
-
-        if (isMountedRef.current) {
-          toast.success(
-            dictionary.audioFileTranscribedSuccessfully ||
-              "Transcription completed"
-          );
+          insertionStart,
+          cursorPosition: "summary_start",
         }
-      } else {
-        Logger.warn("Failed to parse transcript markdown", {
-          jobId,
-          contentMarkdownLength: contentMarkdown.length,
-          contentMarkdownPreview: contentMarkdown.substring(0, 100),
-        });
+      );
+
+      if (isMountedRef.current) {
+        toast.success(
+          dictionary.audioFileTranscribedSuccessfully ||
+            "Transcription completed"
+        );
       }
     },
     [audioRecorder, dictionary, formatTranscriptText]
