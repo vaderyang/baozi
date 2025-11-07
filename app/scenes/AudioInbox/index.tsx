@@ -61,8 +61,12 @@ const AudioInboxScene = observer(function _AudioInboxScene() {
   }, [audioInbox, searchQuery, statusFilter, sortOption]);
 
   const handleNewRecording = async () => {
+    // eslint-disable-next-line no-console
+    console.log("[AudioInbox] handleNewRecording: Starting...");
     try {
       // Create a new draft document for the recording with audio metadata
+      // eslint-disable-next-line no-console
+      console.log("[AudioInbox] Creating new document...");
       const newDoc = await documents.create(
         {
           title: t("Untitled Recording"),
@@ -72,14 +76,28 @@ const AudioInboxScene = observer(function _AudioInboxScene() {
         },
         { publish: false }
       );
+      // eslint-disable-next-line no-console
+      console.log("[AudioInbox] Document created:", {
+        id: newDoc.id,
+        path: newDoc.path,
+        audioMetadata: newDoc.audioMetadata,
+      });
 
       // Navigate to the new document first (Recording Studio will show loading state)
+      // eslint-disable-next-line no-console
+      console.log("[AudioInbox] Navigating to document:", newDoc.path);
       history.push(newDoc.path);
 
       // Start recording at the beginning of the document
       // This happens after navigation so the user sees the Recording Studio UI
+      // eslint-disable-next-line no-console
+      console.log("[AudioInbox] Starting recording for document:", newDoc.id);
       await audioRecorder.startRecording(newDoc.id, 0);
-    } catch {
+      // eslint-disable-next-line no-console
+      console.log("[AudioInbox] Recording started successfully");
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("[AudioInbox] Failed to start recording:", error);
       // TODO: Show toast notification to user about recording failure
     }
   };

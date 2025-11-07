@@ -35,6 +35,28 @@ const RecordingStudio = observer(function _RecordingStudio({
 
   const document = documents.get(documentId);
 
+  // Debug logging
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.log("[RecordingStudio] Component mounted/updated:", {
+      documentId,
+      isActive: audioRecorder.isActive,
+      isRecording: audioRecorder.isRecording,
+      isPaused: audioRecorder.isPaused,
+      status: audioRecorder.status,
+      sourceDocumentId: audioRecorder.sourceDocumentId,
+      documentAudioMetadata: document?.audioMetadata,
+    });
+  }, [
+    documentId,
+    audioRecorder.isActive,
+    audioRecorder.isRecording,
+    audioRecorder.isPaused,
+    audioRecorder.status,
+    audioRecorder.sourceDocumentId,
+    document?.audioMetadata,
+  ]);
+
   // Update waveform visualization
   useEffect(() => {
     if (!audioRecorder.analyser || !audioRecorder.isRecording) {
