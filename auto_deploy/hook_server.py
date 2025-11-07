@@ -469,10 +469,10 @@ class Handler(BaseHTTPRequestHandler):
                     "branch": parsed_branch,
                     "target_branch": TARGET_BRANCH,
                 })
+                return
             else:
                 msg = f"Branch pullrequest.toRef.branch.name {parsed_branch} is same as target branch {TARGET_BRANCH}, continue."
                 _log_write(f"[webhook] {msg}")
-                return
 
         # 部署守卫：如果已有部署在进行，返回明确 JSON，不再启动新的部署
         with DEPLOY_LOCK:
