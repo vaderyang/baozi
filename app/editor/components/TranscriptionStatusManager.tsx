@@ -337,7 +337,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         Logger.info("editor", "Skipping audio attachment", {
           jobId,
           hasAttachmentId: !!attachmentId,
-          hasAttachmentNodeType: !!schema.nodes.attachment,
+          hasAttachmentNodeType: !!view.state.schema.nodes.attachment,
           skipAttachmentLink:
             summaryCardNode?.attrs?.skipAttachmentLink ?? false,
         });
@@ -399,7 +399,10 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             }
           });
           // Create a new slice with the modified content
-          const newContent = schema.nodes.doc.create(null, nodes).content;
+          const newContent = view.state.schema.nodes.doc.create(
+            null,
+            nodes
+          ).content;
           slice = new Slice(newContent, slice.openStart, slice.openEnd);
         }
 
@@ -423,7 +426,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         };
         const nodeSize = cardNode?.nodeSize ?? 0;
 
-        const { tr, schema } = state;
+        const { tr } = state;
         const transaction = cardNode
           ? tr.replaceRange(position, position + nodeSize, slice)
           : tr.replaceRange(position, position, slice);
