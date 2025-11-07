@@ -29,6 +29,8 @@ export interface TranscriptionJob {
   error: string | null;
   result: TranscriptionResult | null;
   attachmentId: string;
+  sourceType?: "recording" | "upload" | "url";
+  autoSummary?: boolean;
 }
 
 /**
@@ -58,7 +60,11 @@ class TranscriptionJobsStore {
   @action
   createJob = async (
     attachmentId: string,
-    documentId: string
+    documentId: string,
+    options?: {
+      sourceType?: "recording" | "upload" | "url";
+      autoSummary?: boolean;
+    }
   ): Promise<TranscriptionJob> => {
     const response = await client.post<{
       data: { jobId: string; status: TranscriptionJobStatus };
@@ -75,6 +81,8 @@ class TranscriptionJobsStore {
       error: null,
       result: null,
       attachmentId,
+      sourceType: options?.sourceType,
+      autoSummary: options?.autoSummary,
     };
 
     runInAction(() => {

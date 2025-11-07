@@ -61,16 +61,12 @@ const AudioHub = observer(function _AudioHub() {
       // eslint-disable-next-line no-console
       console.log("[AudioHub] Document created via API:", documentId);
 
-      // Fetch the document to get its URL slug
-      let document = documents.get(documentId);
-      if (!document) {
-        // If document not in store yet, fetch it
-        // eslint-disable-next-line no-console
-        console.log("[AudioHub] Fetching document from server...");
-        await documents.fetch(documentId);
-        document = documents.get(documentId);
-      }
+      // Fetch the document from server
+      // eslint-disable-next-line no-console
+      console.log("[AudioHub] Fetching document from server...");
+      await documents.fetch(documentId);
 
+      const document = documents.get(documentId);
       if (!document) {
         throw new Error("Failed to fetch document");
       }

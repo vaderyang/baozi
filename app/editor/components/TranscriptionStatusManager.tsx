@@ -1,3 +1,4 @@
+import { autorun } from "mobx";
 import * as React from "react";
 import { toast } from "sonner";
 import { TextSelection } from "prosemirror-state";
@@ -7,6 +8,7 @@ import Logger from "~/utils/Logger";
 import { client } from "~/utils/ApiClient";
 import useDictionary from "~/hooks/useDictionary";
 import useStores from "~/hooks/useStores";
+import { TranscriptionJobStatus } from "~/stores/TranscriptionJobsStore";
 import { useEditor } from "./EditorContext";
 
 type TranscriptionStatusEvent = {
@@ -39,12 +41,13 @@ type Props = {
 export function TranscriptionStatusManager({ documentId }: Props) {
   const editor = useEditor();
   const dictionary = useDictionary();
-  const { audioRecorder } = useStores();
+  const { audioRecorder, transcriptionJobs } = useStores();
   const editorRef = React.useRef(editor);
   const isMountedRef = React.useRef(true);
   const pollingIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
   const [pendingJobsLoaded, setPendingJobsLoaded] = React.useState(false);
   const [, setHasActiveTasks] = React.useState(false);
+  const processedCompletedJobsRef = React.useRef(new Set<string>());
 
   // Keep editor ref up to date and track mount status
   React.useEffect(() => {
@@ -137,7 +140,11 @@ export function TranscriptionStatusManager({ documentId }: Props) {
     async (
       jobId: string,
       result: TranscriptionStatusEvent["result"],
-      attachmentId?: string
+      attachmentId?: string,
+      options?: {
+        sourceType?: "recording" | "upload" | "url";
+        autoSummary?: boolean;
+      }
     ) => {
       Logger.info("editor", "Attempting to replace status card", {
         jobId,
@@ -166,51 +173,65 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         return;
       }
 
-      const { state, dispatch } = view;
-      const { doc, tr, schema } = state;
+      const locateStatusCard = (docToSearch: ProsemirrorNode) => {
+        let info:
+          | {
+              pos: number;
+              node: ProsemirrorNode;
+              fileName: string;
+              fileSize: number;
+            }
+          | undefined;
+
+        docToSearch.descendants((node, pos) => {
+          if (
+            node.type.name === "transcription_status_card" &&
+            node.attrs.jobId === jobId
+          ) {
+            info = {
+              pos,
+              node,
+              fileName: node.attrs.fileName || dictionary.audioFile || "audio",
+              fileSize: node.attrs.fileSize || 0,
+            };
+            return false;
+          }
+          return true;
+        });
+
+        return info;
+      };
 
       // Find the status card node by jobId
-      let cardInfo:
-        | {
-            pos: number;
-            node: ProsemirrorNode;
-            fileName: string;
-            fileSize: number;
-          }
-        | undefined;
-
-      doc.descendants((node, pos) => {
-        if (
-          node.type.name === "transcription_status_card" &&
-          node.attrs.jobId === jobId
-        ) {
-          cardInfo = {
-            pos,
-            node,
-            fileName: node.attrs.fileName || "audio",
-            fileSize: node.attrs.fileSize || 0,
-          };
-          return false;
-        }
-        return true;
-      });
+      const initialDoc = view.state.doc;
+      let cardInfo = locateStatusCard(initialDoc);
 
       if (!cardInfo) {
-        Logger.warn("Status card not found for completed transcription", {
+        const docSnapshot = view.state.doc;
+        if (options?.sourceType === "recording") {
+          Logger.warn(
+            "Status card not found for completed recording, falling back to insertion",
+            {
+              jobId,
+              documentNodeCount: docSnapshot.content.childCount,
+            }
+          );
+        } else {
+          Logger.warn("Status card not found for completed transcription", {
+            jobId,
+            documentNodeCount: docSnapshot.content.childCount,
+          });
+          return;
+        }
+      } else {
+        Logger.info("editor", "Found status card, preparing to replace", {
           jobId,
-          documentNodeCount: doc.content.childCount,
+          position: cardInfo.pos,
+          fileName: cardInfo.fileName,
         });
-        return;
       }
 
-      Logger.info("editor", "Found status card, preparing to replace", {
-        jobId,
-        position: cardInfo.pos,
-        fileName: cardInfo.fileName,
-      });
-
-      const { pos: position, node: cardNode, fileName, fileSize } = cardInfo;
-      const nodeSize = cardNode.nodeSize;
+      const summaryCardNode = cardInfo?.node ?? null;
 
       // Format the transcript text
       const formattedText = formatTranscriptText(result);
@@ -235,14 +256,16 @@ export function TranscriptionStatusManager({ documentId }: Props) {
 
       // Generate AI summary if enabled (either from recorder or from card node)
       const shouldGenerateSummary =
-        audioRecorder.autoGenerateSummary || cardNode.attrs.autoSummary;
+        options?.autoSummary ??
+        summaryCardNode?.attrs?.autoSummary ??
+        audioRecorder.autoGenerateSummary;
 
       if (shouldGenerateSummary) {
         try {
           Logger.info("editor", "** Generating AI summary for transcript", {
             jobId,
             fromRecorder: audioRecorder.autoGenerateSummary,
-            fromCardNode: cardNode.attrs.autoSummary,
+            fromCardNode: summaryCardNode?.attrs?.autoSummary ?? false,
           });
 
           const prompt =
@@ -296,8 +319,9 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       // Use the correct markdown format for attachments: [title size](href)
       if (
         attachmentId &&
-        schema.nodes.attachment &&
-        !cardNode.attrs.skipAttachmentLink
+        view.state.schema.nodes.attachment &&
+        summaryCardNode &&
+        !summaryCardNode.attrs?.skipAttachmentLink
       ) {
         const attachmentUrl = `/api/attachments.redirect?id=${attachmentId}`;
         contentMarkdown += `[${fileName} ${fileSize}](${attachmentUrl})\n\n`;
@@ -314,7 +338,8 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           jobId,
           hasAttachmentId: !!attachmentId,
           hasAttachmentNodeType: !!schema.nodes.attachment,
-          skipAttachmentLink: cardNode.attrs.skipAttachmentLink,
+          skipAttachmentLink:
+            summaryCardNode?.attrs?.skipAttachmentLink ?? false,
         });
       }
 
@@ -388,11 +413,20 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         });
 
         // Replace the status card with the transcript content
-        const transaction = tr.replaceRange(
-          position,
-          position + nodeSize,
-          slice
-        );
+        const { state, dispatch } = view;
+        const latestDoc = state.doc;
+        cardInfo = locateStatusCard(latestDoc) ?? cardInfo;
+
+        const { pos: position, node: cardNode } = cardInfo ?? {
+          pos: latestDoc.content.size,
+          node: null,
+        };
+        const nodeSize = cardNode?.nodeSize ?? 0;
+
+        const { tr, schema } = state;
+        const transaction = cardNode
+          ? tr.replaceRange(position, position + nodeSize, slice)
+          : tr.replaceRange(position, position, slice);
 
         // Set selection at the beginning of the inserted content (summary start)
         // This allows the user to immediately start editing the summary
@@ -558,6 +592,40 @@ export function TranscriptionStatusManager({ documentId }: Props) {
     },
     [replaceStatusCardWithTranscript]
   );
+
+  // React to completed jobs stored client-side (covers fast jobs without cards)
+  React.useEffect(() => {
+    const dispose = autorun(() => {
+      const jobs = transcriptionJobs.getJobsForDocument(documentId);
+      jobs.forEach((job) => {
+        if (
+          job.sourceType !== "recording" ||
+          !job.result ||
+          job.status !== TranscriptionJobStatus.Completed ||
+          processedCompletedJobsRef.current.has(job.id)
+        ) {
+          return;
+        }
+
+        processedCompletedJobsRef.current.add(job.id);
+        Logger.info("editor", "Processing completed recording job", {
+          jobId: job.id,
+          documentId,
+        });
+        void replaceStatusCardWithTranscript(
+          job.id,
+          job.result,
+          job.attachmentId,
+          {
+            sourceType: job.sourceType,
+            autoSummary: job.autoSummary,
+          }
+        );
+      });
+    });
+
+    return () => dispose();
+  }, [documentId, transcriptionJobs, replaceStatusCardWithTranscript]);
 
   // Load pending transcription jobs on document load
   React.useEffect(() => {

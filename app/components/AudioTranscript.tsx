@@ -29,6 +29,8 @@ type Props = {
 function AudioTranscript({ documentId }: Props) {
   const { transcriptionJobs, documents } = useStores();
   const { t } = useTranslation();
+  // Temporary kill-switch until archive suggestions are re-enabled.
+  const ARCHIVE_SUGGESTIONS_ENABLED = false;
   const [job, setJob] = React.useState<TranscriptionJob | null>(null);
   const [suggestions, setSuggestions] = React.useState<
     Array<{
@@ -40,21 +42,19 @@ function AudioTranscript({ documentId }: Props) {
     }>
   >([]);
   const [loadingSuggestions, setLoadingSuggestions] = React.useState(false);
+  const hasRequestedSuggestionsRef = React.useRef(false);
 
   const document = documents.get(documentId);
 
   const loadArchiveSuggestions = React.useCallback(async () => {
-    if (!document || loadingSuggestions) {return;}
-
-    // Check if suggestions already exist in document metadata
-    if (
-      document.audioMetadata?.aiArchiveSuggestion?.suggestions &&
-      document.audioMetadata.aiArchiveSuggestion.suggestions.length > 0
-    ) {
-      setSuggestions(document.audioMetadata.aiArchiveSuggestion.suggestions);
+    if (!ARCHIVE_SUGGESTIONS_ENABLED) {
+      return;
+    }
+    if (!document || loadingSuggestions) {
       return;
     }
 
+    hasRequestedSuggestionsRef.current = true;
     setLoadingSuggestions(true);
     try {
       const response = await fetch("/api/audio.archive-suggestion", {
@@ -69,7 +69,22 @@ function AudioTranscript({ documentId }: Props) {
 
       if (response.ok) {
         const data = await response.json();
-        setSuggestions(data.data.suggestions || []);
+        let nextSuggestions = data.data.suggestions || [];
+
+        if (document) {
+          try {
+            await document.fetch();
+          } catch (_error) {
+            // Ignore fetch failures and fall back to response data
+          }
+          const updatedSuggestions =
+            document.audioMetadata?.aiArchiveSuggestion?.suggestions;
+          if (updatedSuggestions) {
+            nextSuggestions = updatedSuggestions;
+          }
+        }
+
+        setSuggestions(nextSuggestions);
       }
     } catch (_error) {
       // Silently fail - suggestions are optional
@@ -77,6 +92,17 @@ function AudioTranscript({ documentId }: Props) {
       setLoadingSuggestions(false);
     }
   }, [document, documentId, loadingSuggestions]);
+
+  // Sync suggestions from document metadata whenever it changes
+  React.useEffect(() => {
+    if (!ARCHIVE_SUGGESTIONS_ENABLED || !document) {
+      return;
+    }
+    const aiMetadata = document.audioMetadata?.aiArchiveSuggestion;
+    if (aiMetadata && aiMetadata.suggestions) {
+      setSuggestions(aiMetadata.suggestions);
+    }
+  }, [ARCHIVE_SUGGESTIONS_ENABLED, document, document?.audioMetadata]);
 
   React.useEffect(() => {
     // Get the latest job for this document
@@ -88,9 +114,11 @@ function AudioTranscript({ documentId }: Props) {
 
       // Load suggestions when transcription completes
       if (
+        ARCHIVE_SUGGESTIONS_ENABLED &&
         latestJob.status === TranscriptionJobStatus.Completed &&
         document &&
-        !suggestions.length &&
+        !document.audioMetadata?.aiArchiveSuggestion &&
+        !hasRequestedSuggestionsRef.current &&
         !loadingSuggestions
       ) {
         void loadArchiveSuggestions();
@@ -101,9 +129,9 @@ function AudioTranscript({ documentId }: Props) {
     transcriptionJobs,
     transcriptionJobs.jobs,
     document,
-    suggestions.length,
     loadingSuggestions,
     loadArchiveSuggestions,
+    ARCHIVE_SUGGESTIONS_ENABLED,
   ]);
 
   const handleRetry = React.useCallback(async () => {
@@ -118,6 +146,9 @@ function AudioTranscript({ documentId }: Props) {
 
   const handleAcceptSuggestion = React.useCallback(
     async (targetId: string, targetType: "collection" | "document") => {
+      if (!ARCHIVE_SUGGESTIONS_ENABLED) {
+        return;
+      }
       const response = await fetch("/api/audio.accept-suggestion", {
         method: "POST",
         headers: {
@@ -138,11 +169,13 @@ function AudioTranscript({ documentId }: Props) {
         setSuggestions([]);
       }
     },
-    [documentId, document]
+    [ARCHIVE_SUGGESTIONS_ENABLED, documentId, document]
   );
 
   const handleDismissSuggestions = React.useCallback(async () => {
-    if (!document) {return;}
+    if (!ARCHIVE_SUGGESTIONS_ENABLED || !document) {
+      return;
+    }
 
     // Update document metadata to mark suggestions as dismissed
     await document.save({
@@ -158,7 +191,7 @@ function AudioTranscript({ documentId }: Props) {
       },
     });
     setSuggestions([]);
-  }, [document]);
+  }, [ARCHIVE_SUGGESTIONS_ENABLED, document]);
 
   if (!job) {
     return null;
@@ -208,7 +241,7 @@ function AudioTranscript({ documentId }: Props) {
     return (
       <>
         {/* Show AI Archive Suggestions */}
-        {document && suggestions.length > 0 && (
+        {ARCHIVE_SUGGESTIONS_ENABLED && document && suggestions.length > 0 && (
           <AIArchiveSuggestion
             document={document}
             suggestions={suggestions}

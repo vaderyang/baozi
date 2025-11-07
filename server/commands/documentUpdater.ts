@@ -32,6 +32,8 @@ type Props = {
   publish?: boolean;
   /** The ID of the collection to publish the document to */
   collectionId?: string | null;
+  /** Audio metadata associated with the document */
+  audioMetadata?: Document["audioMetadata"] | null;
 };
 
 /**
@@ -58,6 +60,7 @@ export default async function documentUpdater(
     publish,
     collectionId,
     done,
+    audioMetadata,
   }: Props
 ): Promise<Document> {
   const { transaction } = ctx.state;
@@ -93,6 +96,9 @@ export default async function documentUpdater(
       }),
       append
     );
+  }
+  if (audioMetadata !== undefined) {
+    document.audioMetadata = audioMetadata ?? null;
   }
 
   const changed = document.changed();
