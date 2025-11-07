@@ -388,6 +388,8 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           transcript: formattedText,
           speakerSegments: speakerSegments || null,
           jobId,
+          attachmentId: attachmentId || null,
+          fileName: fileName || null,
         });
 
         nodesToInsert.push(transcriptCard);
