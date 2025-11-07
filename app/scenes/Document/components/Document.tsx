@@ -34,6 +34,7 @@ import Document from "~/models/Document";
 import Revision from "~/models/Revision";
 import DocumentMove from "~/scenes/DocumentMove";
 import DocumentPublish from "~/scenes/DocumentPublish";
+import RecordingStudio from "~/scenes/RecordingStudio/RecordingStudio";
 import ErrorBoundary from "~/components/ErrorBoundary";
 import LoadingIndicator from "~/components/LoadingIndicator";
 import PageTitle from "~/components/PageTitle";
@@ -442,6 +443,17 @@ class DocumentScene extends React.Component<Props> {
     } = this.props;
     const { team, user } = auth;
     const isShare = !!shareId;
+
+    // Show Recording Studio for new audio recording documents
+    const isNewRecording =
+      document.audioMetadata?.sourceType === "recording" &&
+      !document.text &&
+      !revision &&
+      !readOnly;
+
+    if (isNewRecording) {
+      return <RecordingStudio documentId={document.id} />;
+    }
     const embedsDisabled =
       (team && team.documentEmbeds === false) || document.embedsDisabled;
 
