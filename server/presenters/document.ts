@@ -47,7 +47,7 @@ async function presentDocument(
       ? DocumentHelper.toMarkdown(data, { includeTitle: false })
       : undefined;
 
-  const res: Record<string, any> = {
+  const res: Record<string, unknown> = {
     id: document.id,
     url: document.path,
     urlId: document.urlId,
@@ -102,6 +102,7 @@ async function presentDocument(
           originalDocumentId: document.sourceMetadata?.originalDocumentId,
         }
       : undefined;
+    res.audioMetadata = document.audioMetadata ?? undefined;
   }
 
   return res;

@@ -9,6 +9,7 @@ import AudioWaveform from "~/components/AudioWaveform";
 import Button from "~/components/Button";
 import Flex from "~/components/Flex";
 import Input from "~/components/Input";
+import Switch from "~/components/Switch";
 import useStores from "~/hooks/useStores";
 
 interface RecordingStudioProps {
@@ -209,60 +210,140 @@ const RecordingStudio = observer(function _RecordingStudio({
     );
   }
 
+  const statusLabel = audioRecorder.isPaused ? t("Paused") : t("Recording");
+  const statusHint = audioRecorder.isPaused
+    ? t("Microphone input is paused")
+    : t("Microphone is live and capturing audio");
+
   return (
     <StudioContainer>
       <StudioHeader>
-        <TitleInput
-          type="text"
-          placeholder={t("Untitled Recording")}
-          value={title}
-          onChange={handleTitleChange}
-          autoFocus
-        />
-        <MinimizeButton onClick={handleMinimize} neutral>
-          <CollapsedIcon />
-        </MinimizeButton>
+        <HeaderInfo>
+          <LiveBadge $isPaused={audioRecorder.isPaused}>
+            <RecordingDot $isPaused={audioRecorder.isPaused} />
+            {statusLabel}
+          </LiveBadge>
+          <TitleInput
+            type="text"
+            placeholder={t("Untitled Recording")}
+            value={title}
+            onChange={handleTitleChange}
+            autoFocus
+          />
+          <HeaderMeta>
+            <HeaderMetaItem>
+              {document?.path ?? t("New audio document")}
+            </HeaderMetaItem>
+            <HeaderMetaItem>
+              {t("Session")} · {documentId.slice(0, 8).toUpperCase()}
+            </HeaderMetaItem>
+          </HeaderMeta>
+        </HeaderInfo>
+        <HeaderActions>
+          <HeaderActionButton onClick={handleMinimize} neutral>
+            <CollapsedIcon />
+            {t("Hide studio")}
+          </HeaderActionButton>
+        </HeaderActions>
       </StudioHeader>
 
-      <StudioContent>
-        <RecordingIndicator $isPaused={audioRecorder.isPaused}>
-          <RecordingDot $isPaused={audioRecorder.isPaused} />
-          {audioRecorder.isPaused ? t("Paused") : t("Recording")}
-        </RecordingIndicator>
+      <StudioBody>
+        <PrimaryPane>
+          <PrimaryCard>
+            <StatusHeader>
+              <StatusCopy>
+                <StatusLabel>{t("Recording status")}</StatusLabel>
+                <StatusValue>{statusLabel}</StatusValue>
+                <StatusHint>{statusHint}</StatusHint>
+              </StatusCopy>
+              <DurationPill>
+                {formatDuration(audioRecorder.duration)}
+              </DurationPill>
+            </StatusHeader>
 
-        <DurationDisplay>
-          {formatDuration(audioRecorder.duration)}
-        </DurationDisplay>
+            <WaveformContainer>
+              <AudioWaveform
+                data={waveformData}
+                isPaused={audioRecorder.isPaused}
+              />
+            </WaveformContainer>
 
-        <WaveformContainer>
-          <AudioWaveform
-            data={waveformData}
-            isPaused={audioRecorder.isPaused}
-          />
-        </WaveformContainer>
+            {audioRecorder.realtimeTranscript && (
+              <TranscriptPanel>
+                <TranscriptLabel>{t("Live transcript")}</TranscriptLabel>
+                <TranscriptText>
+                  {audioRecorder.realtimeTranscript}
+                </TranscriptText>
+              </TranscriptPanel>
+            )}
+          </PrimaryCard>
 
-        {audioRecorder.realtimeTranscript && (
-          <TranscriptPanel>
-            <TranscriptLabel>{t("Real-time Transcript")}</TranscriptLabel>
-            <TranscriptText>{audioRecorder.realtimeTranscript}</TranscriptText>
-          </TranscriptPanel>
-        )}
+          {audioRecorder.markers.length > 0 && (
+            <MarkersPanel>
+              <MarkersLabel>
+                <PinIcon size={16} />
+                {t("Markers")}
+              </MarkersLabel>
+              <MarkersList>
+                {audioRecorder.markers.map((marker, index) => (
+                  <MarkerItem key={index}>
+                    <span>{formatDuration(marker.timestamp)}</span>
+                    {marker.label && <span>- {marker.label}</span>}
+                  </MarkerItem>
+                ))}
+              </MarkersList>
+            </MarkersPanel>
+          )}
+        </PrimaryPane>
 
-        {audioRecorder.markers.length > 0 && (
-          <MarkersPanel>
-            <MarkersLabel>{t("Markers")}</MarkersLabel>
-            <MarkersList>
-              {audioRecorder.markers.map((marker, index) => (
-                <MarkerItem key={index}>
-                  <PinIcon size={16} />
-                  <span>{formatDuration(marker.timestamp)}</span>
-                  {marker.label && <span>- {marker.label}</span>}
-                </MarkerItem>
-              ))}
-            </MarkersList>
-          </MarkersPanel>
-        )}
-      </StudioContent>
+        <SidebarPane>
+          <SidebarCard>
+            <SidebarTitle>{t("AI assistance")}</SidebarTitle>
+            <SidebarDescription>
+              {t(
+                "Drop a polished AI summary ahead of your transcript as soon as transcription finishes."
+              )}
+            </SidebarDescription>
+            <SummarySwitchRow>
+              <Switch
+                id="auto-summary-toggle"
+                checked={audioRecorder.autoGenerateSummary}
+                onChange={(checked) =>
+                  audioRecorder.setAutoGenerateSummary(checked)
+                }
+              />
+              <SummaryCopy>
+                <SummaryLabel>{t("Auto-generate summary")}</SummaryLabel>
+                <SummaryNote>
+                  {t(
+                    "Adds a concise recap with key takeaways and suggested structure automatically."
+                  )}
+                </SummaryNote>
+              </SummaryCopy>
+            </SummarySwitchRow>
+          </SidebarCard>
+
+          <SidebarCard>
+            <SidebarTitle>{t("Session details")}</SidebarTitle>
+            <DetailsList>
+              <DetailsRow>
+                <DetailsLabel>{t("Elapsed time")}</DetailsLabel>
+                <DetailsValue>
+                  {formatDuration(audioRecorder.duration)}
+                </DetailsValue>
+              </DetailsRow>
+              <DetailsRow>
+                <DetailsLabel>{t("Markers placed")}</DetailsLabel>
+                <DetailsValue>{audioRecorder.markers.length}</DetailsValue>
+              </DetailsRow>
+              <DetailsRow>
+                <DetailsLabel>{t("Status")}</DetailsLabel>
+                <DetailsValue>{statusHint}</DetailsValue>
+              </DetailsRow>
+            </DetailsList>
+          </SidebarCard>
+        </SidebarPane>
+      </StudioBody>
 
       <StudioControls>
         <ControlButton onClick={handleCancel} neutral>
@@ -295,60 +376,43 @@ const StudioContainer = styled.div`
   background: ${s("background")};
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 `;
 
 const StudioHeader = styled.div`
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  padding: 16px 24px;
+  align-items: flex-start;
+  padding: 24px 32px;
   border-bottom: 1px solid ${s("divider")};
   background: ${s("sidebarBackground")};
+  gap: 16px;
 `;
 
-const TitleInput = styled(Input)`
-  flex: 1;
-  font-size: 18px;
-  font-weight: 500;
-  border: none;
-  background: transparent;
-
-  &:focus {
-    border: 1px solid ${s("inputBorderFocused")};
-    background: ${s("background")};
-  }
-`;
-
-const MinimizeButton = styled(Button)`
-  margin-left: 16px;
-`;
-
-const StudioContent = styled.div`
+const HeaderInfo = styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 24px;
-  overflow-y: auto;
+  gap: 12px;
 `;
 
-const RecordingIndicator = styled.div<{ $isPaused: boolean }>`
-  display: flex;
+const LiveBadge = styled.div<{ $isPaused: boolean }>`
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
+  font-size: 12px;
+  text-transform: uppercase;
   font-weight: 600;
-  color: ${(props) => (props.$isPaused ? s("textSecondary") : s("accent"))};
-  margin-bottom: 16px;
+  letter-spacing: 0.08em;
+  color: ${(props) =>
+    props.$isPaused ? s("textSecondary")(props) : s("accent")(props)};
 `;
 
 const RecordingDot = styled.div<{ $isPaused: boolean }>`
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: ${(props) => (props.$isPaused ? s("textSecondary") : "#ff0000")};
+  background: ${(props) =>
+    props.$isPaused ? s("textSecondary")(props) : "#ff3b30"};
   animation: ${(props) =>
     props.$isPaused ? "none" : "pulse 1.5s ease-in-out infinite"};
 
@@ -365,34 +429,144 @@ const RecordingDot = styled.div<{ $isPaused: boolean }>`
   }
 `;
 
-const DurationDisplay = styled.div`
-  font-size: 48px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+const TitleInput = styled(Input)`
+  font-size: 24px;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  padding: 0;
+
+  &:focus {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+  }
+`;
+
+const HeaderMeta = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: ${s("textSecondary")};
+  font-size: 13px;
+`;
+
+const HeaderMetaItem = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+`;
+
+const HeaderActions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+`;
+
+const HeaderActionButton = styled(Button)`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const StudioBody = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  gap: 32px;
+  padding: 32px;
+  flex: 1;
+  background: ${s("background")};
+
+  @media (max-width: 960px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+const PrimaryPane = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+`;
+
+const SidebarPane = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+`;
+
+const PrimaryCard = styled.div`
+  background: ${s("sidebarBackground")};
+  border: 1px solid ${s("divider")};
+  border-radius: 16px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+`;
+
+const SidebarCard = styled(PrimaryCard)`
+  padding: 24px;
+`;
+
+const StatusHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+`;
+
+const StatusCopy = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`;
+
+const StatusLabel = styled.div`
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: ${s("textSecondary")};
+`;
+
+const StatusValue = styled.div`
+  font-size: 28px;
+  font-weight: 600;
   color: ${s("text")};
-  margin-bottom: 32px;
-  font-family:
-    "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New",
-    monospace;
+`;
+
+const StatusHint = styled.div`
+  font-size: 14px;
+  color: ${s("textSecondary")};
+`;
+
+const DurationPill = styled.div`
+  font-variant-numeric: tabular-nums;
+  font-size: 32px;
+  font-weight: 600;
+  color: ${s("text")};
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: ${s("background")};
+  border: 1px solid ${s("divider")};
 `;
 
 const WaveformContainer = styled.div`
   width: 100%;
-  max-width: 800px;
   height: 200px;
-  background: ${s("sidebarBackground")};
+  background: ${s("background")};
   border-radius: 12px;
   padding: 24px;
-  margin-bottom: 24px;
+  border: 1px solid ${s("divider")};
 `;
 
 const TranscriptPanel = styled.div`
   width: 100%;
-  max-width: 800px;
-  background: ${s("sidebarBackground")};
+  background: ${s("background")};
   border-radius: 12px;
+  border: 1px solid ${s("divider")};
   padding: 24px;
-  margin-bottom: 24px;
 `;
 
 const TranscriptLabel = styled.div`
@@ -408,24 +582,22 @@ const TranscriptText = styled.div`
   font-size: 14px;
   line-height: 1.6;
   color: ${s("text")};
-  max-height: 120px;
+  max-height: 140px;
   overflow-y: auto;
 `;
 
-const MarkersPanel = styled.div`
-  width: 100%;
-  max-width: 800px;
-  background: ${s("sidebarBackground")};
-  border-radius: 12px;
-  padding: 24px;
+const MarkersPanel = styled(SidebarCard)`
+  flex-direction: column;
 `;
 
 const MarkersLabel = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   color: ${s("textSecondary")};
-  margin-bottom: 12px;
   letter-spacing: 0.5px;
 `;
 
@@ -433,18 +605,80 @@ const MarkersList = styled.div`
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin-top: 12px;
 `;
 
 const MarkerItem = styled.div`
   display: flex;
-  align-items: center;
   gap: 8px;
   font-size: 14px;
   color: ${s("text")};
+`;
 
-  svg {
-    color: ${s("accent")};
-  }
+const SidebarTitle = styled.h3`
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: ${s("text")};
+`;
+
+const SidebarDescription = styled.p`
+  margin: 8px 0 16px;
+  font-size: 14px;
+  color: ${s("textSecondary")};
+`;
+
+const SummarySwitchRow = styled.div`
+  display: flex;
+  gap: 12px;
+  align-items: center;
+`;
+
+const SummaryCopy = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+`;
+
+const SummaryLabel = styled.div`
+  font-weight: 600;
+  color: ${s("text")};
+`;
+
+const SummaryNote = styled.div`
+  font-size: 13px;
+  color: ${s("textSecondary")};
+`;
+
+const DetailsList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const DetailsRow = styled.div`
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  color: ${s("text")};
+`;
+
+const DetailsLabel = styled.span`
+  color: ${s("textSecondary")};
+`;
+
+const DetailsValue = styled.span`
+  font-weight: 600;
+`;
+
+const StudioContent = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  overflow-y: auto;
 `;
 
 const StudioControls = styled(Flex)`

@@ -67,6 +67,40 @@ const BaseIdSchema = z.object({
   id: zodIdType(),
 });
 
+const AudioArchiveSuggestionSchema = z
+  .object({
+    suggestions: z
+      .array(
+        z.object({
+          targetId: z.string().uuid(),
+          targetType: z.union([z.literal("collection"), z.literal("document")]),
+          targetName: z.string(),
+          reason: z.string(),
+          confidence: z.number(),
+        })
+      )
+      .optional(),
+    status: z.enum(["pending", "accepted", "dismissed"]).optional(),
+    acceptedSuggestionId: z.string().uuid().optional(),
+  })
+  .optional();
+
+const AudioMetadataSchema = z
+  .object({
+    sourceType: z.enum(["recording", "upload", "url"]).optional(),
+    duration: z.number().nonnegative().optional(),
+    markers: z
+      .array(
+        z.object({
+          timestamp: z.number().nonnegative(),
+          label: z.string().optional(),
+        })
+      )
+      .optional(),
+    aiArchiveSuggestion: AudioArchiveSuggestionSchema,
+  })
+  .optional();
+
 export const DocumentsListSchema = BaseSchema.extend({
   body: DocumentsSortParamsSchema.extend({
     /** Id of the user who created the doc */
@@ -259,6 +293,9 @@ export const DocumentsUpdateSchema = BaseSchema.extend({
 
     /** Whether the editing session is complete */
     done: z.boolean().optional(),
+
+    /** Audio specific metadata for recordings */
+    audioMetadata: AudioMetadataSchema.nullish(),
   }),
 }).refine((req) => !(req.body.append && !req.body.text), {
   message: "text is required while appending",

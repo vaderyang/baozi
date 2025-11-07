@@ -759,7 +759,11 @@ class AudioRecorderStore {
       // Create transcription job using TranscriptionJobsStore
       const job = await this.rootStore.transcriptionJobs.createJob(
         attachmentId,
-        this.sourceDocumentId
+        this.sourceDocumentId,
+        {
+          sourceType: "recording",
+          autoSummary: this.autoGenerateSummary,
+        }
       );
 
       runInAction(() => {
@@ -860,16 +864,29 @@ class AudioRecorderStore {
       console.log(
         "[AudioRecorderStore] Updating document audioMetadata to exit Recording Studio mode"
       );
-      await document.save({
+      // eslint-disable-next-line no-console
+      console.log(
+        "[AudioRecorderStore] Current audioMetadata:",
+        JSON.stringify(document.audioMetadata)
+      );
+
+      const updatedDoc = await document.save({
         audioMetadata: {
           ...document.audioMetadata,
           sourceType: "upload", // Change from "recording" to "upload" to exit Recording Studio mode
         },
       });
+
       // eslint-disable-next-line no-console
       console.log(
         "[AudioRecorderStore] Document updated, new audioMetadata:",
-        document.audioMetadata
+        JSON.stringify(updatedDoc.audioMetadata)
+      );
+
+      // eslint-disable-next-line no-console
+      console.log(
+        "[AudioRecorderStore] Document updated locally, final audioMetadata:",
+        JSON.stringify(document.audioMetadata)
       );
     }
 

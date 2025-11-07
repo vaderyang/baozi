@@ -62,6 +62,7 @@ router.post(
       documentId: document.id,
       sessionId,
       userId: user.id,
+      audioMetadata: document.audioMetadata,
     });
 
     ctx.body = {
@@ -373,7 +374,8 @@ router.post(
         audioMetadata: {
           ...document.audioMetadata,
           aiArchiveSuggestion: {
-            ...document.audioMetadata?.aiArchiveSuggestion,
+            suggestions:
+              document.audioMetadata?.aiArchiveSuggestion?.suggestions || [],
             status: "accepted",
             acceptedSuggestionId: targetId,
           },
@@ -403,7 +405,8 @@ router.post(
         audioMetadata: {
           ...document.audioMetadata,
           aiArchiveSuggestion: {
-            ...document.audioMetadata?.aiArchiveSuggestion,
+            suggestions:
+              document.audioMetadata?.aiArchiveSuggestion?.suggestions || [],
             status: "accepted",
             acceptedSuggestionId: targetId,
           },
