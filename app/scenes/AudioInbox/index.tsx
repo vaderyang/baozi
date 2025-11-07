@@ -73,13 +73,14 @@ const AudioInboxScene = observer(function _AudioInboxScene() {
         { publish: false }
       );
 
-      // Start recording at the beginning of the document
-      await audioRecorder.startRecording(newDoc.id, 0);
-
-      // Navigate to the new document (Recording Studio will show)
+      // Navigate to the new document first (Recording Studio will show loading state)
       history.push(newDoc.path);
+
+      // Start recording at the beginning of the document
+      // This happens after navigation so the user sees the Recording Studio UI
+      await audioRecorder.startRecording(newDoc.id, 0);
     } catch {
-      // Error handling - could show a toast notification
+      // TODO: Show toast notification to user about recording failure
     }
   };
 
