@@ -839,10 +839,39 @@ class AudioRecorderStore {
       throw new Error("No insertion point");
     }
 
+    // eslint-disable-next-line no-console
+    console.log(
+      "[AudioRecorderStore] Transcription completed, text length:",
+      text.length
+    );
+
     runInAction(() => {
       this.transcriptionResult = text;
       this.status = "completed";
     });
+
+    // Update document audioMetadata to exit Recording Studio mode
+    // This will cause the Document component to show the editor instead of Recording Studio
+    const document = this.rootStore.documents.get(
+      this.insertionPoint.documentId
+    );
+    if (document) {
+      // eslint-disable-next-line no-console
+      console.log(
+        "[AudioRecorderStore] Updating document audioMetadata to exit Recording Studio mode"
+      );
+      await document.save({
+        audioMetadata: {
+          ...document.audioMetadata,
+          sourceType: "upload", // Change from "recording" to "upload" to exit Recording Studio mode
+        },
+      });
+      // eslint-disable-next-line no-console
+      console.log(
+        "[AudioRecorderStore] Document updated, new audioMetadata:",
+        document.audioMetadata
+      );
+    }
 
     // The actual text insertion will be handled by the editor component
     // using the replaceRecordingPlaceholderWithText command
