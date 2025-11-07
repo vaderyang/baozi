@@ -20,7 +20,8 @@ import Logger from "~/utils/Logger";
 const AudioHub = observer(function _AudioHub() {
   const { t } = useTranslation();
   const history = useHistory();
-  const { audioInbox, transcriptionJobs, documents } = useStores();
+  const { audioInbox, audioRecorder, transcriptionJobs, documents } =
+    useStores();
   const [recentDocuments, setRecentDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -46,28 +47,58 @@ const AudioHub = observer(function _AudioHub() {
   }, [audioInbox]);
 
   const handleRecordAudio = async () => {
+    // eslint-disable-next-line no-console
+    console.log("[AudioHub] handleRecordAudio: Starting...");
     try {
       // Call API to create document and start recording session
+      // eslint-disable-next-line no-console
+      console.log("[AudioHub] Calling API to create document...");
       const response = await client.post<{
-        data: { documentId: string; sessionId: string; audioInboxId: string };
-      }>("audio.start-recording", {});
+        data: { documentId: string; sessionId: string };
+      }>("/audio.start-recording", {});
 
       const { documentId } = response.data;
+      // eslint-disable-next-line no-console
+      console.log("[AudioHub] Document created via API:", documentId);
 
       // Fetch the document to get its URL slug
-      const document = documents.get(documentId);
-      if (document) {
-        // Navigate to the document which will show the Recording Studio
-        history.push(document.path);
-      } else {
+      let document = documents.get(documentId);
+      if (!document) {
         // If document not in store yet, fetch it
+        // eslint-disable-next-line no-console
+        console.log("[AudioHub] Fetching document from server...");
         await documents.fetch(documentId);
-        const doc = documents.get(documentId);
-        if (doc) {
-          history.push(doc.path);
-        }
+        document = documents.get(documentId);
       }
+
+      if (!document) {
+        throw new Error("Failed to fetch document");
+      }
+
+      // eslint-disable-next-line no-console
+      console.log("[AudioHub] Document fetched:", {
+        id: document.id,
+        path: document.path,
+        audioMetadata: document.audioMetadata,
+      });
+
+      // Start recording BEFORE navigation
+      // eslint-disable-next-line no-console
+      console.log("[AudioHub] Starting recording...");
+      await audioRecorder.startRecording(documentId, 0);
+      // eslint-disable-next-line no-console
+      console.log(
+        "[AudioHub] Recording started, isActive:",
+        audioRecorder.isActive
+      );
+
+      // Navigate to the document which will show the Recording Studio
+      // eslint-disable-next-line no-console
+      console.log("[AudioHub] Navigating to document:", document.path);
+      history.push(document.path);
     } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("[AudioHub] Failed to start recording:", error);
       Logger.error(
         "Failed to start recording",
         error instanceof Error ? error : new Error(String(error))
