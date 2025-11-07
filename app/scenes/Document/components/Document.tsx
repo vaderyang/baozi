@@ -447,7 +447,7 @@ class DocumentScene extends React.Component<Props> {
     // Show Recording Studio for new audio recording documents
     const isNewRecording =
       document.audioMetadata?.sourceType === "recording" &&
-      !document.text &&
+      !document.publishedAt &&
       !revision &&
       !readOnly;
 
