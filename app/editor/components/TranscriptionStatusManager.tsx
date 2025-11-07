@@ -232,15 +232,30 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       }
 
       const summaryCardNode = cardInfo?.node ?? null;
+      const fileName =
+        cardInfo?.fileName ||
+        dictionary.audioFile ||
+        dictionary.audio ||
+        "Audio recording";
+      const fileSize = cardInfo?.fileSize || 0;
 
       // Format the transcript text
       const formattedText = formatTranscriptText(result);
 
       if (!formattedText) {
         Logger.warn("No transcript text - removing status card", { jobId });
-        // Remove the status card for empty transcripts
-        const transaction = tr.deleteRange(position, position + nodeSize);
-        dispatch(transaction.scrollIntoView());
+
+        // Remove the status card for empty transcripts if it exists
+        if (cardInfo) {
+          const { state, dispatch } = view;
+          const position = cardInfo.pos;
+          const nodeSize = cardInfo.node.nodeSize;
+          const transaction = state.tr.deleteRange(
+            position,
+            position + nodeSize
+          );
+          dispatch(transaction.scrollIntoView());
+        }
 
         if (isMountedRef.current) {
           toast.info("No speech detected in recording");
