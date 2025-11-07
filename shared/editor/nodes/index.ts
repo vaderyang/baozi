@@ -42,6 +42,7 @@ import TableCell from "./TableCell";
 import TableHeader from "./TableHeader";
 import TableRow from "./TableRow";
 import Text from "./Text";
+import TranscriptCard from "./TranscriptCard";
 import TranscriptionStatusCard from "./TranscriptionStatusCard";
 import Video from "./Video";
 
@@ -101,6 +102,7 @@ export const richExtensions: Nodes = [
   Attachment,
   Video,
   Notice,
+  TranscriptCard,
   TranscriptionStatusCard,
   RecordingPlaceholder,
   Heading,
