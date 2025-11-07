@@ -264,34 +264,11 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif self.path.startswith("/deploy"):
             # 展示 deploy.log 内容与取消按钮
-            access_urls = []
-            bind_url = f"http://{HOST}:{PORT}"
-            if HOST == "0.0.0.0":
-                access_urls.append(f"http://127.0.0.1:{PORT}")
-                try:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    s.connect(("8.8.8.8", 80))
-                    primary_ip = s.getsockname()[0]
-                except Exception:
-                    primary_ip = None
-                finally:
-                    try:
-                        s.close()
-                    except Exception:
-                        pass
-                if primary_ip:
-                    access_urls.append(f"http://{primary_ip}:{PORT}")
-            else:
-                access_urls.append(bind_url)
-
-            base_url = access_urls[0] if access_urls else bind_url
             # 页面初次渲染也采用最新在最上方
             log_text = _read_deploy_log_tail(reverse=True)
             in_progress_text = "部署进行中" if DEPLOY_IN_PROGRESS else "空闲"
             start_text = DEPLOY_START_TIME_ISO or "-"
             cancel_disabled = "" if DEPLOY_IN_PROGRESS else "disabled"
-            # 启动说明文本（来源于服务启动时的标准输出收集）
-            startup_text = "\n".join(STARTUP_LINES) if STARTUP_LINES else "(暂无启动说明)"
             html = f"""
 <!doctype html>
 <html lang="zh-CN">
@@ -312,18 +289,19 @@ class Handler(BaseHTTPRequestHandler):
 </head>
 <body>
   <h1>AutoDeploy</h1>
-  <div class="meta">项目: {COMPOSE_PROJECT_NAME} · 目录: {COMPOSE_PROJECT_DIR}</div>
+  <div class="meta">项目: {COMPOSE_PROJECT_NAME} <!-- · 目录: {COMPOSE_PROJECT_DIR} --></div>
   <div class="meta">状态: {in_progress_text} · 启动时间: {start_text}</div>
+  <div class="meta">VERSION: {IMAGE_VERSION}</div>
+  <!--
   <div class="actions">
     <form method="POST" action="/cancel" onsubmit="return confirm('确认取消当前部署吗？');">
       <button type="submit" {cancel_disabled}>取消当前部署</button>
       <span style="margin-left:12px; font-size:12px; color:#9da7b1;">取消后将终止当前构建并释放状态</span>
     </form>
   </div>
-  <div class="meta">日志文件: {DEPLOY_LOG_PATH} · 页面地址: <a href="{base_url}/deploy">{base_url}/deploy</a> · 显示顺序: 最新在最上方</div>
+  -->
+  <div class="meta"><!-- 日志文件: {DEPLOY_LOG_PATH} · --> 显示顺序: 最新在最上方</div>
   <pre id="log">{log_text}</pre>
-  <h2 style="margin-top:16px; font-size:16px;">启动说明</h2>
-  <pre style="max-height: 40vh;">{startup_text}</pre>
   <script>
     // 可选：简单的轮询刷新日志
     const pre = document.getElementById('log');
