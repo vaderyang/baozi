@@ -104,6 +104,18 @@ const RecordingStudio = observer(function _RecordingStudio({
   const handleStop = async () => {
     try {
       await audioRecorder.stopRecording();
+
+      // Update document audioMetadata to mark recording as completed
+      // This will cause the Document component to show the editor instead of Recording Studio
+      if (document) {
+        await document.save({
+          audioMetadata: {
+            ...document.audioMetadata,
+            sourceType: "upload", // Change from "recording" to "upload" to exit Recording Studio mode
+          },
+        });
+      }
+
       onComplete?.();
     } catch (_error) {
       // Error is handled by the store
@@ -238,12 +250,8 @@ const RecordingStudio = observer(function _RecordingStudio({
 });
 
 const StudioContainer = styled.div`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1000;
+  width: 100%;
+  min-height: 100vh;
   background: ${s("background")};
   display: flex;
   flex-direction: column;
