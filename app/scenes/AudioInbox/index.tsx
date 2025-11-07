@@ -162,7 +162,14 @@ const AudioInboxScene = observer(function _AudioInboxScene() {
               <CountBadge>{audioInbox.unarchivedCount}</CountBadge>
             )}
           </InboxHeading>
-          <Button onClick={handleNewRecording} icon={<span>🎙️</span>}>
+          <Button
+            onClick={() => {
+              // eslint-disable-next-line no-console
+              console.log("[AudioInbox] New Recording button clicked");
+              void handleNewRecording();
+            }}
+            icon={<span>🎙️</span>}
+          >
             {t("New Recording")}
           </Button>
         </InboxHeader>
