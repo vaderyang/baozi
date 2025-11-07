@@ -236,11 +236,23 @@ class AudioRecorderStore {
     position: number,
     nodeId?: string
   ): Promise<void> => {
+    // eslint-disable-next-line no-console
+    console.log("[AudioRecorderStore] startRecording called:", {
+      documentId,
+      position,
+      nodeId,
+      isActive: this.isActive,
+    });
+
     if (this.isActive) {
+      // eslint-disable-next-line no-console
+      console.error("[AudioRecorderStore] Recording already in progress");
       throw new Error("Recording already in progress");
     }
 
     if (typeof MediaRecorder === "undefined") {
+      // eslint-disable-next-line no-console
+      console.error("[AudioRecorderStore] MediaRecorder API not supported");
       throw new Error("MediaRecorder API is not supported in this browser");
     }
 
@@ -250,11 +262,22 @@ class AudioRecorderStore {
     // Generate a unique session ID
     const newSessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+    // eslint-disable-next-line no-console
+    console.log("[AudioRecorderStore] Requesting microphone permission...");
+
     try {
       // Request microphone permission
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
+
+      // eslint-disable-next-line no-console
+      console.log(
+        "[AudioRecorderStore] Microphone permission granted, stream obtained"
+      );
+
+      // eslint-disable-next-line no-console
+      console.log("[AudioRecorderStore] Setting recording state...");
 
       runInAction(() => {
         this.mediaStream = stream;
@@ -285,6 +308,11 @@ class AudioRecorderStore {
 
       // Initialize MediaRecorder with best available codec
       const mimeType = this.selectBestCodec();
+      // eslint-disable-next-line no-console
+      console.log(
+        "[AudioRecorderStore] Creating MediaRecorder with mimeType:",
+        mimeType
+      );
       this.mediaRecorder = new MediaRecorder(stream, {
         mimeType: mimeType || undefined,
       });
@@ -311,13 +339,22 @@ class AudioRecorderStore {
       };
 
       // Start recording
+      // eslint-disable-next-line no-console
+      console.log("[AudioRecorderStore] Starting MediaRecorder...");
       this.mediaRecorder.start(1000); // Collect data every second
+      // eslint-disable-next-line no-console
+      console.log(
+        "[AudioRecorderStore] MediaRecorder started successfully, isActive:",
+        this.isActive
+      );
 
       // Start saving chunks to IndexedDB every 10 seconds
       if (audioRecovery.isIndexedDBSupported()) {
         this.startChunkSaving();
       }
     } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("[AudioRecorderStore] Failed to start recording:", error);
       runInAction(() => {
         this.error =
           error instanceof Error ? error.message : "Failed to start recording";

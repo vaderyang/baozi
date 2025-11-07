@@ -451,7 +451,24 @@ class DocumentScene extends React.Component<Props> {
       !revision &&
       !readOnly;
 
+    // Debug logging for Recording Studio decision
+    // eslint-disable-next-line no-console
+    console.log("[Document] Checking if should show Recording Studio:", {
+      documentId: document.id,
+      audioMetadata: document.audioMetadata,
+      sourceType: document.audioMetadata?.sourceType,
+      publishedAt: document.publishedAt,
+      revision: !!revision,
+      readOnly,
+      isNewRecording,
+    });
+
     if (isNewRecording) {
+      // eslint-disable-next-line no-console
+      console.log(
+        "[Document] Rendering Recording Studio for document:",
+        document.id
+      );
       return <RecordingStudio documentId={document.id} />;
     }
     const embedsDisabled =
