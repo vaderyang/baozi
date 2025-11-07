@@ -103,18 +103,17 @@ const RecordingStudio = observer(function _RecordingStudio({
 
   const handleStop = async () => {
     try {
+      // Stop recording and start upload/transcription
+      // The audioRecorder.stopRecording() will handle:
+      // 1. Stop MediaRecorder
+      // 2. Upload audio blob
+      // 3. Create transcription job
+      // 4. Poll for transcription completion
       await audioRecorder.stopRecording();
 
-      // Update document audioMetadata to mark recording as completed
-      // This will cause the Document component to show the editor instead of Recording Studio
-      if (document) {
-        await document.save({
-          audioMetadata: {
-            ...document.audioMetadata,
-            sourceType: "upload", // Change from "recording" to "upload" to exit Recording Studio mode
-          },
-        });
-      }
+      // Don't change audioMetadata.sourceType here!
+      // It should remain "recording" until transcription is complete
+      // The transcription completion handler will update it
 
       onComplete?.();
     } catch (_error) {
@@ -155,8 +154,49 @@ const RecordingStudio = observer(function _RecordingStudio({
     }
   };
 
+  // Show different states based on audioRecorder status
   if (!audioRecorder.isActive) {
-    // Show a loading/waiting state instead of null
+    // Check if we're in upload/transcription phase
+    if (audioRecorder.status === "uploading") {
+      return (
+        <StudioContainer>
+          <StudioContent>
+            <div style={{ textAlign: "center", padding: "48px" }}>
+              <h2>{t("Uploading recording...")}</h2>
+              <p>{audioRecorder.uploadProgress}%</p>
+            </div>
+          </StudioContent>
+        </StudioContainer>
+      );
+    }
+
+    if (audioRecorder.status === "transcribing") {
+      return (
+        <StudioContainer>
+          <StudioContent>
+            <div style={{ textAlign: "center", padding: "48px" }}>
+              <h2>{t("Transcribing audio...")}</h2>
+              <p>{t("This may take a few minutes")}</p>
+            </div>
+          </StudioContent>
+        </StudioContainer>
+      );
+    }
+
+    if (audioRecorder.status === "completed") {
+      return (
+        <StudioContainer>
+          <StudioContent>
+            <div style={{ textAlign: "center", padding: "48px" }}>
+              <h2>{t("Transcription complete!")}</h2>
+              <p>{t("Loading document...")}</p>
+            </div>
+          </StudioContent>
+        </StudioContainer>
+      );
+    }
+
+    // Default: waiting to start recording
     return (
       <StudioContainer>
         <StudioContent>
