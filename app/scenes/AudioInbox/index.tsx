@@ -2,6 +2,7 @@ import { observer } from "mobx-react";
 import { CollectionIcon } from "outline-icons";
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { useHistory } from "react-router-dom";
 import styled from "styled-components";
 import { s } from "@shared/styles";
 import Button from "~/components/Button";
@@ -21,7 +22,8 @@ import AudioInboxEmpty from "./components/AudioInboxEmpty";
 
 const AudioInboxScene = observer(function _AudioInboxScene() {
   const { t } = useTranslation();
-  const { audioInbox } = useStores();
+  const { audioInbox, audioRecorder, documents } = useStores();
+  const history = useHistory();
   const [isLoading, setIsLoading] = useState(true);
   const [inboxDocuments, setInboxDocuments] = useState<Document[]>([]);
 
@@ -58,9 +60,24 @@ const AudioInboxScene = observer(function _AudioInboxScene() {
     void loadInbox();
   }, [audioInbox, searchQuery, statusFilter, sortOption]);
 
-  const handleNewRecording = () => {
-    // TODO: Implement new recording flow
-    // This will be implemented in a later task
+  const handleNewRecording = async () => {
+    try {
+      // Create a new draft document for the recording
+      const newDoc = await documents.create(
+        {
+          title: t("Untitled Recording"),
+        },
+        { publish: false }
+      );
+
+      // Start recording at the beginning of the document
+      await audioRecorder.startRecording(newDoc.id, 0);
+
+      // Navigate to the new document (Recording Studio will show)
+      history.push(newDoc.path);
+    } catch {
+      // Error handling - could show a toast notification
+    }
   };
 
   const statusOptions = [
