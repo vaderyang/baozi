@@ -4,8 +4,12 @@ import * as React from "react";
 import { Trans } from "react-i18next";
 import styled from "styled-components";
 import { Primitive } from "utility-types";
+import { bytesToHumanReadable } from "../../utils/files";
 import { MarkdownSerializerState } from "../lib/markdown/serializer";
 import { ComponentProps } from "../types";
+import AudioPlayer from "../components/AudioPlayer";
+import FileExtension from "../components/FileExtension";
+import Widget from "../components/Widget";
 import Node from "./Node";
 import { s } from "../../styles";
 
@@ -14,6 +18,14 @@ type SpeakerSegment = {
   text: string;
   start?: number;
   end?: number;
+};
+
+type TimelineEntry = {
+  id: string;
+  start: number;
+  end?: number;
+  anchorIndex: number;
+  summary: string;
 };
 
 export default class TranscriptCard extends Node {
@@ -39,6 +51,12 @@ export default class TranscriptCard extends Node {
         fileName: {
           default: null,
         },
+        fileSize: {
+          default: 0,
+        },
+        timelineEntries: {
+          default: null,
+        },
       },
       group: "block",
       atom: true,
@@ -49,6 +67,7 @@ export default class TranscriptCard extends Node {
           tag: "div.transcript-card",
           getAttrs: (dom: HTMLDivElement) => {
             const speakerSegmentsStr = dom.dataset.speakerSegments;
+            const timelineEntriesStr = dom.dataset.timelineEntries;
             return {
               transcript: dom.dataset.transcript || "",
               speakerSegments: speakerSegmentsStr
@@ -57,6 +76,10 @@ export default class TranscriptCard extends Node {
               jobId: dom.dataset.jobId,
               attachmentId: dom.dataset.attachmentId,
               fileName: dom.dataset.fileName,
+              fileSize: parseInt(dom.dataset.fileSize || "0", 10),
+              timelineEntries: timelineEntriesStr
+                ? JSON.parse(timelineEntriesStr)
+                : null,
             };
           },
         },
@@ -72,6 +95,10 @@ export default class TranscriptCard extends Node {
           "data-job-id": node.attrs.jobId,
           "data-attachment-id": node.attrs.attachmentId || "",
           "data-file-name": node.attrs.fileName || "",
+          "data-file-size": node.attrs.fileSize ?? 0,
+          "data-timeline-entries": node.attrs.timelineEntries
+            ? JSON.stringify(node.attrs.timelineEntries)
+            : "",
         },
       ],
     };
@@ -87,13 +114,24 @@ export default class TranscriptCard extends Node {
     };
 
   component = (props: ComponentProps) => {
-    const { isSelected, node } = props;
-    const { transcript, speakerSegments, attachmentId, fileName } = node.attrs;
+    const { isSelected, isEditable, node } = props;
+    const {
+      transcript,
+      speakerSegments,
+      attachmentId,
+      fileName,
+      fileSize,
+      timelineEntries: timelineEntriesAttr,
+    } = node.attrs;
     const [activeTab, setActiveTab] = React.useState<
       "transcript" | "audio" | "metadata"
     >("transcript");
-    const [isPlaying, setIsPlaying] = React.useState(false);
-    const audioRef = React.useRef<HTMLAudioElement>(null);
+    const [activeTimelineId, setActiveTimelineId] = React.useState<
+      string | null
+    >(null);
+    const transcriptPaneRef = React.useRef<HTMLDivElement | null>(null);
+    const transcriptTextRef = React.useRef<HTMLDivElement | null>(null);
+    const speakerSegmentRefs = React.useRef<Array<HTMLDivElement | null>>([]);
 
     const formatTime = (seconds: number): string => {
       const mins = Math.floor(seconds / 60);
@@ -101,16 +139,30 @@ export default class TranscriptCard extends Node {
       return `${mins}:${secs.toString().padStart(2, "0")}`;
     };
 
-    const togglePlayPause = () => {
-      if (audioRef.current) {
-        if (isPlaying) {
-          audioRef.current.pause();
-        } else {
-          audioRef.current.play();
-        }
-        setIsPlaying(!isPlaying);
+    const formatRangeLabel = (start: number, end?: number) => {
+      const safeStart = Number.isFinite(start) ? start : 0;
+      if (typeof end === "number" && Number.isFinite(end)) {
+        return `${formatTime(safeStart)} - ${formatTime(end)}`;
       }
+      return `${formatTime(safeStart)}+`;
     };
+
+    const summarizeText = React.useCallback((text: string, limit = 160) => {
+      const normalized = text.replace(/\s+/g, " ").trim();
+      if (!normalized) {
+        return "";
+      }
+      return normalized.length > limit
+        ? `${normalized.slice(0, limit).trim()}…`
+        : normalized;
+    }, []);
+
+    const toSeconds = React.useCallback((value?: number) => {
+      if (typeof value !== "number") {
+        return undefined;
+      }
+      return value > 1000 ? value / 1000 : value;
+    }, []);
 
     // Calculate speaker statistics
     const speakerStats = React.useMemo(() => {
@@ -130,17 +182,176 @@ export default class TranscriptCard extends Node {
         }
         stats[speaker].count += 1;
         stats[speaker].segments.push(segment);
-        if (segment.start !== undefined && segment.end !== undefined) {
-          stats[speaker].totalTime += segment.end - segment.start;
+        const startSeconds = toSeconds(segment.start);
+        const endSeconds = toSeconds(segment.end);
+        if (startSeconds !== undefined && endSeconds !== undefined) {
+          stats[speaker].totalTime += endSeconds - startSeconds;
         }
       });
 
       return stats;
+    }, [speakerSegments, toSeconds]);
+
+    const timelineEntries = React.useMemo<TimelineEntry[]>(() => {
+      if (
+        Array.isArray(timelineEntriesAttr) &&
+        timelineEntriesAttr.length > 0
+      ) {
+        return (timelineEntriesAttr as TimelineEntry[]).map((entry, index) => ({
+          id: entry.id || `timeline-${index}`,
+          start: typeof entry.start === "number" ? entry.start : 0,
+          end: entry.end,
+          anchorIndex:
+            typeof entry.anchorIndex === "number" ? entry.anchorIndex : 0,
+          summary: entry.summary || "",
+        }));
+      }
+
+      if (speakerSegments && speakerSegments.length > 0) {
+        const TIMELINE_CHUNK_SECONDS = 180;
+        const APPROX_SEGMENT_SECONDS = 30;
+        const entryMap = new Map<
+          number,
+          {
+            id: string;
+            start: number;
+            end?: number;
+            anchorIndex: number;
+            texts: string[];
+          }
+        >();
+
+        speakerSegments.forEach((segment, index) => {
+          const startSeconds = toSeconds(segment.start);
+          const endSeconds = toSeconds(segment.end);
+          const safeStart =
+            typeof startSeconds === "number"
+              ? Math.max(startSeconds, 0)
+              : index * APPROX_SEGMENT_SECONDS;
+          const duration =
+            typeof startSeconds === "number" && typeof endSeconds === "number"
+              ? Math.max(endSeconds - startSeconds, 5)
+              : APPROX_SEGMENT_SECONDS;
+          const safeEnd = safeStart + duration;
+          const chunkIndex = Math.floor(safeStart / TIMELINE_CHUNK_SECONDS);
+          const chunkStart = Math.max(chunkIndex, 0) * TIMELINE_CHUNK_SECONDS;
+          const existing = entryMap.get(chunkIndex);
+
+          if (existing) {
+            existing.end = Math.max(existing.end ?? safeEnd, safeEnd);
+            existing.texts.push(segment.text);
+          } else {
+            entryMap.set(chunkIndex, {
+              id: `timeline-${chunkIndex}`,
+              start: chunkStart,
+              end: safeEnd,
+              anchorIndex: index,
+              texts: [segment.text],
+            });
+          }
+        });
+
+        return Array.from(entryMap.values())
+          .sort((a, b) => a.start - b.start)
+          .map((entry) => ({
+            id: entry.id,
+            start: entry.start,
+            end: Math.max(
+              entry.end ?? entry.start,
+              entry.start + TIMELINE_CHUNK_SECONDS
+            ),
+            anchorIndex: entry.anchorIndex,
+            summary: summarizeText(entry.texts.join(" ")),
+          }));
+      }
+
+      if (transcript) {
+        return [
+          {
+            id: "timeline-full",
+            start: 0,
+            end: undefined,
+            anchorIndex: 0,
+            summary: summarizeText(transcript),
+          },
+        ];
+      }
+
+      return [];
+    }, [
+      speakerSegments,
+      summarizeText,
+      toSeconds,
+      transcript,
+      timelineEntriesAttr,
+    ]);
+
+    React.useEffect(() => {
+      if (timelineEntries.length === 0) {
+        setActiveTimelineId(null);
+        return;
+      }
+
+      const alreadyActive = timelineEntries.some(
+        (entry) => entry.id === activeTimelineId
+      );
+
+      if (!activeTimelineId || !alreadyActive) {
+        setActiveTimelineId(timelineEntries[0].id);
+      }
+    }, [activeTimelineId, timelineEntries]);
+
+    const scrollToAnchor = React.useCallback((anchorIndex: number) => {
+      const container = transcriptPaneRef.current;
+      if (!container) {
+        return;
+      }
+
+      const target =
+        speakerSegmentRefs.current[anchorIndex] ?? transcriptTextRef.current;
+
+      if (!target) {
+        return;
+      }
+
+      const containerRect = container.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const offset =
+        targetRect.top - containerRect.top + container.scrollTop - 16;
+
+      container.scrollTo({
+        top: Math.max(offset, 0),
+        behavior: "smooth",
+      });
+    }, []);
+
+    const handleTimelineSelect = React.useCallback(
+      (entry: TimelineEntry) => {
+        setActiveTimelineId(entry.id);
+        scrollToAnchor(entry.anchorIndex);
+      },
+      [scrollToAnchor]
+    );
+
+    const registerSegmentRef = React.useCallback(
+      (index: number, element: HTMLDivElement | null) => {
+        speakerSegmentRefs.current[index] = element;
+      },
+      []
+    );
+
+    React.useEffect(() => {
+      speakerSegmentRefs.current = [];
     }, [speakerSegments]);
 
     const audioUrl = attachmentId
       ? `/api/attachments.redirect?id=${attachmentId}`
       : null;
+    const downloadLabel = fileName || "Audio recording";
+    const formattedFileSize =
+      typeof fileSize === "number" && fileSize > 0
+        ? bytesToHumanReadable(fileSize)
+        : undefined;
 
     return (
       <TranscriptContainer
@@ -174,47 +385,94 @@ export default class TranscriptCard extends Node {
 
         <ScrollableContent>
           {activeTab === "transcript" && (
-            <>
-              {speakerSegments && speakerSegments.length > 0 ? (
-                <SpeakerSegments>
-                  {speakerSegments.map(
-                    (segment: SpeakerSegment, index: number) => (
-                      <SpeakerSegment key={index}>
-                        <SpeakerLabel>
-                          <Trans>Speaker</Trans> {segment.spk}
-                        </SpeakerLabel>
-                        <SegmentText>{segment.text}</SegmentText>
-                        {segment.start !== undefined &&
-                          segment.end !== undefined && (
-                            <Timestamp>
-                              {formatTime(segment.start)} -{" "}
-                              {formatTime(segment.end)}
-                            </Timestamp>
+            <TranscriptSplitView>
+              <TimelinePane>
+                {timelineEntries.length > 0 ? (
+                  <TimelineList>
+                    {timelineEntries.map((entry) => (
+                      <TimelineItem
+                        key={entry.id}
+                        type="button"
+                        active={entry.id === activeTimelineId}
+                        onClick={() => handleTimelineSelect(entry)}
+                      >
+                        <TimelineRange>
+                          {formatRangeLabel(entry.start, entry.end)}
+                        </TimelineRange>
+                        <TimelineSummary>
+                          {entry.summary?.trim() || (
+                            <Trans>No summary available</Trans>
                           )}
-                      </SpeakerSegment>
-                    )
-                  )}
-                </SpeakerSegments>
-              ) : (
-                <TranscriptText>{transcript}</TranscriptText>
-              )}
-            </>
+                        </TimelineSummary>
+                      </TimelineItem>
+                    ))}
+                  </TimelineList>
+                ) : (
+                  <EmptyTimeline>
+                    <Trans>Timeline unavailable</Trans>
+                  </EmptyTimeline>
+                )}
+              </TimelinePane>
+              <TranscriptPane ref={transcriptPaneRef}>
+                {speakerSegments && speakerSegments.length > 0 ? (
+                  <SpeakerSegments>
+                    {speakerSegments.map(
+                      (segment: SpeakerSegment, index: number) => {
+                        const startSeconds = toSeconds(segment.start);
+                        const endSeconds = toSeconds(segment.end);
+                        return (
+                          <SpeakerSegment
+                            key={index}
+                            ref={(element) =>
+                              registerSegmentRef(index, element)
+                            }
+                          >
+                            <SpeakerLabel>
+                              <Trans>Speaker</Trans> {segment.spk}
+                            </SpeakerLabel>
+                            <SegmentText>{segment.text}</SegmentText>
+                            {typeof startSeconds === "number" &&
+                              typeof endSeconds === "number" && (
+                                <Timestamp>
+                                  {formatTime(startSeconds)} -{" "}
+                                  {formatTime(endSeconds)}
+                                </Timestamp>
+                              )}
+                          </SpeakerSegment>
+                        );
+                      }
+                    )}
+                  </SpeakerSegments>
+                ) : (
+                  <TranscriptText ref={transcriptTextRef}>
+                    {transcript}
+                  </TranscriptText>
+                )}
+              </TranscriptPane>
+            </TranscriptSplitView>
           )}
 
           {activeTab === "audio" && audioUrl && (
-            <AudioPlayer>
-              <audio
-                ref={audioRef}
-                src={audioUrl}
-                onEnded={() => setIsPlaying(false)}
+            <AudioWidgetWrapper>
+              <Widget
+                icon={
+                  <AudioPlayer src={audioUrl} isEditable={isEditable}>
+                    <FileExtension title={downloadLabel} />
+                  </AudioPlayer>
+                }
+                title={downloadLabel}
+                context={formattedFileSize}
+                href={audioUrl}
+                isSelected={isSelected}
+                onMouseDown={this.handleSelect(props)}
+                onClick={(event) => {
+                  if (isEditable) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }
+                }}
               />
-              <AudioControls>
-                <PlayPauseButton onClick={togglePlayPause}>
-                  {isPlaying ? "⏸" : "▶"}
-                </PlayPauseButton>
-                <AudioFileName>{fileName || "Audio recording"}</AudioFileName>
-              </AudioControls>
-            </AudioPlayer>
+            </AudioWidgetWrapper>
           )}
 
           {activeTab === "metadata" && speakerStats && (
@@ -383,6 +641,86 @@ const TranscriptText = styled.div`
   white-space: pre-wrap;
 `;
 
+const TranscriptSplitView = styled.div`
+  display: flex;
+  gap: 24px;
+`;
+
+const TimelinePane = styled.div`
+  flex: 0 0 35%;
+  max-height: 500px;
+  overflow-y: auto;
+  padding-right: 12px;
+  border-right: 1px solid ${s("divider")};
+`;
+
+const TimelineList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const TimelineItem = styled.button<{ active: boolean }>`
+  width: 100%;
+  text-align: left;
+  border: 1px solid ${(props) => (props.active ? s("accent") : s("divider"))};
+  background: ${(props) => (props.active ? `${s("accent")}22` : "transparent")};
+  color: ${s("text")};
+  padding: 12px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+
+  &:hover {
+    border-color: ${s("accent")};
+  }
+
+  &:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px ${(props) => props.theme.accent}33;
+  }
+`;
+
+const TimelineRange = styled.div`
+  font-size: 12px;
+  font-weight: 600;
+  color: ${s("textSecondary")};
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+`;
+
+const TimelineSummary = styled.div`
+  font-size: 14px;
+  line-height: 1.5;
+  color: ${s("text")};
+`;
+
+const EmptyTimeline = styled.div`
+  font-size: 14px;
+  color: ${s("textSecondary")};
+`;
+
+const TranscriptPane = styled.div`
+  flex: 1 1 65%;
+  max-height: 500px;
+  overflow-y: auto;
+  padding-right: 8px;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: ${s("divider")};
+    border-radius: 4px;
+  }
+`;
+
 const SpeakerSegments = styled.div`
   display: flex;
   flex-direction: column;
@@ -415,47 +753,8 @@ const Timestamp = styled.div`
   font-family: ${s("fontFamilyMono")};
 `;
 
-// Audio Player Components
-const AudioPlayer = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-`;
-
-const AudioControls = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 16px;
-`;
-
-const PlayPauseButton = styled.button`
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  border: none;
-  background: ${s("accent")};
-  color: ${s("accentText")};
-  font-size: 20px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-
-  &:hover {
-    opacity: 0.9;
-    transform: scale(1.05);
-  }
-
-  &:active {
-    transform: scale(0.95);
-  }
-`;
-
-const AudioFileName = styled.div`
-  font-size: 14px;
-  font-weight: 500;
-  color: ${s("text")};
+const AudioWidgetWrapper = styled.div`
+  padding: 16px 0;
 `;
 
 // Metadata Components
