@@ -122,7 +122,17 @@ const RecordingStudio = observer(function _RecordingStudio({
   };
 
   if (!audioRecorder.isActive) {
-    return null;
+    // Show a loading/waiting state instead of null
+    return (
+      <StudioContainer>
+        <StudioContent>
+          <div style={{ textAlign: "center", padding: "48px" }}>
+            <h2>{t("Starting recording...")}</h2>
+            <p>{t("Please allow microphone access when prompted")}</p>
+          </div>
+        </StudioContent>
+      </StudioContainer>
+    );
   }
 
   return (
