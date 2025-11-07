@@ -20,3 +20,5 @@ docker.env
 **/__pycache__
 .claude
 house-docker-compose/docker-compose.yml
+house-docker-compose/data
+*.log
