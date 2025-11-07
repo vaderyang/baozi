@@ -62,10 +62,13 @@ const AudioInboxScene = observer(function _AudioInboxScene() {
 
   const handleNewRecording = async () => {
     try {
-      // Create a new draft document for the recording
+      // Create a new draft document for the recording with audio metadata
       const newDoc = await documents.create(
         {
           title: t("Untitled Recording"),
+          audioMetadata: {
+            sourceType: "recording",
+          },
         },
         { publish: false }
       );
