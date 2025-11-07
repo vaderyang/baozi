@@ -18,6 +18,7 @@ CODE_BASE_DIR = "/home/drill/outline"
 COMPOSE_PROJECT_NAME = "house-docker-compose"
 BUILD_SCRIPT_NAME = "build_docker_and_release.sh"
 IMAGE_VERSION = "1.0.1"  # 部署的镜像版本，作为脚本参数传入
+TARGET_BRANCH: str | None = None  # 目标分支，若设置则仅当 toRef.branch.name 匹配时触发部署
 
 COMPOSE_PROJECT_DIR = f"{CODE_BASE_DIR}/{COMPOSE_PROJECT_NAME}"
 BUILD_SCRIPT_PATH = f"{CODE_BASE_DIR}/{COMPOSE_PROJECT_NAME}/{BUILD_SCRIPT_NAME}"
@@ -51,6 +52,38 @@ def _log_write(message: str):
     except Exception:
         # 如果写文件失败，至少打印到控制台
         print(message)
+
+def parse_branch_name(payload: dict) -> str | None:
+    """
+    提取 toRef/toref -> branch -> name 的分支名，兼容大小写。
+    如果不存在该结构则返回 None。
+    """
+    if not isinstance(payload, dict):
+        return None
+    root = payload
+    for key in ("pullrequest", "pullRequest", "PullRequest"):
+        if isinstance(payload.get(key), dict):
+            root = payload[key]
+            break
+    toref_obj = None
+    for key in ("toRef", "toref", "TOREF", "to_ref"):
+        if isinstance(root.get(key), dict):
+            toref_obj = root[key]
+            break
+    if not toref_obj:
+        return None
+    branch_obj = None
+    for key in ("branch", "Branch"):
+        if isinstance(toref_obj.get(key), dict):
+            branch_obj = toref_obj[key]
+            break
+    if not branch_obj:
+        return None
+    for key in ("name", "Name"):
+        val = branch_obj.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return None
 
 
 def _list_access_urls(host: str, port: int) -> list[str]:
@@ -326,7 +359,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         # 在函数顶部声明涉及的全局变量，避免语法错误
-        global DEPLOY_IN_PROGRESS, DEPLOY_START_TIME_ISO, CANCEL_EVENT, CURRENT_PROC, DEPLOY_RUN_ID
+        global DEPLOY_IN_PROGRESS, DEPLOY_START_TIME_ISO, CANCEL_EVENT, CURRENT_PROC, DEPLOY_RUN_ID, TARGET_BRANCH
         # 解析请求路径（忽略查询参数进行路由匹配，并兼容尾随斜杠）
         parsed = urlparse(self.path)
         path_only = parsed.path
@@ -377,6 +410,13 @@ class Handler(BaseHTTPRequestHandler):
         # 读取 payload（兼容 JSON 与表单）
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length) if length > 0 else b""
+        content_type = self.headers.get("Content-Type", "")
+        payload_json = None
+        if body and content_type.startswith("application/json"):
+            try:
+                payload_json = json.loads(body.decode("utf-8"))
+            except Exception:
+                payload_json = None
 
         # 解析是否 force=true（支持 query 参数）
         try:
@@ -389,7 +429,7 @@ class Handler(BaseHTTPRequestHandler):
         if not force_flag and body:
             try:
                 # 优先 JSON 解析
-                body_json = json.loads(body.decode("utf-8"))
+                body_json = payload_json if payload_json is not None else json.loads(body.decode("utf-8"))
                 fv = body_json.get("force")
                 if isinstance(fv, bool):
                     force_flag = fv
@@ -399,6 +439,40 @@ class Handler(BaseHTTPRequestHandler):
                 # 简单表单/原始文本包含 force=true
                 if b"force=true" in body:
                     force_flag = True
+
+        # 解析出 toRef.branch.name 并打印日志
+        parsed_branch = None
+        try:
+            if isinstance(payload_json, dict):
+                parsed_branch = parse_branch_name(payload_json)
+        except Exception:
+            parsed_branch = None
+        if parsed_branch:
+            _log_write(f"[webhook] parsed branch name from pullrequest.toRef.branch.name: {parsed_branch}")
+            try:
+                print(f"[webhook] parsed pullrequest.toRef.branch.name: {parsed_branch}")
+            except Exception:
+                pass
+
+        # 若设置了目标分支，则仅当解析到的分支匹配时才继续
+        if TARGET_BRANCH is not None or parsed_branch is None:
+            if parsed_branch != TARGET_BRANCH:
+                msg = f"Branch pullrequest.toRef.branch.name {parsed_branch} is not target branch {TARGET_BRANCH}, ignore."
+                _log_write(f"[webhook] {msg}")
+                try:
+                    print(f"[webhook] {msg}")
+                except Exception:
+                    pass
+                self._send_json(200, {
+                    "status": "ignored",
+                    "message": msg,
+                    "branch": parsed_branch,
+                    "target_branch": TARGET_BRANCH,
+                })
+            else:
+                msg = f"Branch pullrequest.toRef.branch.name {parsed_branch} is same as target branch {TARGET_BRANCH}, continue."
+                _log_write(f"[webhook] {msg}")
+                return
 
         # 部署守卫：如果已有部署在进行，返回明确 JSON，不再启动新的部署
         with DEPLOY_LOCK:
@@ -450,6 +524,7 @@ class Handler(BaseHTTPRequestHandler):
             "compose_project_dir": COMPOSE_PROJECT_DIR,
             "deploy_start_time": DEPLOY_START_TIME_ISO,
             "force": force_flag,
+            "branch": parsed_branch,
         })
 
     # Avoid noisy logging to stderr
@@ -458,13 +533,14 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global CODE_BASE_DIR, IMAGE_VERSION, HOST, PORT, COMPOSE_PROJECT_DIR, BUILD_SCRIPT_PATH
+    global CODE_BASE_DIR, IMAGE_VERSION, HOST, PORT, COMPOSE_PROJECT_DIR, BUILD_SCRIPT_PATH, TARGET_BRANCH
 
     parser = argparse.ArgumentParser(description="AutoDeploy Hook Server")
     parser.add_argument("--code_base_dir", required=True, help="代码根目录（包含 compose 项目目录）")
     parser.add_argument("--image_version", required=True, help="部署镜像版本标签，例如production/staging")
     parser.add_argument("--host", required=True, help="HTTP HOOK 监听地址")
     parser.add_argument("--port", type=int, required=True, help="HTTP HOOK 监听端口")
+    parser.add_argument("--target_branch", default=None, help="目标分支名，当设置时，如 post 中 pullrequest.toRef.branch.name 存在，则仅当匹配时触发部署")
 
     # 未提供任何参数时，显示帮助并退出
     if len(sys.argv) == 1:
@@ -477,6 +553,7 @@ def main():
     IMAGE_VERSION = args.image_version
     HOST = args.host
     PORT = int(args.port)
+    TARGET_BRANCH = args.target_branch
 
     # 依赖 CODE_BASE_DIR 的派生路径需要重新计算
     COMPOSE_PROJECT_DIR = f"{CODE_BASE_DIR}/{COMPOSE_PROJECT_NAME}"
