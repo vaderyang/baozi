@@ -4,6 +4,7 @@ import Logger from "@server/logging/Logger";
 import { Team } from "@server/models";
 import { AiPromptMode, TeamPreference } from "@shared/types";
 import BaseTask, { TaskPriority } from "./BaseTask";
+import parseAiResponse from "@server/utils/parseAiResponse";
 
 type Props = {
   /** The ID of the AI summary job */
@@ -38,8 +39,9 @@ export default class AISummaryTask extends BaseTask<Props> {
     });
 
     // Import the AISummaryJob model
-    const { default: AISummaryJob } = await import("@server/models/AISummaryJob");
-    const { default: AISummaryJobStatus } = await import("@server/models/AISummaryJob");
+    const { default: AISummaryJob, AISummaryJobStatus } = await import(
+      "@server/models/AISummaryJob"
+    );
 
     // Fetch the AI summary job
     const job = await AISummaryJob.findByPk(jobId, {
@@ -52,7 +54,7 @@ export default class AISummaryTask extends BaseTask<Props> {
 
       // Get model configuration
       const { apiKey, apiBase, model } = await this.getModelConfig(
-        'primary',
+        "primary",
         teamId,
         prompt.length + context.length
       );
@@ -150,7 +152,7 @@ export default class AISummaryTask extends BaseTask<Props> {
    * Get model configuration from team preferences or environment.
    */
   private async getModelConfig(
-    purpose: 'primary' | 'task',
+    purpose: "primary" | "task",
     teamId: string,
     contextLength: number
   ): Promise<{
@@ -187,9 +189,12 @@ export default class AISummaryTask extends BaseTask<Props> {
 
     // Determine model based on purpose and context length
     let model: string;
-    const maxTaskContextLength = parseInt(env.LLM_MAX_CONTEXT_LENGTH || "15000", 10);
+    const maxTaskContextLength = parseInt(
+      env.LLM_MAX_CONTEXT_LENGTH || "15000",
+      10
+    );
 
-    if (purpose === 'task' && contextLength <= maxTaskContextLength) {
+    if (purpose === "task" && contextLength <= maxTaskContextLength) {
       // Use task model for lightweight operations
       const taskModelPref = team.getPreference(TeamPreference.AiTaskModel);
       model =
@@ -199,7 +204,9 @@ export default class AISummaryTask extends BaseTask<Props> {
         "qwen3-30b-a3b-instruct";
     } else {
       // Use primary model for heavy tasks or long context
-      const primaryModelPref = team.getPreference(TeamPreference.AiGenerateTextModel);
+      const primaryModelPref = team.getPreference(
+        TeamPreference.AiGenerateTextModel
+      );
       model =
         (typeof primaryModelPref === "string" && primaryModelPref.trim()) ||
         env.LLM_PRIMARY_MODEL_NAME ||
@@ -208,7 +215,9 @@ export default class AISummaryTask extends BaseTask<Props> {
     }
 
     // Get fallback model
-    const fallbackModelPref = team.getPreference(TeamPreference.AiFallbackModel);
+    const fallbackModelPref = team.getPreference(
+      TeamPreference.AiFallbackModel
+    );
     const fallbackModel =
       (typeof fallbackModelPref === "string" && fallbackModelPref.trim()) ||
       env.LLM_FALLBACK_MODEL_NAME ||
@@ -259,7 +268,8 @@ export default class AISummaryTask extends BaseTask<Props> {
     }
 
     const result = await response.json();
-    const text = result.choices?.[0]?.message?.content;
+    const choice = result.choices?.[0];
+    const text = parseAiResponse(choice);
 
     if (!text) {
       throw new Error("No text in LLM response");
@@ -302,8 +312,9 @@ export default class AISummaryTask extends BaseTask<Props> {
     );
 
     try {
-      const { default: AISummaryJob } = await import("@server/models/AISummaryJob");
-      const { default: AISummaryJobStatus } = await import("@server/models/AISummaryJob");
+      const { default: AISummaryJob, AISummaryJobStatus } = await import(
+        "@server/models/AISummaryJob"
+      );
 
       const job = await AISummaryJob.findByPk(jobId);
       if (job && job.status !== AISummaryJobStatus.Failed) {

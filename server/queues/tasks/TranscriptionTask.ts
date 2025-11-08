@@ -6,6 +6,7 @@ import { TranscriptionJobStatus } from "@server/models/TranscriptionJob";
 import fetch from "@server/utils/fetch";
 import { TeamPreference } from "@shared/types";
 import BaseTask, { TaskPriority } from "./BaseTask";
+import AutoSummaryTask from "./AutoSummaryTask";
 
 type Props = {
   /** The ID of the transcription job */
@@ -239,8 +240,12 @@ export default class TranscriptionTask extends BaseTask<Props> {
         dbUpdateDurationMs: dbUpdateDuration,
       });
 
-      // Auto-summary feature has been disabled
-      // Timeline summaries will not be generated automatically
+      if (job.metadata?.autoSummary) {
+        Logger.info("task", "Scheduling auto summary generation", {
+          jobId,
+        });
+        await new AutoSummaryTask().schedule({ jobId: job.id });
+      }
 
       // Calculate total processing time
       const totalDuration = Date.now() - requestStartTime + downloadDuration;

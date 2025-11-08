@@ -34,7 +34,6 @@ type Props = {
   documentId: string;
 };
 
-
 type TimelineEntryPayload = {
   id: string;
   start: number;
@@ -43,15 +42,12 @@ type TimelineEntryPayload = {
   summary: string;
 };
 
-
 const normalizeTimestampValue = (value?: number) => {
   if (typeof value !== "number") {
     return undefined;
   }
   return value > 1000 ? value / 1000 : value;
 };
-
-
 
 /**
  * TranscriptionStatusManager polls for transcription status updates every 5 seconds
@@ -60,7 +56,7 @@ const normalizeTimestampValue = (value?: number) => {
 export function TranscriptionStatusManager({ documentId }: Props) {
   const editor = useEditor();
   const dictionary = useDictionary();
-  const { audioRecorder, transcriptionJobs } = useStores();
+  const { audioRecorder, transcriptionJobs, documents } = useStores();
   const editorRef = React.useRef(editor);
   const isMountedRef = React.useRef(true);
   const pollingIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -202,7 +198,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           return;
         }
 
-        const { view, pasteParser } = editorRef.current;
+        const { view } = editorRef.current;
         if (!view || !result) {
           Logger.warn("Cannot replace status card: missing view or result", {
             hasView: !!view,
@@ -262,14 +258,22 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           // For attachment-based transcriptions that can't find the status card,
           // we should still process the result and insert the content at the end
           if (attachmentId && options?.sourceType !== "recording") {
-            Logger.info("editor", "Processing attachment-based transcription without status card", {
-              jobId,
-              attachmentId,
-            });
+            Logger.info(
+              "editor",
+              "Processing attachment-based transcription without status card",
+              {
+                jobId,
+                attachmentId,
+              }
+            );
           } else if (options?.sourceType === "recording") {
-            Logger.info("editor", "Recording transcription - will insert at end of document", {
-              jobId,
-            });
+            Logger.info(
+              "editor",
+              "Recording transcription - will insert at end of document",
+              {
+                jobId,
+              }
+            );
           } else {
             // For other cases, try to find status card again with a delay
             // This handles race conditions where the status card was just created
@@ -280,11 +284,20 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                   jobId,
                   position: retryCardInfo.pos,
                 });
-                void replaceStatusCardWithTranscript(jobId, result, attachmentId, options);
-              } else {
-                Logger.warn("editor", "Status card still not found on retry, giving up", {
+                void replaceStatusCardWithTranscript(
                   jobId,
-                });
+                  result,
+                  attachmentId,
+                  options
+                );
+              } else {
+                Logger.warn(
+                  "editor",
+                  "Status card still not found on retry, giving up",
+                  {
+                    jobId,
+                  }
+                );
               }
             }, 1000);
             return;
@@ -307,9 +320,11 @@ export function TranscriptionStatusManager({ documentId }: Props) {
 
         // Check if this is an attachment replacement scenario
         // For File Attachment AI Notes, we need to detect this even without finding the status card
+        const isRecordingSource = options?.sourceType === "recording";
         const wasAttachmentReplacement =
-          (summaryCardNode?.attrs?.skipAttachmentLink === false) ||
-          (attachmentId && options?.sourceType !== "recording");
+          !isRecordingSource &&
+          (summaryCardNode?.attrs?.skipAttachmentLink === false ||
+            (attachmentId && options?.sourceType !== "recording"));
 
         // Format the transcript text
         const formattedText = formatTranscriptText(result);
@@ -336,6 +351,47 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           return;
         }
 
+        // Prepare speaker segments with normalized timestamps
+        const normalizedSpeakerSegments =
+          result.speakerSegments?.map((segment) => ({
+            spk: String(segment.spk),
+            text: segment.text,
+            start: normalizeTimestampValue(segment.start),
+            end: normalizeTimestampValue(segment.end),
+          })) ?? null;
+
+        const documentRecord = documents.get(documentId);
+        const recordingStartedAtIso = (() => {
+          const createdAt = documentRecord?.createdAt;
+          if (!createdAt) {
+            return null;
+          }
+          const date = new Date(createdAt);
+          return Number.isNaN(date.getTime()) ? null : date.toISOString();
+        })();
+
+        const derivedDurationFromSegments = normalizedSpeakerSegments
+          ? normalizedSpeakerSegments.reduce((max, segment) => {
+              const candidate =
+                typeof segment.end === "number"
+                  ? segment.end
+                  : typeof segment.start === "number"
+                    ? segment.start
+                    : 0;
+              return candidate > max ? candidate : max;
+            }, 0)
+          : 0;
+
+        const durationFromDocument = normalizeTimestampValue(
+          documentRecord?.audioMetadata?.duration
+        );
+
+        const recordingDurationSeconds =
+          durationFromDocument ??
+          (derivedDurationFromSegments > 0
+            ? derivedDurationFromSegments
+            : null);
+
         // Build content to insert based on auto-summary mode
         // When auto-summary is enabled: Summary + TranscriptCard
         // When auto-summary is disabled: TranscriptCard only
@@ -349,87 +405,40 @@ export function TranscriptionStatusManager({ documentId }: Props) {
 
         if (shouldGenerateSummary) {
           try {
-            Logger.info("editor", "** Queueing AI summary generation for transcript", {
-              jobId,
-              fromRecorder: audioRecorder.autoGenerateSummary,
-              fromCardNode: summaryCardNode?.attrs?.autoSummary ?? false,
-            });
-
-            const prompt =
-              "CRITICAL RULES:\n" +
-              "1. ONLY use information from the provided transcript below - DO NOT add any external information or make up content\n" +
-              "2. If the transcript is too short or unclear, simply state that the content is insufficient for a summary\n" +
-              "3. Use the same language as the transcript (default to Chinese/zh-CN if unclear)\n" +
-              "4. Design an appropriate format based on the transcript content (e.g., meeting minutes, interview notes, personal memo)\n" +
-              "5. If the transcript only contains a single sentence or question, just restate it clearly without elaboration\n\n" +
-              "Summarize the following transcript:";
-
-            // Queue the AI summary generation job
-            const queueResult = await client.post<{ data: { jobId: string; status: string } }>(
-              "/ai.queueSummary",
+            Logger.info(
+              "editor",
+              "** Queueing AI summary generation for transcript",
               {
-                prompt,
-                context: formattedText,
-                metadata: {
-                  documentId,
-                  type: "transcript_summary",
-                },
-              },
-              { retry: false }
+                jobId,
+                fromRecorder: audioRecorder.autoGenerateSummary,
+                fromCardNode: summaryCardNode?.attrs?.autoSummary ?? false,
+              }
             );
 
-            const summaryJobId = queueResult.data?.jobId;
-            if (!summaryJobId) {
-              throw new Error("Failed to queue summary generation");
-            }
+            const formattedRecordingTime =
+              recordingStartedAtIso &&
+              Number.isFinite(Date.parse(recordingStartedAtIso))
+                ? new Intl.DateTimeFormat(undefined, {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  }).format(new Date(recordingStartedAtIso))
+                : null;
 
-            Logger.info("editor", "AI summary generation queued", {
-              jobId,
-              summaryJobId,
-            });
+            const { generateTranscriptSummary } = await import(
+              "~/utils/transcriptSummary"
+            );
+            const { summary, jobId: summaryJobId } =
+              await generateTranscriptSummary({
+                documentId,
+                transcriptText: formattedText,
+                speakerSegments: normalizedSpeakerSegments,
+                meetingType: "auto",
+                summaryLanguage: "auto",
+                customPrompt: "",
+                insertPosition: "summary_tab",
+                formattedRecordingTime,
+              });
 
-            // Poll for summary generation status
-            const pollInterval = 2000; // Poll every 2 seconds
-            const maxPollTime = 5 * 60 * 1000; // 5 minutes max
-            const startTime = Date.now();
-
-            const pollSummaryStatus = async (): Promise<string | null> => {
-              if (Date.now() - startTime > maxPollTime) {
-                Logger.warn("AI summary generation timed out", { jobId, summaryJobId });
-                return null;
-              }
-
-              const statusResult = await client.post<{
-                data: {
-                  status: string;
-                  result?: string;
-                  error?: string;
-                };
-              }>("/ai.summaryStatus", { jobId: summaryJobId });
-
-              const status = statusResult.data?.status;
-              const error = statusResult.data?.error;
-              const result = statusResult.data?.result;
-
-              if (status === "completed") {
-                return result || null;
-              } else if (status === "failed") {
-                Logger.error("AI summary generation failed", new Error(error || "Unknown error"), {
-                  jobId,
-                  summaryJobId,
-                });
-                return null;
-              } else if (status === "queued" || status === "processing") {
-                // Continue polling
-                await new Promise((resolve) => setTimeout(resolve, pollInterval));
-                return pollSummaryStatus();
-              } else {
-                Logger.warn("Unknown summary job status", { jobId, summaryJobId, status });
-                return null;
-              }
-            };
-
-            const summary = await pollSummaryStatus();
             if (summary) {
               summaryMarkdown = `${summary}\n\n`;
               Logger.info("editor", "AI summary generated successfully", {
@@ -453,21 +462,15 @@ export function TranscriptionStatusManager({ documentId }: Props) {
 
         // Build nodes array to insert
         const nodesToInsert: ProsemirrorNode[] = [];
+        const summaryMarkdownForCard = summaryMarkdown
+          ? normalizePastedMarkdown(summaryMarkdown)
+          : "";
 
-        // Add summary first if generated
-        if (summaryMarkdown) {
-          const normalizedSummary = normalizePastedMarkdown(summaryMarkdown);
-          const summaryContent = pasteParser.parse(normalizedSummary);
-          if (summaryContent) {
-            summaryContent.content.forEach((node) => {
-              nodesToInsert.push(node);
-            });
-            Logger.info("editor", "Added summary nodes", {
-              jobId,
-              summaryLength: summaryMarkdown.length,
-              nodeCount: summaryContent.content.childCount,
-            });
-          }
+        if (summaryMarkdownForCard) {
+          Logger.info("editor", "Attached summary to transcript card", {
+            jobId,
+            summaryLength: summaryMarkdownForCard.length,
+          });
         }
 
         // Re-insert attachment if it was replaced (for File Attachment AI Notes)
@@ -477,9 +480,11 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             // Try to find the original attachment in the document to preserve its properties
             let originalAttachment: ProsemirrorNode | null = null;
             view.state.doc.descendants((node) => {
-              if (node.type.name === "attachment" &&
-                  (node.attrs.id === attachmentId ||
-                   (node.attrs.href && node.attrs.href.includes(attachmentId)))) {
+              if (
+                node.type.name === "attachment" &&
+                (node.attrs.id === attachmentId ||
+                  (node.attrs.href && node.attrs.href.includes(attachmentId)))
+              ) {
                 originalAttachment = node;
                 return false;
               }
@@ -489,10 +494,14 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             // Use original attachment properties if found, otherwise create with defaults
             const attachmentNode = attachmentType.create({
               id: attachmentId,
-              href: originalAttachment?.attrs?.href || `/api/attachments.redirect?id=${attachmentId}`,
-              title: originalAttachment?.attrs?.title || fileName || "Audio file",
+              href:
+                originalAttachment?.attrs?.href ||
+                `/api/attachments.redirect?id=${attachmentId}`,
+              title:
+                originalAttachment?.attrs?.title || fileName || "Audio file",
               size: originalAttachment?.attrs?.size || fileSize,
-              contentType: originalAttachment?.attrs?.contentType || "audio/mpeg",
+              contentType:
+                originalAttachment?.attrs?.contentType || "audio/mpeg",
             });
 
             nodesToInsert.push(attachmentNode);
@@ -505,15 +514,6 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             });
           }
         }
-
-        // Prepare speaker segments with normalized timestamps
-        const normalizedSpeakerSegments =
-          result.speakerSegments?.map((segment) => ({
-            spk: String(segment.spk),
-            text: segment.text,
-            start: normalizeTimestampValue(segment.start),
-            end: normalizeTimestampValue(segment.end),
-          })) ?? null;
 
         // Timeline summary feature has been disabled
         let timelineEntries: TimelineEntryPayload[] | null = null;
@@ -529,6 +529,9 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             fileName: fileName || null,
             fileSize,
             timelineEntries: timelineEntries || null,
+            summaryMarkdown: summaryMarkdownForCard,
+            recordingStartedAt: recordingStartedAtIso,
+            recordingDuration: recordingDurationSeconds,
           });
 
           nodesToInsert.push(transcriptCard);
@@ -557,7 +560,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           nodeCount: nodesToInsert.length,
           sliceSize: slice.content.size,
           hasAttachment: !!attachmentId,
-          hasSummary: !!summaryMarkdown,
+          hasSummary: !!summaryMarkdownForCard,
         });
 
         // Replace the status card with the transcript content
@@ -606,11 +609,15 @@ export function TranscriptionStatusManager({ documentId }: Props) {
               tr.delete(from, to);
             });
 
-          Logger.debug("editor", "Removed duplicate attachments for standard transcription", {
-            jobId,
-            attachmentId,
-            removedCount: attachmentsToRemove.length,
-          });
+          Logger.debug(
+            "editor",
+            "Removed duplicate attachments for standard transcription",
+            {
+              jobId,
+              attachmentId,
+              removedCount: attachmentsToRemove.length,
+            }
+          );
         }
 
         const latestDoc = tr.doc;
@@ -644,7 +651,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             cursorPosition: "summary_start",
             wasAttachmentReplacement,
             reinsertedAttachment: wasAttachmentReplacement && !!attachmentId,
-            hasSummary: !!summaryMarkdown,
+            hasSummary: !!summaryMarkdownForCard,
             nodeCount: nodesToInsert.length,
           }
         );
@@ -666,7 +673,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         processingJobsRef.current.delete(jobId);
       }
     },
-    [audioRecorder, dictionary, formatTranscriptText, documentId]
+    [audioRecorder, dictionary, documents, formatTranscriptText, documentId]
   );
 
   const handleRetryTranscription = React.useCallback(async (jobId: string) => {
@@ -745,6 +752,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                 }>;
               } | null;
               attachmentId?: string;
+              autoSummary?: boolean;
             };
           }>("/transcriptions.info", {
             jobId,
@@ -764,7 +772,10 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             void replaceStatusCardWithTranscript(
               jobId,
               job.result,
-              job.attachmentId
+              job.attachmentId,
+              {
+                autoSummary: job.autoSummary ?? false,
+              }
             );
             if (isMountedRef.current) {
               toast.info("Transcription already completed");
@@ -843,6 +854,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             error: string | null;
             fileName: string;
             fileSize: number;
+            autoSummary?: boolean;
           }>;
         }>("/transcriptions.list", {
           documentId,
@@ -890,6 +902,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                   status: job.status,
                   progress: job.progress || 0,
                   error: job.error,
+                  autoSummary: job.autoSummary ?? false,
                 });
 
               tr.insert(endPos, node);
@@ -962,6 +975,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                 error: string | null;
                 fileName: string;
                 fileSize: number;
+                autoSummary?: boolean;
               }>;
             }>("/transcriptions.list", {
               documentId,
@@ -996,6 +1010,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                     status: job.status,
                     progress: job.progress || 0,
                     error: job.error,
+                    autoSummary: job.autoSummary ?? false,
                   });
 
                 tr.insert(currentPos, node);
@@ -1069,6 +1084,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                   }>;
                 } | null;
                 attachmentId?: string;
+                autoSummary?: boolean;
               };
             }>("/transcriptions.info", {
               jobId: card.jobId,
@@ -1100,7 +1116,10 @@ export function TranscriptionStatusManager({ documentId }: Props) {
               void replaceStatusCardWithTranscript(
                 job.id,
                 job.result,
-                job.attachmentId
+                job.attachmentId,
+                {
+                  autoSummary: job.autoSummary ?? false,
+                }
               );
             } else if (job.status === "failed") {
               Logger.info("editor", "Job failed, updating status card", {

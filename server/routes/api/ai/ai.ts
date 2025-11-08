@@ -7,6 +7,9 @@ import auth from "@server/middlewares/authentication";
 import validate from "@server/middlewares/validate";
 import { APIContext } from "@server/types";
 import { DateFilter, StatusFilter } from "@shared/types";
+import parseAiResponse, {
+  ChatCompletionChoice,
+} from "@server/utils/parseAiResponse";
 import * as T from "./schema";
 
 const router = new Router();
@@ -147,60 +150,12 @@ const envValue = (...keys: string[]): string | undefined => {
   return undefined;
 };
 
-type ChatCompletionChoice = {
-  text?: string;
-  message?: {
-    content?: unknown;
-  };
-};
-
 type ChatMessagePayload = {
   role: string;
   content: string;
 };
 
 type AiPromptMode = "fast" | "sensitive" | "vision";
-
-const parseAiResponse = (choice: ChatCompletionChoice): string => {
-  const messageContent = choice?.message?.content;
-
-  if (Array.isArray(messageContent)) {
-    return messageContent
-      .map((segment: unknown) => {
-        if (segment === null || segment === undefined) {
-          return "";
-        }
-
-        if (typeof segment === "string") {
-          return segment;
-        }
-
-        const segmentObj = segment as Record<string, unknown>;
-        const segmentText = segmentObj.text ?? segmentObj.content;
-
-        if (typeof segmentText === "string") {
-          return segmentText;
-        }
-
-        if (
-          segmentText &&
-          typeof segmentText === "object" &&
-          typeof (segmentText as Record<string, unknown>).value === "string"
-        ) {
-          return (segmentText as Record<string, unknown>).value as string;
-        }
-
-        return "";
-      })
-      .join("");
-  } else if (typeof messageContent === "string") {
-    return messageContent;
-  } else if (typeof choice?.text === "string") {
-    return choice.text;
-  }
-
-  return "";
-};
 
 /**
  * Three-tier AI model selection system:
@@ -209,7 +164,7 @@ const parseAiResponse = (choice: ChatCompletionChoice): string => {
  * - Fallback Model: Universal fallback for both Primary and Task model failures
  */
 const getModelConfig = async (
-  purpose: 'primary' | 'task' = 'primary',
+  purpose: "primary" | "task" = "primary",
   teamId?: string,
   contextLength?: number
 ) => {
@@ -252,9 +207,13 @@ const getModelConfig = async (
 
     if (team) {
       // Get universal fallback model (applies to both primary and task)
-      const universalFallback = team.getPreference(TeamPreference.AiFallbackModel);
+      const universalFallback = team.getPreference(
+        TeamPreference.AiFallbackModel
+      );
       fallbackModel =
-        (typeof universalFallback === "string" ? universalFallback : undefined) ||
+        (typeof universalFallback === "string"
+          ? universalFallback
+          : undefined) ||
         envValue(
           "LLM_FALLBACK_MODEL_NAME",
           "LLM_FALLBACK_MODEL",
@@ -263,7 +222,7 @@ const getModelConfig = async (
         ) ||
         env.LLM_FALLBACK_MODEL_NAME;
 
-      if (purpose === 'task') {
+      if (purpose === "task") {
         // Task model: for lightweight operations (title, summaries, suggestions)
         const taskModel = team.getPreference(TeamPreference.AiTaskModel);
         model =
@@ -284,16 +243,15 @@ const getModelConfig = async (
         // Primary model: for heavy-duty tasks (AI Ask, Search, Generate, Summary)
         // Check if there's a specific search model preference
         const searchModel = team.getPreference(TeamPreference.AiSearchModel);
-        const generateModel = team.getPreference(TeamPreference.AiGenerateTextModel);
+        const generateModel = team.getPreference(
+          TeamPreference.AiGenerateTextModel
+        );
 
         // Prefer search model if available, otherwise use generate text model
         model =
           (typeof searchModel === "string" ? searchModel : undefined) ||
           (typeof generateModel === "string" ? generateModel : undefined) ||
-          envValue(
-            "LLM_MODEL_NAME_AI_SEARCH",
-            "AI_SEARCH_MODEL"
-          ) ||
+          envValue("LLM_MODEL_NAME_AI_SEARCH", "AI_SEARCH_MODEL") ||
           envValue(
             "LLM_PRIMARY_MODEL_NAME",
             "LLM_MODEL_NAME",
@@ -316,7 +274,7 @@ const getModelConfig = async (
 
   // Fallback to environment variables if no team preferences
   if (!model) {
-    if (purpose === 'task') {
+    if (purpose === "task") {
       model =
         envValue(
           "LLM_TASK_MODEL_NAME",
@@ -326,10 +284,7 @@ const getModelConfig = async (
         ) || env.LLM_TASK_MODEL_NAME;
     } else {
       model =
-        envValue(
-          "LLM_MODEL_NAME_AI_SEARCH",
-          "AI_SEARCH_MODEL"
-        ) ||
+        envValue("LLM_MODEL_NAME_AI_SEARCH", "AI_SEARCH_MODEL") ||
         envValue(
           "LLM_PRIMARY_MODEL_NAME",
           "LLM_MODEL_NAME",
@@ -942,7 +897,7 @@ router.post(
     } = ctx.input.body;
 
     // Get initial model config for keyword extraction (using Primary model for AI Ask)
-    const initialConfig = await getModelConfig('primary', user.teamId);
+    const initialConfig = await getModelConfig("primary", user.teamId);
     let apiKey = initialConfig.apiKey;
     let apiBase = initialConfig.apiBase;
     let model = initialConfig.model;
@@ -1883,7 +1838,7 @@ router.post(
     } = ctx.input.body;
 
     // Get initial model config for keyword extraction (using Primary model for AI Search)
-    const initialConfig = await getModelConfig('primary', user.teamId);
+    const initialConfig = await getModelConfig("primary", user.teamId);
     let apiKey = initialConfig.apiKey;
     let apiBase = initialConfig.apiBase;
     let model = initialConfig.model;
@@ -2325,7 +2280,7 @@ router.post(
     });
 
     const { apiKey, apiBase, model, fallbackModel } = await getModelConfig(
-      'primary',
+      "primary",
       user.teamId,
       totalContextLength
     );
@@ -2811,8 +2766,10 @@ router.post(
 
     // Import models
     const { AISummaryJob } = await import("@server/models");
-    const { default: AISummaryJobStatus } = await import("@server/models/AISummaryJob");
-    const { default: AISummaryTask } = await import("@server/queues/tasks/AISummaryTask");
+    const { AISummaryJobStatus } = await import("@server/models/AISummaryJob");
+    const { default: AISummaryTask } = await import(
+      "@server/queues/tasks/AISummaryTask"
+    );
 
     // Get document ID from metadata or require it
     const documentId = metadata.documentId;
