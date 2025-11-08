@@ -58,17 +58,44 @@ type TimelineEntryPayload = {
   summary: string;
 };
 
-const TIMELINE_CHUNK_SECONDS = 180;
-const TIMELINE_APPROX_SEGMENT_SECONDS = 30;
-const MAX_TIMELINE_SUMMARY_ENTRIES = 12;
+// Constants are no longer needed since AI handles segmentation dynamically
 const TIMELINE_PROMPT =
-  "You are generating a concise title-style summary for a single audio transcript segment.\n" +
-  "Rules:\n" +
-  "1. Use the same language as the transcript.\n" +
-  "2. Output format: a short title (<=16 characters or <=8 words) followed by an em dash and one-sentence summary. Example: Meeting Kickoff — Discussed goals and next steps.\n" +
-  "3. Do NOT invent information. Only use the provided text.\n" +
-  "4. If the text is too short or unclear, write '内容不足 — 无法生成摘要'.\n" +
-  "Transcript segment:\n";
+  "You are analyzing a complete audio transcript to create an intelligent timeline with title-like summaries.\n" +
+  "Your task:\n" +
+  "1. Read the entire transcript carefully to understand the conversation flow\n" +
+  "2. Identify 3-8 distinct topics or phases in the conversation\n" +
+  "3. For each topic, determine the appropriate start and end time\n" +
+  "4. Generate a concise title-like summary (max 30 words) for each topic\n\n" +
+  "!!! CRITICAL: YOU MUST GENERATE MULTIPLE ENTRIES !!!\n" +
+  "- Minimum 3 timeline entries, maximum 8 entries\n" +
+  "- Each entry MUST represent a different topic/conversation phase\n" +
+  "- DO NOT create a single entry called \"完整录音内容\" or similar\n" +
+  "- Break the conversation into natural topic segments\n\n" +
+  "Segmentation guidelines:\n" +
+  "- Look for topic changes, speaker transitions, discussion shifts\n" +
+  "- Group related discussion points together\n" +
+  "- Each segment should be 2-10 minutes of conversation\n" +
+  "- Create boundaries at natural conversation pauses\n\n" +
+  "Summary requirements:\n" +
+  "- Use the same language as the transcript\n" +
+  "- Each summary must be a title-like phrase, NOT a description\n" +
+  "- Focus on the main topic/theme, not conversation details\n" +
+  "- Maximum 30 words per summary\n\n" +
+  "Good examples:\n" +
+  "- \"讨论产品新功能的设计方案\"\n" +
+  "- \"分析市场数据并制定策略\"\n" +
+  "- \"解决技术实现中的关键问题\"\n" +
+  "- \"确定项目时间和资源分配\"\n\n" +
+  "Bad examples (STRICTLY AVOID):\n" +
+  "- \"Speaker A says..., then Speaker B responds...\"\n" +
+  "- \"这段对话包含了关于...\"\n" +
+  "- \"完整录音内容\"\n" +
+  "- \"Full Transcript — Complete audio recording content\"\n" +
+  "- Copy-pasting actual transcript text\n\n" +
+  "Output format: JSON array with timeline entries\n" +
+  "Each entry must have: id (format: timeline-N), summary, startTime (seconds), endTime (seconds)\n" +
+  "Example: [{\"id\": \"timeline-0\", \"summary\": \"讨论项目进展和下一步计划\", \"startTime\": 0, \"endTime\": 180}, {\"id\": \"timeline-1\", \"summary\": \"分析技术方案和可行性\", \"startTime\": 180, \"endTime\": 360}]\n\n" +
+  "Complete transcript:\n";
 
 const normalizeTimestampValue = (value?: number) => {
   if (typeof value !== "number") {
@@ -81,42 +108,29 @@ const buildTimelineChunks = (
   segments?: FormattedSpeakerSegment[] | null,
   transcript?: string
 ): TimelineChunk[] => {
+  // For AI-driven timeline generation, we create a single chunk containing the full transcript
+  // The AI model will handle all segmentation and topic identification
   if (segments && segments.length > 0) {
-    const entryMap = new Map<number, TimelineChunk>();
+    // Combine all segments with their timing information for AI processing
+    const fullText = segments
+      .map((segment, index) => {
+        const timestamp = typeof segment.start === "number"
+          ? `[${Math.floor(segment.start / 60)}:${(segment.start % 60).toString().padStart(2, '0')}] `
+          : `[Segment ${index + 1}] `;
+        return `${timestamp}Speaker ${segment.spk}: ${segment.text}`;
+      })
+      .join('\n\n');
 
-    segments.forEach((segment, index) => {
-      const safeStart =
-        typeof segment.start === "number"
-          ? Math.max(segment.start, 0)
-          : index * TIMELINE_APPROX_SEGMENT_SECONDS;
-      const duration =
-        typeof segment.end === "number" && typeof segment.start === "number"
-          ? Math.max(segment.end - segment.start, 5)
-          : TIMELINE_APPROX_SEGMENT_SECONDS;
-      const safeEnd = safeStart + duration;
-      const chunkIndex = Math.floor(safeStart / TIMELINE_CHUNK_SECONDS);
-      const chunkStart = Math.max(chunkIndex, 0) * TIMELINE_CHUNK_SECONDS;
-      const existing = entryMap.get(chunkIndex);
-
-      if (existing) {
-        existing.end = Math.max(existing.end ?? safeEnd, safeEnd);
-        existing.segmentIndexes.push(index);
-        existing.fallbackText += `${
-          existing.fallbackText ? " " : ""
-        }${segment.text}`;
-      } else {
-        entryMap.set(chunkIndex, {
-          id: `timeline-${chunkIndex}`,
-          start: chunkStart,
-          end: safeEnd,
-          anchorIndex: index,
-          segmentIndexes: [index],
-          fallbackText: segment.text,
-        });
-      }
-    });
-
-    return Array.from(entryMap.values()).sort((a, b) => a.start - b.start);
+    return [
+      {
+        id: "timeline-full",
+        start: 0,
+        end: undefined,
+        anchorIndex: 0,
+        segmentIndexes: segments.map((_, index) => index),
+        fallbackText: fullText,
+      },
+    ];
   }
 
   if (transcript) {
@@ -145,74 +159,252 @@ const summarizeTimelineChunks = async (
     return [];
   }
 
-  const entriesToSummarize = chunks.slice(0, MAX_TIMELINE_SUMMARY_ENTRIES);
-  const remainingEntries = chunks.slice(entriesToSummarize.length);
-  const results: TimelineEntryPayload[] = [];
+  const mainChunk = chunks[0]; // We now have only one chunk with full transcript
+  const fullText = mainChunk.fallbackText.replace(/\s+/g, " ").trim();
 
-  for (const entry of entriesToSummarize) {
-    const chunkText =
-      entry.segmentIndexes.length > 0
-        ? entry.segmentIndexes
-            .map((index) => segments[index]?.text ?? "")
-            .join("\n")
-        : transcript;
-
-    const normalized = chunkText.replace(/\s+/g, " ").trim();
-    if (!normalized) {
-      results.push({
-        id: entry.id,
-        start: entry.start,
-        end: entry.end,
-        anchorIndex: entry.anchorIndex,
-        summary: entry.fallbackText,
-      });
-      continue;
-    }
-
-    try {
-      const response = await client.post<{ data: { text?: string } }>(
-        "/ai.generate",
-        {
-          prompt: TIMELINE_PROMPT,
-          context: normalized.slice(0, 6000),
-        },
-        { retry: false }
-      );
-
-      const summary = response?.data?.text?.trim();
-      results.push({
-        id: entry.id,
-        start: entry.start,
-        end: entry.end,
-        anchorIndex: entry.anchorIndex,
-        summary: summary || entry.fallbackText,
-      });
-    } catch (error) {
-      Logger.error("Failed to summarize timeline entry", error as Error, {
-        jobId,
-        entryId: entry.id,
-      });
-      results.push({
-        id: entry.id,
-        start: entry.start,
-        end: entry.end,
-        anchorIndex: entry.anchorIndex,
-        summary: entry.fallbackText,
-      });
-    }
+  if (!fullText) {
+    Logger.warn("No transcript text available for timeline summarization", { jobId });
+    return [];
   }
 
-  remainingEntries.forEach((entry) => {
-    results.push({
-      id: entry.id,
-      start: entry.start,
-      end: entry.end,
-      anchorIndex: entry.anchorIndex,
-      summary: entry.fallbackText,
+  try {
+    Logger.info("editor", "Using AI-driven timeline segmentation", {
+      jobId,
+      transcriptLength: fullText.length,
+      hasSpeakerSegments: segments.length > 0,
     });
-  });
 
-  return results;
+    // Build the complete prompt with full transcript
+    const completePrompt = TIMELINE_PROMPT + fullText + "\n\nGenerate timeline summary:";
+
+    const response = await client.post<{ data: { text?: string } }>(
+      "/ai.generate",
+      {
+        prompt: completePrompt,
+        context: fullText, // Send full transcript as context
+        purpose: "primary", // Use primary model for intelligent analysis
+      },
+      { retry: false }
+    );
+
+    const aiResponse = response?.data?.text?.trim();
+    let aiResults: Array<{ id: string; summary: string; startTime: number; endTime?: number }> = [];
+
+    if (aiResponse) {
+      try {
+        // Parse AI-generated timeline with timestamps
+        const parsed = JSON.parse(aiResponse);
+        if (Array.isArray(parsed)) {
+          aiResults = parsed.filter(item =>
+            item.id &&
+            item.summary &&
+            typeof item.startTime === 'number'
+          );
+          Logger.info("editor", "Successfully parsed AI timeline response", {
+            jobId,
+            segmentsGenerated: aiResults.length,
+          });
+        } else {
+          Logger.warn("AI response is not a valid array", {
+            jobId,
+            response: aiResponse.slice(0, 500)
+          });
+        }
+      } catch (parseError) {
+        Logger.warn("Failed to parse AI timeline response, using fallback segmentation", {
+          jobId,
+          response: aiResponse.slice(0, 300),
+          error: parseError instanceof Error ? parseError.message : String(parseError),
+        });
+
+        // Fallback: Create multiple timeline entries based on content analysis
+        if (segments.length > 0) {
+          // Create segments based on content and speaker changes
+          const minSegmentLength = 5; // Minimum 5 segments
+          const entries: any[] = [];
+
+          // Strategy 1: Group by speakers if multiple speakers
+          const speakers = [...new Set(segments.map(s => s.spk))];
+          if (speakers.length > 1) {
+            speakers.forEach((speaker, index) => {
+              const speakerSegments = segments.filter(s => s.spk === speaker);
+              if (speakerSegments.length > 0) {
+                const startTime = typeof speakerSegments[0].start === 'number'
+                  ? speakerSegments[0].start
+                  : index * 60;
+                const endTime = typeof speakerSegments[speakerSegments.length - 1].end === 'number'
+                  ? speakerSegments[speakerSegments.length - 1].end
+                  : startTime + 120;
+
+                const topic = speakerSegments[0]?.text.split(' ').slice(0, 6).join(' ') || `Speaker ${speaker}讨论`;
+
+                entries.push({
+                  id: `timeline-${index}`,
+                  summary: topic,
+                  startTime,
+                  endTime
+                });
+              }
+            });
+          }
+
+          // Strategy 2: If still not enough entries, create time-based segments
+          if (entries.length < minSegmentLength && segments.length > 0) {
+            const segmentGroups = Math.max(Math.ceil(segments.length / 3), minSegmentLength);
+            const groupSize = Math.ceil(segments.length / segmentGroups);
+
+            for (let i = 0; i < segmentGroups; i++) {
+              const startIdx = i * groupSize;
+              const endIdx = Math.min(startIdx + groupSize, segments.length);
+              const groupSegments = segments.slice(startIdx, endIdx);
+
+              const startTime = typeof groupSegments[0]?.start === 'number'
+                ? groupSegments[0].start
+                : i * 120;
+              const endTime = typeof groupSegments[groupSegments.length - 1]?.end === 'number'
+                ? groupSegments[groupSegments.length - 1].end
+                : startTime + 120;
+
+              const topic = groupSegments[0]?.text.split(' ').slice(0, 8).join(' ') || `讨论主题${i + 1}`;
+
+              if (!entries.find(e => Math.abs(e.startTime - startTime) < 60)) {
+                entries.push({
+                  id: `timeline-${i}`,
+                  summary: topic,
+                  startTime,
+                  endTime
+                });
+              }
+            }
+          }
+
+          aiResults = entries.length > 0 ? entries : [{
+            id: "timeline-0",
+            summary: "会议讨论内容",
+            startTime: 0,
+            endTime: segments.length > 0 ? Math.max(...segments.map(s => s.end || 0)) : undefined,
+          }];
+        } else {
+          // Fallback for transcript without speaker segments
+          const words = transcript.split(' ');
+          const segmentSize = Math.max(Math.floor(words.length / 4), 20); // 4 segments minimum
+
+          aiResults = [];
+          for (let i = 0; i < 4; i++) {
+            const startIdx = i * segmentSize;
+            const endIdx = Math.min((i + 1) * segmentSize, words.length);
+            const segmentWords = words.slice(startIdx, endIdx);
+
+            if (segmentWords.length > 0) {
+              const topic = segmentWords.slice(0, 8).join(' ');
+              const startTime = i * 120;
+              const endTime = (i + 1) * 120;
+
+              aiResults.push({
+                id: `timeline-${i}`,
+                summary: topic,
+                startTime,
+                endTime
+              });
+            }
+          }
+
+          if (aiResults.length === 0) {
+            aiResults = [{
+              id: "timeline-0",
+              summary: "录音内容概要",
+              startTime: 0,
+              endTime: undefined,
+            }];
+          }
+        }
+      }
+    }
+
+    // Convert AI results to TimelineEntryPayload format
+    const results: TimelineEntryPayload[] = aiResults.map((item, index) => {
+      // Find the appropriate anchor index based on the start time
+      let anchorIndex = 0;
+      if (segments.length > 0 && typeof item.startTime === 'number') {
+        // Find the segment closest to this start time
+        anchorIndex = segments.findIndex((seg, idx) => {
+          const segStart = typeof seg.start === 'number' ? seg.start : idx * 30;
+          return segStart >= item.startTime;
+        });
+        if (anchorIndex === -1) anchorIndex = segments.length - 1;
+        if (anchorIndex < 0) anchorIndex = 0;
+      }
+
+      return {
+        id: item.id,
+        start: item.startTime,
+        end: item.endTime,
+        anchorIndex: anchorIndex,
+        summary: item.summary,
+      };
+    });
+
+    // Sort by start time
+    results.sort((a, b) => a.start - b.start);
+
+    Logger.info("editor", "AI-driven timeline summarization completed", {
+      jobId,
+      segmentsGenerated: results.length,
+      totalDuration: results.length > 0 ? Math.max(...results.map(r => r.end || 0)) : 0,
+    });
+
+    return results;
+  } catch (error) {
+    Logger.error("Failed to generate AI-driven timeline", error as Error, {
+      jobId,
+      transcriptLength: fullText.length,
+    });
+
+    // Fallback: Create simple timeline based on available data
+    const fallbackResults: TimelineEntryPayload[] = [];
+
+    if (segments.length > 0) {
+      // Use segments as fallback
+      const segmentGroups = Math.min(Math.ceil(segments.length / 3), 8); // Group segments, max 8 groups
+      const groupSize = Math.ceil(segments.length / segmentGroups);
+
+      for (let i = 0; i < segmentGroups; i++) {
+        const startIdx = i * groupSize;
+        const endIdx = Math.min(startIdx + groupSize, segments.length);
+        const groupSegments = segments.slice(startIdx, endIdx);
+
+        const startTime = typeof groupSegments[0]?.start === 'number'
+          ? groupSegments[0].start
+          : startIdx * 30;
+        const endTime = typeof groupSegments[groupSegments.length - 1]?.end === 'number'
+          ? groupSegments[groupSegments.length - 1].end
+          : undefined;
+
+        // Generate a simple title based on the first few words
+        const firstWords = groupSegments[0]?.text.split(' ').slice(0, 8).join(' ') || '';
+        const title = firstWords || `段落 ${i + 1}`;
+
+        fallbackResults.push({
+          id: `timeline-${i}`,
+          start: startTime,
+          end: endTime,
+          anchorIndex: startIdx,
+          summary: title,
+        });
+      }
+    } else {
+      // Single fallback entry
+      fallbackResults.push({
+        id: "timeline-0",
+        start: 0,
+        end: undefined,
+        anchorIndex: 0,
+        summary: transcript.slice(0, 50) + (transcript.length > 50 ? "..." : ""),
+      });
+    }
+
+    return fallbackResults;
+  }
 };
 
 /**
@@ -409,19 +601,46 @@ export function TranscriptionStatusManager({ documentId }: Props) {
 
         if (!cardInfo) {
           const docSnapshot = view.state.doc;
-          if (options?.sourceType === "recording") {
-            Logger.warn(
-              "Status card not found for completed recording, falling back to insertion",
-              {
-                jobId,
-                documentNodeCount: docSnapshot.content.childCount,
-              }
-            );
-          } else {
-            Logger.warn("Status card not found for completed transcription", {
+
+          // For File Attachment AI Notes, the status card might not be found because
+          // the attachment was replaced and the polling started before the replacement
+          // We should still process the transcription result
+          Logger.warn("Status card not found for completed transcription", {
+            jobId,
+            documentNodeCount: docSnapshot.content.childCount,
+            attachmentId: attachmentId,
+            sourceType: options?.sourceType,
+            willContinueProcessing: true,
+          });
+
+          // For attachment-based transcriptions that can't find the status card,
+          // we should still process the result and insert the content at the end
+          if (attachmentId && options?.sourceType !== "recording") {
+            Logger.info("editor", "Processing attachment-based transcription without status card", {
               jobId,
-              documentNodeCount: docSnapshot.content.childCount,
+              attachmentId,
             });
+          } else if (options?.sourceType === "recording") {
+            Logger.info("editor", "Recording transcription - will insert at end of document", {
+              jobId,
+            });
+          } else {
+            // For other cases, try to find status card again with a delay
+            // This handles race conditions where the status card was just created
+            setTimeout(() => {
+              const retryCardInfo = locateStatusCard(view.state.doc);
+              if (retryCardInfo) {
+                Logger.info("editor", "Found status card on retry", {
+                  jobId,
+                  position: retryCardInfo.pos,
+                });
+                void replaceStatusCardWithTranscript(jobId, result, attachmentId, options);
+              } else {
+                Logger.warn("editor", "Status card still not found on retry, giving up", {
+                  jobId,
+                });
+              }
+            }, 1000);
             return;
           }
         } else {
@@ -439,6 +658,12 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           dictionary.audio ||
           "Audio recording";
         const fileSize = cardInfo?.fileSize || 0;
+
+        // Check if this is an attachment replacement scenario
+        // For File Attachment AI Notes, we need to detect this even without finding the status card
+        const wasAttachmentReplacement =
+          (summaryCardNode?.attrs?.skipAttachmentLink === false) ||
+          (attachmentId && options?.sourceType !== "recording");
 
         // Format the transcript text
         const formattedText = formatTranscriptText(result);
@@ -540,6 +765,42 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           }
         }
 
+        // Re-insert attachment if it was replaced (for File Attachment AI Notes)
+        if (wasAttachmentReplacement && attachmentId) {
+          const attachmentType = view.state.schema.nodes.attachment;
+          if (attachmentType) {
+            // Try to find the original attachment in the document to preserve its properties
+            let originalAttachment: ProsemirrorNode | null = null;
+            view.state.doc.descendants((node) => {
+              if (node.type.name === "attachment" &&
+                  (node.attrs.id === attachmentId ||
+                   (node.attrs.href && node.attrs.href.includes(attachmentId)))) {
+                originalAttachment = node;
+                return false;
+              }
+              return true;
+            });
+
+            // Use original attachment properties if found, otherwise create with defaults
+            const attachmentNode = attachmentType.create({
+              id: attachmentId,
+              href: originalAttachment?.attrs?.href || `/api/attachments.redirect?id=${attachmentId}`,
+              title: originalAttachment?.attrs?.title || fileName || "Audio file",
+              size: originalAttachment?.attrs?.size || fileSize,
+              contentType: originalAttachment?.attrs?.contentType || "audio/mpeg",
+            });
+
+            nodesToInsert.push(attachmentNode);
+            Logger.info("editor", "Re-inserted attachment node for AI Notes", {
+              jobId,
+              attachmentId,
+              fileName,
+              originalFound: !!originalAttachment,
+              attachmentTitle: attachmentNode.attrs.title,
+            });
+          }
+        }
+
         // Prepare speaker segments with normalized timestamps
         const normalizedSpeakerSegments =
           result.speakerSegments?.map((segment) => ({
@@ -549,31 +810,8 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             end: normalizeTimestampValue(segment.end),
           })) ?? null;
 
-        // Build AI-assisted timeline summaries
+        // Timeline summary feature has been disabled
         let timelineEntries: TimelineEntryPayload[] | null = null;
-        const timelineChunks = buildTimelineChunks(
-          normalizedSpeakerSegments,
-          formattedText
-        );
-
-        if (timelineChunks.length > 0) {
-          try {
-            const summaries = await summarizeTimelineChunks(
-              timelineChunks,
-              normalizedSpeakerSegments || [],
-              formattedText,
-              jobId
-            );
-            if (summaries.length > 0) {
-              timelineEntries = summaries;
-            }
-          } catch (error) {
-            Logger.error("Failed to build timeline summaries", error as Error, {
-              jobId,
-              chunkCount: timelineChunks.length,
-            });
-          }
-        }
 
         // Create TranscriptCard node instead of markdown heading + code block
         const transcriptCardType = view.state.schema.nodes.transcript_card;
@@ -596,6 +834,8 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             speakerSegmentCount: normalizedSpeakerSegments?.length || 0,
             transcriptLength: formattedText.length,
             timelineEntryCount: timelineEntries?.length || 0,
+            wasAttachmentReplacement,
+            reinsertedAttachment: wasAttachmentReplacement && !!attachmentId,
           });
         } else {
           Logger.error("transcript_card node type not found in schema", {
@@ -619,7 +859,10 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         const { state, dispatch } = view;
         let tr = state.tr;
 
-        if (attachmentId) {
+        // For File Attachment AI Notes, we preserve the attachment and don't remove it
+        // The attachment will be re-inserted before the TranscriptCard
+        // Only remove duplicate attachments if this is NOT an attachment replacement scenario
+        if (attachmentId && !wasAttachmentReplacement) {
           const attachmentsToRemove: Array<{ from: number; to: number }> = [];
           const extractAttachmentId = (node: ProsemirrorNode) => {
             if (node.attrs.id) {
@@ -657,6 +900,12 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             .forEach(({ from, to }) => {
               tr.delete(from, to);
             });
+
+          Logger.debug("editor", "Removed duplicate attachments for standard transcription", {
+            jobId,
+            attachmentId,
+            removedCount: attachmentsToRemove.length,
+          });
         }
 
         const latestDoc = tr.doc;
@@ -688,10 +937,19 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             jobId,
             insertionStart,
             cursorPosition: "summary_start",
+            wasAttachmentReplacement,
+            reinsertedAttachment: wasAttachmentReplacement && !!attachmentId,
+            hasSummary: !!summaryMarkdown,
+            nodeCount: nodesToInsert.length,
           }
         );
 
-        markJobProcessed();
+        // Only mark job as processed if we found and replaced the status card
+        // For attachment-based transcriptions without a status card, don't mark as processed
+        // to allow the normal polling flow to handle it
+        if (cardInfo) {
+          markJobProcessed();
+        }
 
         if (isMountedRef.current) {
           toast.success(

@@ -850,6 +850,16 @@ function calculateOperations(
   return postProcessed;
 }
 
+type TokenWrapperNote = {
+  isWrappable: boolean;
+  insertedTag: boolean;
+};
+
+type TokenWrapperSegment = {
+  isWrappable: boolean;
+  tokens: string[];
+};
+
 /**
  * A TokenWrapper provides a utility for grouping segments of tokens based on whether they're
  * wrappable or not. A tag is considered wrappable if it is closed within the given set of
@@ -864,79 +874,88 @@ function calculateOperations(
  * TokenWrapper has a method 'combine' which allows walking over the segments to wrap them in
  * tags.
  */
-function TokenWrapper(tokens: any) {
-  this.tokens = tokens;
-  this.notes = tokens.reduce(
-    function (data: any, token: any, index: number) {
-      data.notes.push({
-        isWrappable: isWrappable(token),
-        insertedTag: false,
-      });
+class TokenWrapper {
+  tokens: string[];
+  notes: TokenWrapperNote[];
 
-      const tag = !isVoidTag(token) && isTag(token);
-      const lastEntry = data.tagStack[data.tagStack.length - 1];
-      if (tag) {
-        if (lastEntry && "/" + lastEntry.tag === tag) {
-          data.notes[lastEntry.position].insertedTag = true;
-          data.tagStack.pop();
-        } else {
-          data.tagStack.push({
-            tag,
-            position: index,
+  constructor(tokens: string[]) {
+    this.tokens = tokens;
+    this.notes = tokens.reduce<{
+      notes: TokenWrapperNote[];
+      tagStack: Array<{ tag: string; position: number }>;
+    }>(
+      (data, token, index) => {
+        data.notes.push({
+          isWrappable: isWrappable(token),
+          insertedTag: false,
+        });
+
+        const tag = !isVoidTag(token) && isTag(token);
+        const lastEntry = data.tagStack[data.tagStack.length - 1];
+        if (typeof tag === "string") {
+          if (lastEntry && "/" + lastEntry.tag === tag) {
+            data.notes[lastEntry.position].insertedTag = true;
+            data.tagStack.pop();
+          } else {
+            data.tagStack.push({
+              tag,
+              position: index,
+            });
+          }
+        }
+        return data;
+      },
+      { notes: [], tagStack: [] }
+    ).notes;
+  }
+
+  /**
+   * Wraps the contained tokens in tags based on output given by a map function. Each segment of
+   * tokens will be visited. A segment is a continuous run of either all wrappable
+   * tokens or unwrappable tokens. The given map function will be called with each segment of
+   * tokens and the resulting strings will be combined to form the wrapped HTML.
+   */
+  combine(
+    mapFn: (segment: TokenWrapperSegment) => string,
+    tagFn: (token: string) => string
+  ): string {
+    const notes = this.notes;
+    const tokens = this.tokens.slice();
+    const segments = tokens.reduce<{
+      list: TokenWrapperSegment[];
+      status: boolean | null;
+      lastIndex: number;
+    }>(
+      (data, _token, index) => {
+        if (notes[index].insertedTag) {
+          tokens[index] = tagFn(tokens[index]);
+        }
+        if (data.status === null) {
+          data.status = notes[index].isWrappable;
+        }
+        const status = notes[index].isWrappable;
+        if (data.status !== null && status !== data.status) {
+          data.list.push({
+            isWrappable: data.status,
+            tokens: tokens.slice(data.lastIndex, index),
+          });
+          data.lastIndex = index;
+          data.status = status;
+        }
+        if (index === tokens.length - 1 && data.status !== null) {
+          data.list.push({
+            isWrappable: data.status,
+            tokens: tokens.slice(data.lastIndex, index + 1),
           });
         }
-      }
-      return data;
-    },
-    { notes: [], tagStack: [] }
-  ).notes;
+        return data;
+      },
+      { list: [], status: null, lastIndex: 0 }
+    ).list;
+
+    return segments.map(mapFn).join("");
+  }
 }
-
-/**
- * Wraps the contained tokens in tags based on output given by a map function. Each segment of
- * tokens will be visited. A segment is a continuous run of either all wrappable
- * tokens or unwrappable tokens. The given map function will be called with each segment of
- * tokens and the resulting strings will be combined to form the wrapped HTML.
- *
- * @param {function(boolean, Array.<string>)} mapFn A function called with an array of tokens
- *      and whether those tokens are wrappable or not. The result should be a string.
- */
-TokenWrapper.prototype.combine = function (
-  mapFn: (wrappable: boolean, tokens: Token[]) => void,
-  tagFn: (tokens: Token[]) => void
-) {
-  const notes = this.notes;
-  const tokens = this.tokens.slice();
-  const segments = tokens.reduce(
-    function (data: any, _token: Token, index: number) {
-      if (notes[index].insertedTag) {
-        tokens[index] = tagFn(tokens[index]);
-      }
-      if (data.status === null) {
-        data.status = notes[index].isWrappable;
-      }
-      const status = notes[index].isWrappable;
-      if (status !== data.status) {
-        data.list.push({
-          isWrappable: data.status,
-          tokens: tokens.slice(data.lastIndex, index),
-        });
-        data.lastIndex = index;
-        data.status = status;
-      }
-      if (index === tokens.length - 1) {
-        data.list.push({
-          isWrappable: data.status,
-          tokens: tokens.slice(data.lastIndex, index + 1),
-        });
-      }
-      return data;
-    },
-    { list: [], status: null, lastIndex: 0 }
-  ).list;
-
-  return segments.map(mapFn).join("");
-};
 
 /**
  * Wraps and concatenates a list of tokens with a tag. Does not wrap tag tokens,
@@ -954,7 +973,6 @@ function wrap(
   dataPrefix: string,
   className: string
 ) {
-  // @ts-expect-error New constructor any
   const wrapper = new TokenWrapper(content);
   dataPrefix = dataPrefix ? dataPrefix + "-" : "";
   let attrs = " data-" + dataPrefix + 'operation-index="' + opIndex + '"';
@@ -963,7 +981,7 @@ function wrap(
   }
 
   return wrapper.combine(
-    function (segment: any) {
+    function (segment: TokenWrapperSegment) {
       if (segment.isWrappable) {
         const val = segment.tokens.join("");
         if (val.trim()) {
@@ -1041,8 +1059,18 @@ const OPS = {
     });
     return wrap("del", val, opIndex, dataPrefix, className);
   },
-  replace(...rest: any[]) {
-    return OPS["delete"].apply(null, rest) + OPS["insert"].apply(null, rest);
+  replace(
+    op: Operation,
+    beforeTokens: Token[],
+    afterTokens: Token[],
+    opIndex: number,
+    dataPrefix: string,
+    className: string
+  ) {
+    return (
+      OPS.delete(op, beforeTokens, afterTokens, opIndex, dataPrefix, className) +
+      OPS.insert(op, beforeTokens, afterTokens, opIndex, dataPrefix, className)
+    );
   },
 };
 

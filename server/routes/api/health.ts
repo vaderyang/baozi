@@ -1,8 +1,18 @@
 import Router from "koa-router";
+import { TeamPreference } from "@shared/types";
 import env from "@server/env";
-import { sequelize } from "@server/storage/database";
+import { Team } from "@server/models";
 import auth from "@server/middlewares/authentication";
 import { APIContext } from "@server/types";
+import { sequelize } from "@server/storage/database";
+
+type ModelRole =
+  | "primary"
+  | "task"
+  | "fallback"
+  | "search"
+  | "sensitive"
+  | "vision";
 
 const router = new Router();
 
@@ -15,6 +25,8 @@ interface ServiceHealth {
 
 interface ModelHealth extends ServiceHealth {
   modelName: string;
+  roles: ModelRole[];
+  source: "team" | "environment";
 }
 
 interface HealthCheckResponse {
@@ -63,7 +75,11 @@ async function checkDatabase(): Promise<ServiceHealth> {
 /**
  * Check a specific LLM model
  */
-async function checkLLMModel(modelName: string): Promise<ModelHealth> {
+async function checkLLMModel(
+  modelName: string,
+  roles: ModelRole[],
+  source: "team" | "environment"
+): Promise<ModelHealth> {
   const startTime = Date.now();
 
   // Check for API key and base URL from various env variables
@@ -78,6 +94,8 @@ async function checkLLMModel(modelName: string): Promise<ModelHealth> {
     return {
       modelName,
       status: "unknown",
+      roles,
+      source,
       error: "LLM service not configured (missing API key or base URL)",
     };
   }
@@ -115,6 +133,8 @@ async function checkLLMModel(modelName: string): Promise<ModelHealth> {
         modelName,
         status: "healthy",
         responseTime,
+        roles,
+        source,
         details: {
           endpoint: apiBase,
         },
@@ -124,6 +144,8 @@ async function checkLLMModel(modelName: string): Promise<ModelHealth> {
         modelName,
         status: "unhealthy",
         responseTime,
+        roles,
+        source,
         error: "Model not found",
       };
     } else {
@@ -131,6 +153,8 @@ async function checkLLMModel(modelName: string): Promise<ModelHealth> {
         modelName,
         status: "unhealthy",
         responseTime,
+        roles,
+        source,
         error: `HTTP ${response.status}: ${response.statusText}`,
       };
     }
@@ -141,6 +165,8 @@ async function checkLLMModel(modelName: string): Promise<ModelHealth> {
         modelName,
         status: "unhealthy",
         responseTime,
+        roles,
+        source,
         error: "Request timeout (>5s)",
       };
     }
@@ -148,6 +174,8 @@ async function checkLLMModel(modelName: string): Promise<ModelHealth> {
       modelName,
       status: "unhealthy",
       responseTime,
+      roles,
+      source,
       error: error instanceof Error ? error.message : "LLM service unreachable",
     };
   }
@@ -156,47 +184,121 @@ async function checkLLMModel(modelName: string): Promise<ModelHealth> {
 /**
  * Check all configured LLM models
  */
-async function checkLLMModels(): Promise<ModelHealth[]> {
-  const models: string[] = [];
+async function checkLLMModels(team?: Team | null): Promise<ModelHealth[]> {
+  type PendingModel = {
+    roles: ModelRole[];
+    source: "team" | "environment";
+  };
 
-  // Collect all configured models
+  const models = new Map<string, PendingModel>();
+  const addModel = (
+    modelName: string | null | undefined | false,
+    role: ModelRole,
+    source: "team" | "environment"
+  ) => {
+    if (!modelName || typeof modelName !== "string") {
+      return;
+    }
+
+    const trimmed = modelName.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const existing = models.get(trimmed);
+    if (existing) {
+      if (!existing.roles.includes(role)) {
+        existing.roles.push(role);
+      }
+      if (source === "team") {
+        existing.source = "team";
+      }
+      return;
+    }
+
+    models.set(trimmed, {
+      roles: [role],
+      source,
+    });
+  };
+
+  const preferences = team?.preferences ?? undefined;
+
   const primaryModel =
-    process.env.LLM_MODEL_NAME ||
-    process.env.LLM_MODEL ||
-    process.env.AI_MODEL_NAME ||
-    process.env.AI_MODEL;
+    preferences?.[TeamPreference.AiGenerateTextModel] ||
+    env.LLM_PRIMARY_MODEL_NAME;
+  addModel(
+    primaryModel,
+    "primary",
+    preferences?.[TeamPreference.AiGenerateTextModel] ? "team" : "environment"
+  );
+
+  const taskModel =
+    preferences?.[TeamPreference.AiTaskModel] || env.LLM_TASK_MODEL_NAME;
+  addModel(
+    taskModel,
+    "task",
+    preferences?.[TeamPreference.AiTaskModel] ? "team" : "environment"
+  );
+
+  const fallbackModel =
+    preferences?.[TeamPreference.AiFallbackModel] ||
+    env.LLM_FALLBACK_MODEL_NAME;
+  addModel(
+    fallbackModel,
+    "fallback",
+    preferences?.[TeamPreference.AiFallbackModel] ? "team" : "environment"
+  );
+
   const searchModel =
-    process.env.LLM_MODEL_NAME_AI_SEARCH || process.env.AI_SEARCH_MODEL;
-  const sensitiveModel = process.env.LLM_MODEL_NAME_SENSITIVE;
+    preferences?.[TeamPreference.AiSearchModel] ||
+    env.LLM_MODEL_NAME_AI_SEARCH ||
+    primaryModel;
+  addModel(
+    searchModel,
+    "search",
+    preferences?.[TeamPreference.AiSearchModel] ? "team" : "environment"
+  );
+
+  const sensitiveModel = env.LLM_MODEL_NAME_SENSITIVE;
+  addModel(sensitiveModel, "sensitive", "environment");
+
   const visionModel =
-    process.env.LLM_MODEL_NAME_VISION || process.env.AI_VISION_MODEL;
+    preferences?.[TeamPreference.AiVisionModel] ||
+    env.LLM_MODEL_NAME_VISION ||
+    undefined;
+  addModel(
+    visionModel,
+    "vision",
+    preferences?.[TeamPreference.AiVisionModel] ? "team" : "environment"
+  );
 
-  if (primaryModel) {models.push(primaryModel);}
-  if (searchModel && searchModel !== primaryModel) {models.push(searchModel);}
-  if (sensitiveModel && !models.includes(sensitiveModel))
-    {models.push(sensitiveModel);}
-  if (visionModel && !models.includes(visionModel)) {models.push(visionModel);}
-
-  if (models.length === 0) {
+  if (models.size === 0) {
     return [
       {
         modelName: "No models configured",
         status: "unknown",
-        error: "No LLM models configured in environment",
+        roles: [],
+        source: "environment",
+        error: "No LLM models configured in environment or team preferences",
       },
     ];
   }
 
-  // Test all models in parallel
-  return Promise.all(models.map((model) => checkLLMModel(model)));
+  return Promise.all(
+    Array.from(models.entries()).map(([modelName, meta]) =>
+      checkLLMModel(modelName, meta.roles, meta.source)
+    )
+  );
 }
 
 /**
  * Check ASR (transcription) service connectivity
  */
-async function checkASR(): Promise<ServiceHealth> {
+async function checkASR(team?: Team | null): Promise<ServiceHealth> {
   const startTime = Date.now();
-  const endpoint = env.TRANSCRIPTION_ENDPOINT;
+  const teamEndpoint = team?.preferences?.[TeamPreference.TranscriptionEndpoint];
+  const endpoint = teamEndpoint || env.TRANSCRIPTION_ENDPOINT;
 
   if (!endpoint) {
     return {
@@ -224,6 +326,7 @@ async function checkASR(): Promise<ServiceHealth> {
         responseTime,
         details: {
           endpoint,
+          source: teamEndpoint ? "team" : "environment",
         },
       };
     } else if (response.status === 404) {
@@ -234,6 +337,7 @@ async function checkASR(): Promise<ServiceHealth> {
         details: {
           endpoint,
           note: "Health endpoint not available, service endpoint reachable",
+          source: teamEndpoint ? "team" : "environment",
         },
       };
     } else {
@@ -261,10 +365,17 @@ async function checkASR(): Promise<ServiceHealth> {
 }
 
 router.post("health.check", auth(), async (ctx: APIContext) => {
+  const { user } = ctx.state.auth;
+  const team =
+    user.team ??
+    (await Team.findByPk(user.teamId, {
+      rejectOnEmpty: true,
+    }));
+
   const [database, llmModels, asr] = await Promise.all([
     checkDatabase(),
-    checkLLMModels(),
-    checkASR(),
+    checkLLMModels(team),
+    checkASR(team),
   ]);
 
   const services = { database, llmModels, asr };

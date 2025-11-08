@@ -904,6 +904,116 @@ export class Environment {
     this.toOptionalNumber(environment.AI_ASK_PARALLEL_SEARCH_LIMIT) ?? 5;
 
   /**
+   * API key for LLM services (OpenAI-compatible).
+   * Supports multiple aliases: LLM_API_KEY, AI_API_KEY, OPENAI_API_KEY, OPENAI_KEY
+   */
+  @IsOptional()
+  public LLM_API_KEY =
+    this.toOptionalString(environment.LLM_API_KEY) ||
+    this.toOptionalString(environment.AI_API_KEY) ||
+    this.toOptionalString(environment.OPENAI_API_KEY) ||
+    this.toOptionalString(environment.OPENAI_KEY);
+
+  /**
+   * Base URL for LLM API endpoints (OpenAI-compatible).
+   * Supports multiple aliases for compatibility with different providers.
+   */
+  @IsOptional()
+  public LLM_API_BASE_URL =
+    this.toOptionalString(environment.LLM_API_BASE_URL) ||
+    this.toOptionalString(environment.LLM_API_BASE) ||
+    this.toOptionalString(environment.AI_API_BASE_URL) ||
+    this.toOptionalString(environment.AI_API_BASE) ||
+    this.toOptionalString(environment.OPENAI_API_BASE_URL) ||
+    this.toOptionalString(environment.OPENAI_API_BASE) ||
+    this.toOptionalString(environment.API_BASE);
+
+  /**
+   * Primary LLM model for heavy-duty AI tasks.
+   * Used for: AI Summary Generation, Generate Text, AI Ask, Search (AI Answer)
+   * Defaults to 'zai-glm-4.6'
+   * Supports aliases: LLM_PRIMARY_MODEL_NAME, LLM_MODEL_NAME, AI_MODEL_NAME, OPENAI_MODEL_NAME
+   */
+  @IsOptional()
+  public LLM_PRIMARY_MODEL_NAME =
+    this.toOptionalString(environment.LLM_PRIMARY_MODEL_NAME) ||
+    this.toOptionalString(environment.LLM_MODEL_NAME) ||
+    this.toOptionalString(environment.LLM_MODEL) ||
+    this.toOptionalString(environment.AI_MODEL_NAME) ||
+    this.toOptionalString(environment.AI_MODEL) ||
+    this.toOptionalString(environment.OPENAI_MODEL_NAME) ||
+    this.toOptionalString(environment.OPENAI_MODEL) ||
+    this.toOptionalString(environment.MODEL) ||
+    "zai-glm-4.6";
+
+  /**
+   * Task LLM model for lightweight, frequent operations.
+   * Used for: Title generation, Transcript summaries, AI Suggestions
+   * Defaults to 'qwen3-30b-a3b-instruct'
+   * Supports aliases: LLM_TASK_MODEL_NAME, LLM_TASK_MODEL, AI_TASK_MODEL
+   */
+  @IsOptional()
+  public LLM_TASK_MODEL_NAME =
+    this.toOptionalString(environment.LLM_TASK_MODEL_NAME) ||
+    this.toOptionalString(environment.LLM_TASK_MODEL) ||
+    this.toOptionalString(environment.AI_TASK_MODEL) ||
+    this.toOptionalString(environment.TASK_MODEL) ||
+    "qwen3-30b-a3b-instruct";
+
+  /**
+   * Universal fallback LLM model used when Primary or Task model fails.
+   * Defaults to 'GLM-4.6'
+   * Supports aliases: LLM_FALLBACK_MODEL_NAME, LLM_FALLBACK_MODEL, AI_FALLBACK_MODEL
+   */
+  @IsOptional()
+  public LLM_FALLBACK_MODEL_NAME =
+    this.toOptionalString(environment.LLM_FALLBACK_MODEL_NAME) ||
+    this.toOptionalString(environment.LLM_FALLBACK_MODEL) ||
+    this.toOptionalString(environment.AI_FALLBACK_MODEL) ||
+    this.toOptionalString(environment.FALLBACK_MODEL) ||
+    "GLM-4.6";
+
+  /**
+   * Specialized model for AI search operations.
+   * If not set, falls back to primary model.
+   * Supports aliases: LLM_MODEL_NAME_AI_SEARCH, AI_SEARCH_MODEL
+   */
+  @IsOptional()
+  public LLM_MODEL_NAME_AI_SEARCH =
+    this.toOptionalString(environment.LLM_MODEL_NAME_AI_SEARCH) ||
+    this.toOptionalString(environment.AI_SEARCH_MODEL);
+
+  /**
+   * Model for sensitive/privacy-conscious operations.
+   * Supports aliases: LLM_MODEL_NAME_SENSITIVE, AI_SENSITIVE_MODEL
+   */
+  @IsOptional()
+  public LLM_MODEL_NAME_SENSITIVE =
+    this.toOptionalString(environment.LLM_MODEL_NAME_SENSITIVE) ||
+    this.toOptionalString(environment.AI_SENSITIVE_MODEL) ||
+    this.toOptionalString(environment.SENSITIVE_MODEL);
+
+  /**
+   * Model for vision/image analysis tasks.
+   * Supports aliases: LLM_MODEL_NAME_VISION, AI_VISION_MODEL, VISION_MODEL
+   */
+  @IsOptional()
+  public LLM_MODEL_NAME_VISION =
+    this.toOptionalString(environment.LLM_MODEL_NAME_VISION) ||
+    this.toOptionalString(environment.AI_VISION_MODEL) ||
+    this.toOptionalString(environment.VISION_MODEL);
+
+  /**
+   * Maximum context length threshold for model switching.
+   * Contexts shorter than this may use different model strategies.
+   * Defaults to 15000 characters.
+   */
+  @IsNumber()
+  @IsOptional()
+  public LLM_MAX_CONTEXT_LENGTH =
+    this.toOptionalNumber(environment.LLM_MAX_CONTEXT_LENGTH) || 15000;
+
+  /**
    * The product name
    */
   @Public

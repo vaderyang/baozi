@@ -239,6 +239,9 @@ export default class TranscriptionTask extends BaseTask<Props> {
         dbUpdateDurationMs: dbUpdateDuration,
       });
 
+      // Auto-summary feature has been disabled
+      // Timeline summaries will not be generated automatically
+
       // Calculate total processing time
       const totalDuration = Date.now() - requestStartTime + downloadDuration;
       Logger.info("task", "Transcription task completed successfully", {

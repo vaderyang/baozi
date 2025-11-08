@@ -28,6 +28,7 @@ interface AnalyzeTranscriptParams {
 class AIArchiveSuggestionService {
   /**
    * Get AI API configuration from environment
+   * Uses Task model for lightweight operations (title generation, topic extraction, etc.)
    */
   private static getAIConfig() {
     const apiKey = this.envValue(
@@ -45,15 +46,24 @@ class AIArchiveSuggestionService {
       "OPENAI_API_BASE_URL",
       "API_BASE"
     );
-    const model = this.envValue(
-      "LLM_MODEL_NAME",
-      "LLM_MODEL",
-      "AI_MODEL_NAME",
-      "AI_MODEL",
-      "OPENAI_MODEL_NAME",
-      "OPENAI_MODEL",
-      "MODEL"
-    );
+    // Use Task model for lightweight, frequent operations
+    const model =
+      this.envValue(
+        "LLM_TASK_MODEL_NAME",
+        "LLM_TASK_MODEL",
+        "AI_TASK_MODEL",
+        "TASK_MODEL"
+      ) ||
+      env.LLM_TASK_MODEL_NAME ||
+      this.envValue(
+        "LLM_MODEL_NAME",
+        "LLM_MODEL",
+        "AI_MODEL_NAME",
+        "AI_MODEL",
+        "OPENAI_MODEL_NAME",
+        "OPENAI_MODEL",
+        "MODEL"
+      );
 
     return { apiKey, apiBase, model };
   }
@@ -91,28 +101,37 @@ class AIArchiveSuggestionService {
       ? trimmedBase
       : `${trimmedBase}/chat/completions`;
 
+    const requestBody = JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an intelligent document organization assistant. Analyze transcripts and suggest optimal locations for archiving.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      temperature: 0.3,
+      max_tokens: 1000,
+    });
+
+    Logger.llmRequest("AIArchiveSuggestionService", "Archive suggestion LLM request", {
+      model,
+      endpoint,
+      requestLength: requestBody.length,
+      promptLength: prompt.length,
+    });
+
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are an intelligent document organization assistant. Analyze transcripts and suggest optimal locations for archiving.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        temperature: 0.3,
-        max_tokens: 1000,
-      }),
+      body: requestBody,
     });
 
     if (!response.ok) {

@@ -59,14 +59,14 @@ class Event extends IdModel<
    * Note that the `data` column will be visible to the client and API requests.
    */
   @Column(DataType.JSONB)
-  data: Record<string, any> | null;
+  data: Record<string, unknown> | null;
 
   /**
    * The changes made to the model – gradually moving to this column away from `data` which can be
    * used for arbitrary data associated with the event.
    */
   @Column(DataType.JSONB)
-  changes: Record<string, any> | null;
+  changes: Record<string, unknown> | null;
 
   // hooks
 

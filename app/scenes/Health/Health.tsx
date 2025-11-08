@@ -17,8 +17,18 @@ interface ServiceHealth {
   details?: Record<string, unknown>;
 }
 
+type ModelRole =
+  | "primary"
+  | "task"
+  | "fallback"
+  | "search"
+  | "sensitive"
+  | "vision";
+
 interface ModelHealth extends ServiceHealth {
   modelName: string;
+  roles?: ModelRole[];
+  source?: "team" | "environment";
 }
 
 interface HealthData {
@@ -80,6 +90,41 @@ function Health() {
         return t("Unknown");
     }
   };
+
+  const formatModelRoles = React.useCallback(
+    (roles?: ModelRole[]) => {
+      if (!roles || roles.length === 0) {
+        return "";
+      }
+
+      const roleLabels: Record<ModelRole, string> = {
+        primary: t("Primary model"),
+        task: t("Task model"),
+        fallback: t("Fallback model"),
+        search: t("Search model"),
+        sensitive: t("Sensitive model"),
+        vision: t("Vision model"),
+      };
+
+      return roles
+        .map((role) => roleLabels[role] ?? role)
+        .join(", ");
+    },
+    [t]
+  );
+
+  const getSourceLabel = React.useCallback(
+    (source?: "team" | "environment") => {
+      if (source === "team") {
+        return t("Team settings");
+      }
+      if (source === "environment") {
+        return t("Environment default");
+      }
+      return "";
+    },
+    [t]
+  );
 
   return (
     <Scene textTitle={t("System Health")}>
@@ -159,37 +204,51 @@ function Health() {
                 )}
               </ServiceCard>
 
-              {healthData.services.llmModels.map((model, index) => (
-                <ServiceCard key={index}>
-                  <ServiceHeader>
-                    <Flex align="center" gap={8}>
-                      {getStatusIcon(model.status)}
-                      <ServiceName>
-                        {t("LLM")}: {model.modelName}
-                      </ServiceName>
-                    </Flex>
-                    <StatusBadge $status={model.status}>
-                      {model.status}
-                    </StatusBadge>
-                  </ServiceHeader>
+              {healthData.services.llmModels.map((model, index) => {
+                const roleLabel = formatModelRoles(model.roles);
+                const sourceLabel = getSourceLabel(model.source);
 
-                  {model.responseTime !== undefined && (
-                    <ServiceDetail>
-                      <DetailLabel>{t("Response Time")}:</DetailLabel>
-                      <DetailValue>{model.responseTime}ms</DetailValue>
-                    </ServiceDetail>
-                  )}
+                return (
+                  <ServiceCard key={`${model.modelName}-${index}`}>
+                    <ServiceHeader>
+                      <Flex align="center" gap={8}>
+                        {getStatusIcon(model.status)}
+                        <ServiceName>
+                          {t("LLM")}
+                          {roleLabel ? ` (${roleLabel})` : ""}:{" "}
+                          {model.modelName}
+                        </ServiceName>
+                      </Flex>
+                      <StatusBadge $status={model.status}>
+                        {model.status}
+                      </StatusBadge>
+                    </ServiceHeader>
 
-                  {model.details?.endpoint && (
-                    <ServiceDetail>
-                      <DetailLabel>{t("Endpoint")}:</DetailLabel>
-                      <DetailValue>{model.details.endpoint}</DetailValue>
-                    </ServiceDetail>
-                  )}
+                    {model.responseTime !== undefined && (
+                      <ServiceDetail>
+                        <DetailLabel>{t("Response Time")}:</DetailLabel>
+                        <DetailValue>{model.responseTime}ms</DetailValue>
+                      </ServiceDetail>
+                    )}
 
-                  {model.error && <ErrorMessage>{model.error}</ErrorMessage>}
-                </ServiceCard>
-              ))}
+                    {sourceLabel && (
+                      <ServiceDetail>
+                        <DetailLabel>{t("Configuration source")}:</DetailLabel>
+                        <DetailValue>{sourceLabel}</DetailValue>
+                      </ServiceDetail>
+                    )}
+
+                    {model.details?.endpoint && (
+                      <ServiceDetail>
+                        <DetailLabel>{t("Endpoint")}:</DetailLabel>
+                        <DetailValue>{model.details.endpoint}</DetailValue>
+                      </ServiceDetail>
+                    )}
+
+                    {model.error && <ErrorMessage>{model.error}</ErrorMessage>}
+                  </ServiceCard>
+                );
+              })}
 
               <ServiceCard>
                 <ServiceHeader>

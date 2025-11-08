@@ -43,7 +43,7 @@ type PluginValueMap = {
   [Hook.EmailTemplate]: typeof BaseEmail;
   [Hook.IssueProvider]: BaseIssueProvider;
   [Hook.Processor]: typeof BaseProcessor;
-  [Hook.Task]: typeof BaseTask<any>;
+  [Hook.Task]: typeof BaseTask<unknown>;
   [Hook.Uninstall]: UninstallSignature;
   [Hook.UnfurlProvider]: { unfurl: UnfurlSignature; cacheExpiry: number };
 };

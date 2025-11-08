@@ -4,8 +4,11 @@ import { addAttributeOptions } from "sequelize-typescript";
  * A decorator that validates that a string does not include something that
  * looks like a URL.
  */
-export default function NotContainsUrl(target: any, propertyName: string) {
-  return addAttributeOptions(target, propertyName, {
+export default function NotContainsUrl(
+  target: Record<string, unknown>,
+  propertyName: string
+) {
+  return addAttributeOptions(target as object, propertyName, {
     validate: {
       not: {
         args: /(www\.|file:|http:|https:)[^\s]+[\w]/,

@@ -6,12 +6,21 @@
  * @param target model class
  */
 
-export default function Fix(target: any): void {
+type SequelizeLikeInstance = {
+  getDataValue?(key: string): unknown;
+  setDataValue?(key: string, value: unknown): void;
+  dataValues?: Record<string, unknown>;
+};
+
+export default function Fix<T extends new (...args: unknown[]) => SequelizeLikeInstance>(
+  target: T
+): T {
   return class extends target {
-    constructor(...args: any[]) {
+    constructor(...args: ConstructorParameters<T>) {
       // suppresses warning from here which is not applicable in our typescript
       // environment: https://github.com/sequelize/sequelize/blob/00ced18c2cb2a8b99ae0ebf5669c124abb4c673d/src/model.js#L99
-      target._overwrittenAttributesChecked = true;
+      (target as typeof target & { _overwrittenAttributesChecked?: boolean })._overwrittenAttributesChecked =
+        true;
 
       super(...args);
 
@@ -29,7 +38,7 @@ export default function Fix(target: any): void {
         }
 
         Object.defineProperty(this, propertyKey, {
-          get() {
+          get(this: SequelizeLikeInstance) {
             // Safety check for Jest serialization - getDataValue may not be available
             // during serialization for inter-process communication
             if (typeof this.getDataValue === "function") {
@@ -38,7 +47,7 @@ export default function Fix(target: any): void {
             // Fallback to direct dataValues access
             return this.dataValues?.[propertyKey];
           },
-          set(value) {
+          set(this: SequelizeLikeInstance, value: unknown) {
             // Safety check for Jest serialization - setDataValue may not be available
             // during serialization for inter-process communication
             if (typeof this.setDataValue === "function") {
@@ -53,15 +62,17 @@ export default function Fix(target: any): void {
 
       associations.forEach((propertyKey) => {
         Object.defineProperty(this, propertyKey, {
-          get() {
-            return this.dataValues[propertyKey];
+          get(this: SequelizeLikeInstance) {
+            return this.dataValues?.[propertyKey];
           },
-          set(value) {
+          set(this: SequelizeLikeInstance, value: unknown) {
             // sets without changing the "changed" flag for associations
-            this.dataValues[propertyKey] = value;
+            if (this.dataValues) {
+              this.dataValues[propertyKey] = value;
+            }
           },
         });
       });
     }
-  } as any;
+  } as T;
 }

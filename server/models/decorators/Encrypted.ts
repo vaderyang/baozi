@@ -6,12 +6,21 @@ import vaults from "@server/storage/vaults";
 
 const key = "sequelize:vault";
 
+type SequelizeInstance = {
+  getDataValue?(key: string): unknown;
+  setDataValue?(key: string, value: unknown): void;
+  dataValues?: Record<string, unknown>;
+};
+
 /**
  * A decorator that stores the encrypted vault for a particular database column
  * so that it can be used by getters and setters. Must be accompanied by a
  * @Column(DataType.BLOB) annotation.
  */
-export default function Encrypted(target: any, propertyKey: string) {
+export default function Encrypted(
+  target: Record<string, unknown>,
+  propertyKey: string
+) {
   // Ensure that the Encrypted decorator is the first decorator applied to the property, we can check
   // this by looking at the attributes of the target and checking if the propertyKey is already defined.
   if (getAttributes(target)[propertyKey]) {
@@ -24,11 +33,13 @@ export default function Encrypted(target: any, propertyKey: string) {
   Reflect.defineMetadata(key, vaults().vault(propertyKey), target, propertyKey);
 
   return {
-    get() {
+    get(this: SequelizeInstance) {
       const attributeOptions = getAttributes(target);
-      const defaultValue = attributeOptions[propertyKey].allowNull ? null : "";
+      const attribute = attributeOptions[propertyKey];
+      const defaultValue = attribute?.allowNull ? null : "";
 
-      if (!this.getDataValue(propertyKey)) {
+      const dataValue = this.getDataValue?.(propertyKey);
+      if (dataValue === undefined || dataValue === null) {
         return defaultValue;
       }
       try {
@@ -54,10 +65,14 @@ export default function Encrypted(target: any, propertyKey: string) {
         throw err;
       }
     },
-    set(value: string | null) {
+    set(this: SequelizeInstance, value: string | null) {
       try {
         if (isNil(value)) {
-          this.setDataValue(propertyKey, value);
+          if (this.setDataValue) {
+            this.setDataValue(propertyKey, value);
+          } else if (this.dataValues) {
+            this.dataValues[propertyKey] = value;
+          }
         } else {
           Reflect.getMetadata(key, this, propertyKey).set.call(this, value);
         }
@@ -71,5 +86,5 @@ export default function Encrypted(target: any, propertyKey: string) {
         throw err;
       }
     },
-  } as any;
+  } as PropertyDescriptor;
 }

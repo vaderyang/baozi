@@ -12,7 +12,8 @@
       "setupFiles": ["<rootDir>/__mocks__/console.js"],
       "setupFilesAfterEnv": ["<rootDir>/server/test/setup.ts"],
       "globalTeardown": "<rootDir>/server/test/globalTeardown.js",
-      "testEnvironment": "node"
+      "testEnvironment": "node",
+      "transformIgnorePatterns": []
     },
     {
       "displayName": "app",
@@ -39,7 +40,8 @@
       },
       "setupFiles": ["<rootDir>/__mocks__/console.js"],
       "setupFilesAfterEnv": ["<rootDir>/shared/test/setup.ts"],
-      "testEnvironment": "node"
+      "testEnvironment": "node",
+      "transformIgnorePatterns": []
     },
     {
       "displayName": "shared-jsdom",

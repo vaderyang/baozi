@@ -36,10 +36,10 @@
           }
         ]
       ],
-      "ignore": ["**/__mocks__", "**/*.test.ts"]
+      "ignore": ["**/*.test.ts"]
     },
     "development": {
-      "ignore": ["**/__mocks__", "**/*.test.ts"]
+      "ignore": ["**/*.test.ts"]
     },
     "test": {
       "presets": [
@@ -53,7 +53,8 @@
             "useBuiltIns": "usage"
           }
         ]
-      ]
+      ],
+      "ignore": []
     }
   }
 }
