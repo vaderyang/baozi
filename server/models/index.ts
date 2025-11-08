@@ -58,6 +58,8 @@ export { default as TeamDomain } from "./TeamDomain";
 
 export { default as TranscriptionJob } from "./TranscriptionJob";
 
+export { default as AISummaryJob } from "./AISummaryJob";
+
 export { default as User } from "./User";
 
 export { default as UserAuthentication } from "./UserAuthentication";

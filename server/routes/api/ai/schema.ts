@@ -22,10 +22,19 @@ export const AiGenerateSchema = BaseSchema.extend({
     context: z.string().optional(),
     mentionedDocumentIds: z.array(z.string().uuid()).optional(),
     mode: z.enum(["fast", "sensitive", "vision"]).optional(),
+    metadata: z.record(z.any()).optional(),
   }),
 });
 
 export type AiGenerateReq = z.infer<typeof AiGenerateSchema>;
+
+export const AiSummaryStatusSchema = BaseSchema.extend({
+  body: z.object({
+    jobId: z.string().uuid(),
+  }),
+});
+
+export type AiSummaryStatusReq = z.infer<typeof AiSummaryStatusSchema>;
 
 export const AiAskSchema = BaseSchema.extend({
   body: z.object({
