@@ -22,21 +22,15 @@ function AI() {
   const [modelsError, setModelsError] = React.useState<string | null>(null);
 
   // Read values directly from team preferences (MobX will handle reactivity)
-  const contextLengthThreshold = String(
-    team.getPreference(TeamPreference.AiContextLengthThreshold) ?? 500
-  );
-  const generateTextModel =
+  const primaryModel =
     (team.getPreference(TeamPreference.AiGenerateTextModel) as string) ||
-    "__default__";
-  const generateTextFallbackModel =
-    (team.getPreference(
-      TeamPreference.AiGenerateTextFallbackModel
-    ) as string) || "__default__";
-  const searchModel =
     (team.getPreference(TeamPreference.AiSearchModel) as string) ||
     "__default__";
-  const searchFallbackModel =
-    (team.getPreference(TeamPreference.AiSearchFallbackModel) as string) ||
+  const taskModel =
+    (team.getPreference(TeamPreference.AiTaskModel) as string) ||
+    "__default__";
+  const fallbackModel =
+    (team.getPreference(TeamPreference.AiFallbackModel) as string) ||
     "__default__";
   const visionModel =
     (team.getPreference(TeamPreference.AiVisionModel) as string) ||
@@ -53,16 +47,18 @@ function AI() {
       setModelsError(null);
 
       try {
-        const data = await client.post("/ai.models");
+        const response = await client.post("/ai.models");
 
         if (cancelled) {
           return;
         }
 
-        if (data?.models && Array.isArray(data.models)) {
-          const modelIds = data.models
-            .map((model: { id: string }) => model.id)
-            .filter((id: string | undefined): id is string => !!id);
+        const modelsResponse = response?.data?.models;
+        if (Array.isArray(modelsResponse)) {
+          const modelIds = modelsResponse
+            .map((model: { id?: string | null }) => model.id)
+            .filter((id: string | undefined | null): id is string => !!id)
+            .sort();
           setAvailableModels(modelIds);
         } else {
           throw new Error("Invalid response format from models API");
@@ -138,13 +134,12 @@ function AI() {
     } else if (modelsError) {
       // If API failed, add some common model names as suggestions
       const commonModels = [
-        "qwen-3-coder-480b",
+        "zai-glm-4.6",
+        "GLM-4.6",
+        "zai-org/GLM-4.5-Air",
         "qwen3-30b-a3b-instruct",
+        "qwen-3-coder-480b",
         "grok-4-fast-non-reasoning",
-        "gpt-4",
-        "gpt-3.5-turbo",
-        "claude-3-opus",
-        "claude-3-sonnet",
       ];
       commonModels.forEach((modelId) => {
         options.push({
@@ -163,54 +158,12 @@ function AI() {
       <Heading>{t("AI")}</Heading>
       <Text as="p" type="secondary">
         <Trans>
-          Configure AI model settings for text generation and search. Models are
-          automatically selected based on context length to optimize for quality
-          and performance.
+          Configure AI model settings using a three-tier system: Primary model for
+          heavy-duty tasks, Task model for lightweight operations, and Fallback model
+          as a universal backup.
         </Trans>
       </Text>
 
-      <Heading as="h2">{t("Model Switching")}</Heading>
-      <SettingRow
-        label={t("Context length threshold")}
-        name="contextLengthThreshold"
-        description={t(
-          "Character count threshold for switching between models. Contexts shorter than this use the fallback model, longer contexts use the primary model."
-        )}
-      >
-        <Input
-          value={contextLengthThreshold}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-            const threshold = parseInt(e.target.value, 10);
-            if (!isNaN(threshold) && threshold >= 1) {
-              team.setPreference(
-                TeamPreference.AiContextLengthThreshold,
-                threshold
-              );
-            }
-          }}
-          onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
-            const threshold = parseInt(e.target.value, 10);
-            if (isNaN(threshold) || threshold < 1) {
-              toast.error(
-                t("Context length threshold must be a positive number")
-              );
-              return;
-            }
-            void handleSave({
-              [TeamPreference.AiContextLengthThreshold]: threshold,
-            });
-          }}
-          placeholder="500"
-        />
-      </SettingRow>
-
-      <Heading as="h2">{t("Text Generation")}</Heading>
-      <Text as="p" type="secondary">
-        <Trans>
-          Models used for the "Generate Text" feature and auto-summary in
-          recordings.
-        </Trans>
-      </Text>
       {modelsError && (
         <Text as="p" type="secondary">
           {t("Could not load models from API")}: {modelsError}
@@ -223,67 +176,29 @@ function AI() {
           {t("Loading available models...")}
         </Text>
       )}
+
+      <Heading as="h2">{t("Primary Model")}</Heading>
+      <Text as="p" type="secondary">
+        <Trans>
+          Used for heavy-duty AI tasks: AI Summary Generation, Generate Text, AI Ask,
+          and Search (AI Answer). Default: zai-glm-4.6
+        </Trans>
+      </Text>
       <SettingRow
         label={t("Primary model")}
-        name="generateTextModel"
+        name="primaryModel"
         description={t(
-          "Model used for long contexts (>= threshold). Example: qwen-3-coder-480b"
-        )}
-      >
-        <InputSelect
-          options={modelOptions}
-          value={generateTextModel}
-          onChange={(value) => {
-            void handleSave({
-              [TeamPreference.AiGenerateTextModel]: value,
-            });
-          }}
-          label={t("Primary model")}
-          hideLabel
-          disabled={loadingModels}
-        />
-      </SettingRow>
-      <SettingRow
-        label={t("Fallback model")}
-        name="generateTextFallbackModel"
-        description={t(
-          "Model used for short contexts (< threshold). Example: qwen3-30b-a3b-instruct"
+          "High-quality model for complex AI operations. Example: zai-glm-4.6"
         )}
         border={false}
       >
         <InputSelect
           options={modelOptions}
-          value={generateTextFallbackModel}
+          value={primaryModel}
           onChange={(value) => {
+            // Update both AiGenerateTextModel and AiSearchModel for consistency
             void handleSave({
-              [TeamPreference.AiGenerateTextFallbackModel]: value,
-            });
-          }}
-          label={t("Fallback model")}
-          hideLabel
-          disabled={loadingModels}
-        />
-      </SettingRow>
-
-      <Heading as="h2">{t("AI Search")}</Heading>
-      <Text as="p" type="secondary">
-        <Trans>
-          Models used for the AI search feature. Fallback model is used when
-          primary model fails (rate limits, errors, etc.).
-        </Trans>
-      </Text>
-      <SettingRow
-        label={t("Primary model")}
-        name="searchModel"
-        description={t(
-          "Primary model for AI search. Example: qwen3-30b-a3b-instruct"
-        )}
-      >
-        <InputSelect
-          options={modelOptions}
-          value={searchModel}
-          onChange={(value) => {
-            void handleSave({
+              [TeamPreference.AiGenerateTextModel]: value,
               [TeamPreference.AiSearchModel]: value,
             });
           }}
@@ -292,20 +207,57 @@ function AI() {
           disabled={loadingModels}
         />
       </SettingRow>
+
+      <Heading as="h2">{t("Task Model")}</Heading>
+      <Text as="p" type="secondary">
+        <Trans>
+          Used for lightweight, frequent operations: title generation, transcript
+          time-segment summaries, and AI Suggestions. Default: qwen3-30b-a3b-instruct
+        </Trans>
+      </Text>
       <SettingRow
-        label={t("Fallback model")}
-        name="searchFallbackModel"
+        label={t("Task model")}
+        name="taskModel"
         description={t(
-          "Fallback model used when primary fails. Example: qwen-3-coder-480b"
+          "Fast, efficient model for quick AI tasks. Example: qwen3-30b-a3b-instruct"
         )}
         border={false}
       >
         <InputSelect
           options={modelOptions}
-          value={searchFallbackModel}
+          value={taskModel}
           onChange={(value) => {
             void handleSave({
-              [TeamPreference.AiSearchFallbackModel]: value,
+              [TeamPreference.AiTaskModel]: value,
+            });
+          }}
+          label={t("Task model")}
+          hideLabel
+          disabled={loadingModels}
+        />
+      </SettingRow>
+
+      <Heading as="h2">{t("Fallback Model")}</Heading>
+      <Text as="p" type="secondary">
+        <Trans>
+          Universal fallback used when either Primary or Task model fails due to
+          rate limits, errors, or service unavailability. Default: GLM-4.6
+        </Trans>
+      </Text>
+      <SettingRow
+        label={t("Fallback model")}
+        name="fallbackModel"
+        description={t(
+          "Reliable backup model for error recovery. Example: GLM-4.6"
+        )}
+        border={false}
+      >
+        <InputSelect
+          options={modelOptions}
+          value={fallbackModel}
+          onChange={(value) => {
+            void handleSave({
+              [TeamPreference.AiFallbackModel]: value,
             });
           }}
           label={t("Fallback model")}
@@ -315,12 +267,18 @@ function AI() {
       </SettingRow>
 
       <Heading as="h2">{t("Vision")}</Heading>
+      <Text as="p" type="secondary">
+        <Trans>
+          Specialized model for image analysis and vision tasks.
+        </Trans>
+      </Text>
       <SettingRow
         label={t("Vision model")}
         name="visionModel"
         description={t(
           "Model used for image analysis and vision tasks. Example: grok-4-fast-non-reasoning"
         )}
+        border={false}
       >
         <InputSelect
           options={modelOptions}

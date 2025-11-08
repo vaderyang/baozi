@@ -57,7 +57,7 @@ export function CounterCache<
     });
 
     return {
-      get() {
+      get(this: { id: string | number }) {
         const cacheKey = `${cacheKeyPrefix}:${this.id}`;
 
         return CacheHelper.getData<number>(cacheKey).then((value) => {
@@ -78,6 +78,6 @@ export function CounterCache<
             });
         });
       },
-    } as any;
+    } as PropertyDescriptor;
   };
 }

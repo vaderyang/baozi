@@ -316,6 +316,10 @@ export enum TeamPreference {
   AiSearchFallbackModel = "aiSearchFallbackModel",
   /** Model name for AI vision tasks. */
   AiVisionModel = "aiVisionModel",
+  /** Task model for lightweight, frequent AI operations (title generation, summaries, suggestions). */
+  AiTaskModel = "aiTaskModel",
+  /** Universal fallback model used when Primary or Task model fails. */
+  AiFallbackModel = "aiFallbackModel",
   /** Audio transcription service endpoint URL. */
   TranscriptionEndpoint = "transcriptionEndpoint",
 }
@@ -338,6 +342,8 @@ export type TeamPreferences = {
   [TeamPreference.AiSearchModel]?: string;
   [TeamPreference.AiSearchFallbackModel]?: string;
   [TeamPreference.AiVisionModel]?: string;
+  [TeamPreference.AiTaskModel]?: string;
+  [TeamPreference.AiFallbackModel]?: string;
   [TeamPreference.TranscriptionEndpoint]?: string;
 };
 

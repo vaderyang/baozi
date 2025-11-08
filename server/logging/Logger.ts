@@ -25,7 +25,8 @@ type LogCategory =
   | "websockets"
   | "database"
   | "utils"
-  | "plugins";
+  | "plugins"
+  | "AIArchiveSuggestionService";
 
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any
 type Extra = Record<string, any>;
@@ -87,6 +88,18 @@ class Logger {
    */
   public info(label: LogCategory, message: string, extra?: Extra) {
     this.output.info(message, { ...this.sanitize(extra), label });
+  }
+
+  /**
+   * Log LLM request with special highlighting to make it stand out in logs
+   *
+   * @param label A log message category that will be prepended
+   * @param message A message describing the LLM request
+   * @param extra Arbitrary data to be logged that will appear in prod logs
+   */
+  public llmRequest(label: LogCategory, message: string, extra?: Extra) {
+    const highlightedMessage = `${chalk.magenta.bold("🤖 LLM REQUEST:")} ${message}`;
+    this.output.info(highlightedMessage, { ...this.sanitize(extra), label });
   }
 
   /**

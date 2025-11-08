@@ -4,8 +4,11 @@ import { addAttributeOptions } from "sequelize-typescript";
 /**
  * A decorator that validates that a string is a fully qualified domain name.
  */
-export default function IsFQDN(target: any, propertyName: string) {
-  return addAttributeOptions(target, propertyName, {
+export default function IsFQDN(
+  target: Record<string, unknown>,
+  propertyName: string
+) {
+  return addAttributeOptions(target as object, propertyName, {
     validate: {
       validDomain(value: string) {
         if (!isFQDN(value)) {

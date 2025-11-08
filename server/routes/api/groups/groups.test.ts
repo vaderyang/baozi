@@ -291,14 +291,16 @@ describe("#groups.list", () => {
     expect(body.data.groupMemberships.length).toEqual(2);
     expect(body.data.groupMemberships[0].groupId).toEqual(group.id);
     expect(body.data.groupMemberships[1].groupId).toEqual(group.id);
-    expect(
-      body.data.groupMemberships.map((u: any) => u.user.id).includes(user.id)
-    ).toBe(true);
-    expect(
-      body.data.groupMemberships
-        .map((u: any) => u.user.id)
-        .includes(anotherUser.id)
-    ).toBe(true);
+    type GroupMembershipResponse = {
+      user: {
+        id: string;
+      };
+    };
+    const membershipIds = (
+      body.data.groupMemberships as GroupMembershipResponse[]
+    ).map((membership) => membership.user.id);
+    expect(membershipIds.includes(user.id)).toBe(true);
+    expect(membershipIds.includes(anotherUser.id)).toBe(true);
     expect(body.policies.length).toEqual(2);
 
     const anotherRes = await server.post("/api/groups.list", {
@@ -315,14 +317,11 @@ describe("#groups.list", () => {
     expect(anotherBody.data.groupMemberships.length).toEqual(2);
     expect(anotherBody.data.groupMemberships[0].groupId).toEqual(group.id);
     expect(anotherBody.data.groupMemberships[1].groupId).toEqual(group.id);
-    expect(
-      body.data.groupMemberships.map((u: any) => u.user.id).includes(user.id)
-    ).toBe(true);
-    expect(
-      body.data.groupMemberships
-        .map((u: any) => u.user.id)
-        .includes(anotherUser.id)
-    ).toBe(true);
+    const additionalMembershipIds = (
+      anotherBody.data.groupMemberships as GroupMembershipResponse[]
+    ).map((membership) => membership.user.id);
+    expect(additionalMembershipIds.includes(user.id)).toBe(true);
+    expect(additionalMembershipIds.includes(anotherUser.id)).toBe(true);
   });
 
   it("should allow to find a group by its name", async () => {

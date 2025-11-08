@@ -568,7 +568,7 @@ class Document extends ArchivableModel<
   importId: string | null;
 
   @BelongsTo(() => Import, "apiImportId")
-  apiImport: Import<any> | null;
+  apiImport: Import<unknown> | null;
 
   @ForeignKey(() => Import)
   @Column(DataType.UUID)

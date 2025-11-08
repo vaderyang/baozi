@@ -69,7 +69,7 @@ async function build() {
   console.log("Copying static files…");
   await Promise.all([
     execAsync(
-      "cp ./server/collaboration/Procfile ./build/server/collaboration/Procfile"
+      "mkdir -p ./build/server/collaboration && cp ./server/collaboration/Procfile ./build/server/collaboration/Procfile"
     ),
     execAsync(
       "cp ./server/static/error.dev.html ./build/server/error.dev.html"

@@ -202,13 +202,19 @@ const parseAiResponse = (choice: ChatCompletionChoice): string => {
   return "";
 };
 
+/**
+ * Three-tier AI model selection system:
+ * - Primary Model: Heavy-duty tasks (AI Ask, AI Search, Generate Text, AI Summary)
+ * - Task Model: Lightweight, frequent operations (title generation, transcript summaries, suggestions)
+ * - Fallback Model: Universal fallback for both Primary and Task model failures
+ */
 const getModelConfig = async (
-  forAiSearch = false,
+  purpose: 'primary' | 'task' = 'primary',
   teamId?: string,
   contextLength?: number
 ) => {
   Logger.info("utils", "getModelConfig called", {
-    forAiSearch,
+    purpose,
     teamId,
     contextLength,
   });
@@ -237,7 +243,6 @@ const getModelConfig = async (
 
   let model: string | undefined;
   let fallbackModel: string | undefined;
-  let contextLengthThreshold = 500;
 
   // Load team preferences if teamId is provided
   if (teamId) {
@@ -246,49 +251,51 @@ const getModelConfig = async (
     const team = await Team.findByPk(teamId);
 
     if (team) {
-      if (forAiSearch) {
-        // Get AI Search models from preferences (no context-length switching for search)
-        const searchModel = team.getPreference(TeamPreference.AiSearchModel);
-        const searchFallbackModel = team.getPreference(
-          TeamPreference.AiSearchFallbackModel
-        );
+      // Get universal fallback model (applies to both primary and task)
+      const universalFallback = team.getPreference(TeamPreference.AiFallbackModel);
+      fallbackModel =
+        (typeof universalFallback === "string" ? universalFallback : undefined) ||
+        envValue(
+          "LLM_FALLBACK_MODEL_NAME",
+          "LLM_FALLBACK_MODEL",
+          "AI_FALLBACK_MODEL",
+          "FALLBACK_MODEL"
+        ) ||
+        env.LLM_FALLBACK_MODEL_NAME;
 
+      if (purpose === 'task') {
+        // Task model: for lightweight operations (title, summaries, suggestions)
+        const taskModel = team.getPreference(TeamPreference.AiTaskModel);
+        model =
+          (typeof taskModel === "string" ? taskModel : undefined) ||
+          envValue(
+            "LLM_TASK_MODEL_NAME",
+            "LLM_TASK_MODEL",
+            "AI_TASK_MODEL",
+            "TASK_MODEL"
+          ) ||
+          env.LLM_TASK_MODEL_NAME;
+
+        Logger.info("utils", "Using Task model configuration", {
+          model,
+          fallbackModel,
+        });
+      } else {
+        // Primary model: for heavy-duty tasks (AI Ask, Search, Generate, Summary)
+        // Check if there's a specific search model preference
+        const searchModel = team.getPreference(TeamPreference.AiSearchModel);
+        const generateModel = team.getPreference(TeamPreference.AiGenerateTextModel);
+
+        // Prefer search model if available, otherwise use generate text model
         model =
           (typeof searchModel === "string" ? searchModel : undefined) ||
-          envValue("LLM_MODEL_NAME_AI_SEARCH");
-        fallbackModel =
-          (typeof searchFallbackModel === "string"
-            ? searchFallbackModel
-            : undefined) ||
-          envValue(
-            "LLM_MODEL_NAME",
-            "LLM_MODEL",
-            "AI_MODEL_NAME",
-            "AI_MODEL",
-            "OPENAI_MODEL_NAME",
-            "OPENAI_MODEL",
-            "MODEL"
-          );
-      } else {
-        // Get context length threshold from preferences (only for text generation)
-        const thresholdPref = team.getPreference(
-          TeamPreference.AiContextLengthThreshold
-        );
-        if (typeof thresholdPref === "number") {
-          contextLengthThreshold = thresholdPref;
-        }
-
-        // Get AI Generate Text models from preferences
-        const generateModel = team.getPreference(
-          TeamPreference.AiGenerateTextModel
-        );
-        const generateFallbackModel = team.getPreference(
-          TeamPreference.AiGenerateTextFallbackModel
-        );
-
-        model =
           (typeof generateModel === "string" ? generateModel : undefined) ||
           envValue(
+            "LLM_MODEL_NAME_AI_SEARCH",
+            "AI_SEARCH_MODEL"
+          ) ||
+          envValue(
+            "LLM_PRIMARY_MODEL_NAME",
             "LLM_MODEL_NAME",
             "LLM_MODEL",
             "AI_MODEL_NAME",
@@ -296,67 +303,57 @@ const getModelConfig = async (
             "OPENAI_MODEL_NAME",
             "OPENAI_MODEL",
             "MODEL"
-          );
-        fallbackModel =
-          (typeof generateFallbackModel === "string"
-            ? generateFallbackModel
-            : undefined) || envValue("LLM_MODEL_NAME_AI_SEARCH");
+          ) ||
+          env.LLM_PRIMARY_MODEL_NAME;
+
+        Logger.info("utils", "Using Primary model configuration", {
+          model,
+          fallbackModel,
+        });
       }
     }
   }
 
   // Fallback to environment variables if no team preferences
   if (!model) {
-    if (forAiSearch) {
-      model = envValue("LLM_MODEL_NAME_AI_SEARCH");
-      fallbackModel = envValue(
-        "LLM_MODEL_NAME",
-        "LLM_MODEL",
-        "AI_MODEL_NAME",
-        "AI_MODEL",
-        "OPENAI_MODEL_NAME",
-        "OPENAI_MODEL",
-        "MODEL"
-      );
-      if (!model) {
-        model = fallbackModel;
-        fallbackModel = envValue("LLM_MODEL_NAME_AI_SEARCH");
-      }
+    if (purpose === 'task') {
+      model =
+        envValue(
+          "LLM_TASK_MODEL_NAME",
+          "LLM_TASK_MODEL",
+          "AI_TASK_MODEL",
+          "TASK_MODEL"
+        ) || env.LLM_TASK_MODEL_NAME;
     } else {
-      model = envValue(
-        "LLM_MODEL_NAME",
-        "LLM_MODEL",
-        "AI_MODEL_NAME",
-        "AI_MODEL",
-        "OPENAI_MODEL_NAME",
-        "OPENAI_MODEL",
-        "MODEL"
-      );
-      fallbackModel = envValue("LLM_MODEL_NAME_AI_SEARCH");
+      model =
+        envValue(
+          "LLM_MODEL_NAME_AI_SEARCH",
+          "AI_SEARCH_MODEL"
+        ) ||
+        envValue(
+          "LLM_PRIMARY_MODEL_NAME",
+          "LLM_MODEL_NAME",
+          "LLM_MODEL",
+          "AI_MODEL_NAME",
+          "AI_MODEL",
+          "OPENAI_MODEL_NAME",
+          "OPENAI_MODEL",
+          "MODEL"
+        ) ||
+        env.LLM_PRIMARY_MODEL_NAME;
     }
-  }
 
-  // Apply context-length-based model switching ONLY for text generation (not AI Search)
-  if (
-    !forAiSearch &&
-    contextLength !== undefined &&
-    contextLength < contextLengthThreshold &&
-    fallbackModel
-  ) {
-    Logger.info("utils", "Using fallback model for short context", {
-      contextLength,
-      threshold: contextLengthThreshold,
-      primaryModel: model,
-      fallbackModel,
-    });
-    // Swap models: use fallback for short contexts
-    const temp = model;
-    model = fallbackModel;
-    fallbackModel = temp;
+    fallbackModel =
+      envValue(
+        "LLM_FALLBACK_MODEL_NAME",
+        "LLM_FALLBACK_MODEL",
+        "AI_FALLBACK_MODEL",
+        "FALLBACK_MODEL"
+      ) || env.LLM_FALLBACK_MODEL_NAME;
   }
 
   Logger.info("utils", "getModelConfig result", {
-    forAiSearch,
+    purpose,
     model,
     fallbackModel,
     hasApiKey: !!apiKey,
@@ -479,18 +476,28 @@ WRONG Examples (long sentence - DO NOT DO THIS):
   const startTime = Date.now();
 
   try {
+    const requestBody = JSON.stringify({
+      model,
+      messages,
+      temperature: 0.3,
+      max_tokens: 50,
+    });
+
+    Logger.llmRequest("utils", "Keyword extraction LLM request", {
+      model,
+      endpoint,
+      requestLength: requestBody.length,
+      query,
+      messageCount: messages.length,
+    });
+
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.3,
-        max_tokens: 50,
-      }),
+      body: requestBody,
     });
 
     const extractionTime = Date.now() - startTime;
@@ -854,23 +861,33 @@ AI Answer: ${answer}
 Referenced Documents: ${sources.map((s) => s.title).join(", ")}`;
 
   try {
+    const requestBody = JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 200,
+    });
+
+    Logger.llmRequest("utils", "Follow-up generation LLM request", {
+      model,
+      endpoint,
+      requestLength: requestBody.length,
+      originalQuery: query,
+      sourcesCount: sources.length,
+    });
+
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-        ],
-        temperature: 0.7,
-        max_tokens: 200,
-      }),
+      body: requestBody,
     });
 
     if (!response.ok) {
@@ -924,8 +941,8 @@ router.post(
       conversationHistory,
     } = ctx.input.body;
 
-    // Get initial model config for keyword extraction
-    const initialConfig = await getModelConfig(true, user.teamId);
+    // Get initial model config for keyword extraction (using Primary model for AI Ask)
+    const initialConfig = await getModelConfig('primary', user.teamId);
     let apiKey = initialConfig.apiKey;
     let apiBase = initialConfig.apiBase;
     let model = initialConfig.model;
@@ -1584,7 +1601,7 @@ CRITICAL RULES:
           stream: true,
         });
 
-        Logger.info("utils", "AI Ask LLM request", {
+        Logger.llmRequest("utils", "AI Ask LLM request", {
           model: modelToUse,
           endpoint,
           requestLength: requestBody.length,
@@ -1865,8 +1882,8 @@ router.post(
       language,
     } = ctx.input.body;
 
-    // Get initial model config for keyword extraction (without context length)
-    const initialConfig = await getModelConfig(true, user.teamId);
+    // Get initial model config for keyword extraction (using Primary model for AI Search)
+    const initialConfig = await getModelConfig('primary', user.teamId);
     let apiKey = initialConfig.apiKey;
     let apiBase = initialConfig.apiBase;
     let model = initialConfig.model;
@@ -2094,7 +2111,7 @@ ${context}`;
           stream: true,
         });
 
-        Logger.info("utils", "AI Search LLM request", {
+        Logger.llmRequest("utils", "AI Search LLM request", {
           model: modelToUse,
           endpoint,
           requestLength: requestBody.length,
@@ -2308,7 +2325,7 @@ router.post(
     });
 
     const { apiKey, apiBase, model, fallbackModel } = await getModelConfig(
-      false,
+      'primary',
       user.teamId,
       totalContextLength
     );
@@ -2615,7 +2632,7 @@ router.post(
           });
         }
 
-        Logger.info("utils", "AI Generate LLM request", {
+        Logger.llmRequest("utils", "AI Generate LLM request", {
           model: modelToUse,
           endpoint,
           requestLength: requestBody.length,

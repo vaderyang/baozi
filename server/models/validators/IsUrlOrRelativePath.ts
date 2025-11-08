@@ -4,8 +4,11 @@ import { addAttributeOptions } from "sequelize-typescript";
 /**
  * A decorator that validates that a string is a url or relative path.
  */
-export default function IsUrlOrRelativePath(target: any, propertyName: string) {
-  return addAttributeOptions(target, propertyName, {
+export default function IsUrlOrRelativePath(
+  target: Record<string, unknown>,
+  propertyName: string
+) {
+  return addAttributeOptions(target as object, propertyName, {
     validate: {
       validUrlOrPath(value: string) {
         if (

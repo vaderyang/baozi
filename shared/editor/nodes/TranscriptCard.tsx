@@ -385,71 +385,42 @@ export default class TranscriptCard extends Node {
 
         <ScrollableContent>
           {activeTab === "transcript" && (
-            <TranscriptSplitView>
-              <TimelinePane>
-                {timelineEntries.length > 0 ? (
-                  <TimelineList>
-                    {timelineEntries.map((entry) => (
-                      <TimelineItem
-                        key={entry.id}
-                        type="button"
-                        active={entry.id === activeTimelineId}
-                        onClick={() => handleTimelineSelect(entry)}
-                      >
-                        <TimelineRange>
-                          {formatRangeLabel(entry.start, entry.end)}
-                        </TimelineRange>
-                        <TimelineSummary>
-                          {entry.summary?.trim() || (
-                            <Trans>No summary available</Trans>
-                          )}
-                        </TimelineSummary>
-                      </TimelineItem>
-                    ))}
-                  </TimelineList>
-                ) : (
-                  <EmptyTimeline>
-                    <Trans>Timeline unavailable</Trans>
-                  </EmptyTimeline>
-                )}
-              </TimelinePane>
-              <TranscriptPane ref={transcriptPaneRef}>
-                {speakerSegments && speakerSegments.length > 0 ? (
-                  <SpeakerSegments>
-                    {speakerSegments.map(
-                      (segment: SpeakerSegment, index: number) => {
-                        const startSeconds = toSeconds(segment.start);
-                        const endSeconds = toSeconds(segment.end);
-                        return (
-                          <SpeakerSegment
-                            key={index}
-                            ref={(element) =>
-                              registerSegmentRef(index, element)
-                            }
-                          >
-                            <SpeakerLabel>
-                              <Trans>Speaker</Trans> {segment.spk}
-                            </SpeakerLabel>
-                            <SegmentText>{segment.text}</SegmentText>
-                            {typeof startSeconds === "number" &&
-                              typeof endSeconds === "number" && (
-                                <Timestamp>
-                                  {formatTime(startSeconds)} -{" "}
-                                  {formatTime(endSeconds)}
-                                </Timestamp>
-                              )}
-                          </SpeakerSegment>
-                        );
-                      }
-                    )}
-                  </SpeakerSegments>
-                ) : (
-                  <TranscriptText ref={transcriptTextRef}>
-                    {transcript}
-                  </TranscriptText>
-                )}
-              </TranscriptPane>
-            </TranscriptSplitView>
+            <TranscriptPane ref={transcriptPaneRef}>
+              {speakerSegments && speakerSegments.length > 0 ? (
+                <SpeakerSegments>
+                  {speakerSegments.map(
+                    (segment: SpeakerSegment, index: number) => {
+                      const startSeconds = toSeconds(segment.start);
+                      const endSeconds = toSeconds(segment.end);
+                      return (
+                        <SpeakerSegment
+                          key={index}
+                          ref={(element) =>
+                            registerSegmentRef(index, element)
+                          }
+                        >
+                          <SpeakerLabel>
+                            <Trans>Speaker</Trans> {segment.spk}
+                          </SpeakerLabel>
+                          <SegmentText>{segment.text}</SegmentText>
+                          {typeof startSeconds === "number" &&
+                            typeof endSeconds === "number" && (
+                              <Timestamp>
+                                {formatTime(startSeconds)} -{" "}
+                                {formatTime(endSeconds)}
+                              </Timestamp>
+                            )}
+                        </SpeakerSegment>
+                      );
+                    }
+                  )}
+                </SpeakerSegments>
+              ) : (
+                <TranscriptText ref={transcriptTextRef}>
+                  {transcript}
+                </TranscriptText>
+              )}
+            </TranscriptPane>
           )}
 
           {activeTab === "audio" && audioUrl && (
@@ -706,18 +677,25 @@ const EmptyTimeline = styled.div`
 `;
 
 const TranscriptPane = styled.div`
-  flex: 1 1 65%;
   max-height: 500px;
   overflow-y: auto;
-  padding-right: 8px;
 
   &::-webkit-scrollbar {
-    width: 6px;
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 4px;
   }
 
   &::-webkit-scrollbar-thumb {
     background: ${s("divider")};
     border-radius: 4px;
+
+    &:hover {
+      background: ${s("textTertiary")};
+    }
   }
 `;
 

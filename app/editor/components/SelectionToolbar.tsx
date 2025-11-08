@@ -363,10 +363,6 @@ export function SelectionToolbar(props: Props) {
     }
   };
 
-  if (isDragging) {
-    return null;
-  }
-
   const { isTemplate, rtl, canComment, canUpdate, ...rest } = props;
   const { state } = view;
   const { selection } = state;
@@ -466,6 +462,11 @@ export function SelectionToolbar(props: Props) {
 
   const isEditingMedia =
     isEmbedSelection || (isImageSelection && isEditingImgUrl);
+
+  // Return null if dragging after all hooks have been called
+  if (isDragging) {
+    return null;
+  }
 
   return (
     <FloatingToolbar

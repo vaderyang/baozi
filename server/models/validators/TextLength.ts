@@ -17,9 +17,9 @@ export default function TextLength({
   msg?: string;
   min?: number;
   max: number;
-}): (target: any, propertyName: string) => void {
-  return (target: any, propertyName: string) =>
-    addAttributeOptions(target, propertyName, {
+}): (target: Record<string, unknown>, propertyName: string) => void {
+  return (target: Record<string, unknown>, propertyName: string) =>
+    addAttributeOptions(target as object, propertyName, {
       validate: {
         validLength(value: ProsemirrorData) {
           let text;
