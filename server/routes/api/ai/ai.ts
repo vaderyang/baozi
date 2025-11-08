@@ -2786,4 +2786,123 @@ router.post(
   }
 );
 
+/**
+ * Queue an AI summary generation job and return job ID.
+ * Frontend can poll for status using ai.summaryStatus endpoint.
+ */
+router.post(
+  "ai.queueSummary",
+  auth(),
+  validate(T.AiGenerateSchema),
+  async (ctx: APIContext<T.AiGenerateReq>) => {
+    const { user } = ctx.state.auth;
+    const prompt = trim(ctx.input.body.prompt ?? "");
+    const context = trim(ctx.input.body.context ?? "");
+    const mode = (ctx.input.body.mode ?? "fast") as AiPromptMode;
+    const metadata = ctx.input.body.metadata || {};
+
+    if (!prompt) {
+      ctx.throw(InvalidRequestError("Prompt is required"));
+    }
+
+    if (!context) {
+      ctx.throw(InvalidRequestError("Context is required"));
+    }
+
+    // Import models
+    const { AISummaryJob } = await import("@server/models");
+    const { default: AISummaryJobStatus } = await import("@server/models/AISummaryJob");
+    const { default: AISummaryTask } = await import("@server/queues/tasks/AISummaryTask");
+
+    // Get document ID from metadata or require it
+    const documentId = metadata.documentId;
+    if (!documentId) {
+      ctx.throw(InvalidRequestError("Document ID is required in metadata"));
+    }
+
+    Logger.info("utils", "Queueing AI summary generation", {
+      promptLength: prompt.length,
+      contextLength: context.length,
+      mode,
+      userId: user.id,
+      teamId: user.teamId,
+      documentId,
+    });
+
+    // Create job in database
+    const job = await AISummaryJob.create({
+      teamId: user.teamId,
+      userId: user.id,
+      documentId,
+      status: AISummaryJobStatus.Queued,
+      progress: 0,
+      prompt,
+      context,
+      metadata,
+    });
+
+    // Queue the task
+    const task = new AISummaryTask();
+    await task.schedule({
+      jobId: job.id,
+      userId: user.id,
+      teamId: user.teamId,
+      prompt,
+      context,
+      mode,
+    });
+
+    Logger.info("utils", "AI summary job queued", {
+      jobId: job.id,
+      userId: user.id,
+      teamId: user.teamId,
+      documentId,
+    });
+
+    ctx.body = {
+      data: {
+        jobId: job.id,
+        status: job.status,
+      },
+    };
+  }
+);
+
+/**
+ * Check the status of an AI summary generation job.
+ */
+router.post(
+  "ai.summaryStatus",
+  auth(),
+  validate(T.AiSummaryStatusSchema),
+  async (ctx: APIContext<T.AiSummaryStatusReq>) => {
+    const { user } = ctx.state.auth;
+    const { jobId } = ctx.input.body;
+
+    const { AISummaryJob } = await import("@server/models");
+
+    const job = await AISummaryJob.findByPk(jobId);
+
+    if (!job) {
+      ctx.throw(404, "Job not found");
+    }
+
+    // Check authorization - user must own the job
+    if (job.userId !== user.id) {
+      ctx.throw(403, "Unauthorized");
+    }
+
+    ctx.body = {
+      data: {
+        jobId: job.id,
+        status: job.status,
+        progress: job.progress,
+        error: job.error,
+        result: job.result,
+        metadata: job.metadata,
+      },
+    };
+  }
+);
+
 export default router;

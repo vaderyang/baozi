@@ -34,21 +34,6 @@ type Props = {
   documentId: string;
 };
 
-type FormattedSpeakerSegment = {
-  spk: string;
-  text: string;
-  start?: number;
-  end?: number;
-};
-
-type TimelineChunk = {
-  id: string;
-  start: number;
-  end?: number;
-  anchorIndex: number;
-  segmentIndexes: number[];
-  fallbackText: string;
-};
 
 type TimelineEntryPayload = {
   id: string;
@@ -58,44 +43,6 @@ type TimelineEntryPayload = {
   summary: string;
 };
 
-// Constants are no longer needed since AI handles segmentation dynamically
-const TIMELINE_PROMPT =
-  "You are analyzing a complete audio transcript to create an intelligent timeline with title-like summaries.\n" +
-  "Your task:\n" +
-  "1. Read the entire transcript carefully to understand the conversation flow\n" +
-  "2. Identify 3-8 distinct topics or phases in the conversation\n" +
-  "3. For each topic, determine the appropriate start and end time\n" +
-  "4. Generate a concise title-like summary (max 30 words) for each topic\n\n" +
-  "!!! CRITICAL: YOU MUST GENERATE MULTIPLE ENTRIES !!!\n" +
-  "- Minimum 3 timeline entries, maximum 8 entries\n" +
-  "- Each entry MUST represent a different topic/conversation phase\n" +
-  "- DO NOT create a single entry called \"完整录音内容\" or similar\n" +
-  "- Break the conversation into natural topic segments\n\n" +
-  "Segmentation guidelines:\n" +
-  "- Look for topic changes, speaker transitions, discussion shifts\n" +
-  "- Group related discussion points together\n" +
-  "- Each segment should be 2-10 minutes of conversation\n" +
-  "- Create boundaries at natural conversation pauses\n\n" +
-  "Summary requirements:\n" +
-  "- Use the same language as the transcript\n" +
-  "- Each summary must be a title-like phrase, NOT a description\n" +
-  "- Focus on the main topic/theme, not conversation details\n" +
-  "- Maximum 30 words per summary\n\n" +
-  "Good examples:\n" +
-  "- \"讨论产品新功能的设计方案\"\n" +
-  "- \"分析市场数据并制定策略\"\n" +
-  "- \"解决技术实现中的关键问题\"\n" +
-  "- \"确定项目时间和资源分配\"\n\n" +
-  "Bad examples (STRICTLY AVOID):\n" +
-  "- \"Speaker A says..., then Speaker B responds...\"\n" +
-  "- \"这段对话包含了关于...\"\n" +
-  "- \"完整录音内容\"\n" +
-  "- \"Full Transcript — Complete audio recording content\"\n" +
-  "- Copy-pasting actual transcript text\n\n" +
-  "Output format: JSON array with timeline entries\n" +
-  "Each entry must have: id (format: timeline-N), summary, startTime (seconds), endTime (seconds)\n" +
-  "Example: [{\"id\": \"timeline-0\", \"summary\": \"讨论项目进展和下一步计划\", \"startTime\": 0, \"endTime\": 180}, {\"id\": \"timeline-1\", \"summary\": \"分析技术方案和可行性\", \"startTime\": 180, \"endTime\": 360}]\n\n" +
-  "Complete transcript:\n";
 
 const normalizeTimestampValue = (value?: number) => {
   if (typeof value !== "number") {
@@ -104,308 +51,7 @@ const normalizeTimestampValue = (value?: number) => {
   return value > 1000 ? value / 1000 : value;
 };
 
-const buildTimelineChunks = (
-  segments?: FormattedSpeakerSegment[] | null,
-  transcript?: string
-): TimelineChunk[] => {
-  // For AI-driven timeline generation, we create a single chunk containing the full transcript
-  // The AI model will handle all segmentation and topic identification
-  if (segments && segments.length > 0) {
-    // Combine all segments with their timing information for AI processing
-    const fullText = segments
-      .map((segment, index) => {
-        const timestamp = typeof segment.start === "number"
-          ? `[${Math.floor(segment.start / 60)}:${(segment.start % 60).toString().padStart(2, '0')}] `
-          : `[Segment ${index + 1}] `;
-        return `${timestamp}Speaker ${segment.spk}: ${segment.text}`;
-      })
-      .join('\n\n');
 
-    return [
-      {
-        id: "timeline-full",
-        start: 0,
-        end: undefined,
-        anchorIndex: 0,
-        segmentIndexes: segments.map((_, index) => index),
-        fallbackText: fullText,
-      },
-    ];
-  }
-
-  if (transcript) {
-    return [
-      {
-        id: "timeline-full",
-        start: 0,
-        end: undefined,
-        anchorIndex: 0,
-        segmentIndexes: [],
-        fallbackText: transcript,
-      },
-    ];
-  }
-
-  return [];
-};
-
-const summarizeTimelineChunks = async (
-  chunks: TimelineChunk[],
-  segments: FormattedSpeakerSegment[],
-  transcript: string,
-  jobId: string
-): Promise<TimelineEntryPayload[]> => {
-  if (chunks.length === 0) {
-    return [];
-  }
-
-  const mainChunk = chunks[0]; // We now have only one chunk with full transcript
-  const fullText = mainChunk.fallbackText.replace(/\s+/g, " ").trim();
-
-  if (!fullText) {
-    Logger.warn("No transcript text available for timeline summarization", { jobId });
-    return [];
-  }
-
-  try {
-    Logger.info("editor", "Using AI-driven timeline segmentation", {
-      jobId,
-      transcriptLength: fullText.length,
-      hasSpeakerSegments: segments.length > 0,
-    });
-
-    // Build the complete prompt with full transcript
-    const completePrompt = TIMELINE_PROMPT + fullText + "\n\nGenerate timeline summary:";
-
-    const response = await client.post<{ data: { text?: string } }>(
-      "/ai.generate",
-      {
-        prompt: completePrompt,
-        context: fullText, // Send full transcript as context
-        purpose: "primary", // Use primary model for intelligent analysis
-      },
-      { retry: false }
-    );
-
-    const aiResponse = response?.data?.text?.trim();
-    let aiResults: Array<{ id: string; summary: string; startTime: number; endTime?: number }> = [];
-
-    if (aiResponse) {
-      try {
-        // Parse AI-generated timeline with timestamps
-        const parsed = JSON.parse(aiResponse);
-        if (Array.isArray(parsed)) {
-          aiResults = parsed.filter(item =>
-            item.id &&
-            item.summary &&
-            typeof item.startTime === 'number'
-          );
-          Logger.info("editor", "Successfully parsed AI timeline response", {
-            jobId,
-            segmentsGenerated: aiResults.length,
-          });
-        } else {
-          Logger.warn("AI response is not a valid array", {
-            jobId,
-            response: aiResponse.slice(0, 500)
-          });
-        }
-      } catch (parseError) {
-        Logger.warn("Failed to parse AI timeline response, using fallback segmentation", {
-          jobId,
-          response: aiResponse.slice(0, 300),
-          error: parseError instanceof Error ? parseError.message : String(parseError),
-        });
-
-        // Fallback: Create multiple timeline entries based on content analysis
-        if (segments.length > 0) {
-          // Create segments based on content and speaker changes
-          const minSegmentLength = 5; // Minimum 5 segments
-          const entries: any[] = [];
-
-          // Strategy 1: Group by speakers if multiple speakers
-          const speakers = [...new Set(segments.map(s => s.spk))];
-          if (speakers.length > 1) {
-            speakers.forEach((speaker, index) => {
-              const speakerSegments = segments.filter(s => s.spk === speaker);
-              if (speakerSegments.length > 0) {
-                const startTime = typeof speakerSegments[0].start === 'number'
-                  ? speakerSegments[0].start
-                  : index * 60;
-                const endTime = typeof speakerSegments[speakerSegments.length - 1].end === 'number'
-                  ? speakerSegments[speakerSegments.length - 1].end
-                  : startTime + 120;
-
-                const topic = speakerSegments[0]?.text.split(' ').slice(0, 6).join(' ') || `Speaker ${speaker}讨论`;
-
-                entries.push({
-                  id: `timeline-${index}`,
-                  summary: topic,
-                  startTime,
-                  endTime
-                });
-              }
-            });
-          }
-
-          // Strategy 2: If still not enough entries, create time-based segments
-          if (entries.length < minSegmentLength && segments.length > 0) {
-            const segmentGroups = Math.max(Math.ceil(segments.length / 3), minSegmentLength);
-            const groupSize = Math.ceil(segments.length / segmentGroups);
-
-            for (let i = 0; i < segmentGroups; i++) {
-              const startIdx = i * groupSize;
-              const endIdx = Math.min(startIdx + groupSize, segments.length);
-              const groupSegments = segments.slice(startIdx, endIdx);
-
-              const startTime = typeof groupSegments[0]?.start === 'number'
-                ? groupSegments[0].start
-                : i * 120;
-              const endTime = typeof groupSegments[groupSegments.length - 1]?.end === 'number'
-                ? groupSegments[groupSegments.length - 1].end
-                : startTime + 120;
-
-              const topic = groupSegments[0]?.text.split(' ').slice(0, 8).join(' ') || `讨论主题${i + 1}`;
-
-              if (!entries.find(e => Math.abs(e.startTime - startTime) < 60)) {
-                entries.push({
-                  id: `timeline-${i}`,
-                  summary: topic,
-                  startTime,
-                  endTime
-                });
-              }
-            }
-          }
-
-          aiResults = entries.length > 0 ? entries : [{
-            id: "timeline-0",
-            summary: "会议讨论内容",
-            startTime: 0,
-            endTime: segments.length > 0 ? Math.max(...segments.map(s => s.end || 0)) : undefined,
-          }];
-        } else {
-          // Fallback for transcript without speaker segments
-          const words = transcript.split(' ');
-          const segmentSize = Math.max(Math.floor(words.length / 4), 20); // 4 segments minimum
-
-          aiResults = [];
-          for (let i = 0; i < 4; i++) {
-            const startIdx = i * segmentSize;
-            const endIdx = Math.min((i + 1) * segmentSize, words.length);
-            const segmentWords = words.slice(startIdx, endIdx);
-
-            if (segmentWords.length > 0) {
-              const topic = segmentWords.slice(0, 8).join(' ');
-              const startTime = i * 120;
-              const endTime = (i + 1) * 120;
-
-              aiResults.push({
-                id: `timeline-${i}`,
-                summary: topic,
-                startTime,
-                endTime
-              });
-            }
-          }
-
-          if (aiResults.length === 0) {
-            aiResults = [{
-              id: "timeline-0",
-              summary: "录音内容概要",
-              startTime: 0,
-              endTime: undefined,
-            }];
-          }
-        }
-      }
-    }
-
-    // Convert AI results to TimelineEntryPayload format
-    const results: TimelineEntryPayload[] = aiResults.map((item, index) => {
-      // Find the appropriate anchor index based on the start time
-      let anchorIndex = 0;
-      if (segments.length > 0 && typeof item.startTime === 'number') {
-        // Find the segment closest to this start time
-        anchorIndex = segments.findIndex((seg, idx) => {
-          const segStart = typeof seg.start === 'number' ? seg.start : idx * 30;
-          return segStart >= item.startTime;
-        });
-        if (anchorIndex === -1) anchorIndex = segments.length - 1;
-        if (anchorIndex < 0) anchorIndex = 0;
-      }
-
-      return {
-        id: item.id,
-        start: item.startTime,
-        end: item.endTime,
-        anchorIndex: anchorIndex,
-        summary: item.summary,
-      };
-    });
-
-    // Sort by start time
-    results.sort((a, b) => a.start - b.start);
-
-    Logger.info("editor", "AI-driven timeline summarization completed", {
-      jobId,
-      segmentsGenerated: results.length,
-      totalDuration: results.length > 0 ? Math.max(...results.map(r => r.end || 0)) : 0,
-    });
-
-    return results;
-  } catch (error) {
-    Logger.error("Failed to generate AI-driven timeline", error as Error, {
-      jobId,
-      transcriptLength: fullText.length,
-    });
-
-    // Fallback: Create simple timeline based on available data
-    const fallbackResults: TimelineEntryPayload[] = [];
-
-    if (segments.length > 0) {
-      // Use segments as fallback
-      const segmentGroups = Math.min(Math.ceil(segments.length / 3), 8); // Group segments, max 8 groups
-      const groupSize = Math.ceil(segments.length / segmentGroups);
-
-      for (let i = 0; i < segmentGroups; i++) {
-        const startIdx = i * groupSize;
-        const endIdx = Math.min(startIdx + groupSize, segments.length);
-        const groupSegments = segments.slice(startIdx, endIdx);
-
-        const startTime = typeof groupSegments[0]?.start === 'number'
-          ? groupSegments[0].start
-          : startIdx * 30;
-        const endTime = typeof groupSegments[groupSegments.length - 1]?.end === 'number'
-          ? groupSegments[groupSegments.length - 1].end
-          : undefined;
-
-        // Generate a simple title based on the first few words
-        const firstWords = groupSegments[0]?.text.split(' ').slice(0, 8).join(' ') || '';
-        const title = firstWords || `段落 ${i + 1}`;
-
-        fallbackResults.push({
-          id: `timeline-${i}`,
-          start: startTime,
-          end: endTime,
-          anchorIndex: startIdx,
-          summary: title,
-        });
-      }
-    } else {
-      // Single fallback entry
-      fallbackResults.push({
-        id: "timeline-0",
-        start: 0,
-        end: undefined,
-        anchorIndex: 0,
-        summary: transcript.slice(0, 50) + (transcript.length > 50 ? "..." : ""),
-      });
-    }
-
-    return fallbackResults;
-  }
-};
 
 /**
  * TranscriptionStatusManager polls for transcription status updates every 5 seconds
@@ -703,7 +349,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
 
         if (shouldGenerateSummary) {
           try {
-            Logger.info("editor", "** Generating AI summary for transcript", {
+            Logger.info("editor", "** Queueing AI summary generation for transcript", {
               jobId,
               fromRecorder: audioRecorder.autoGenerateSummary,
               fromCardNode: summaryCardNode?.attrs?.autoSummary ?? false,
@@ -717,25 +363,84 @@ export function TranscriptionStatusManager({ documentId }: Props) {
               "4. Design an appropriate format based on the transcript content (e.g., meeting minutes, interview notes, personal memo)\n" +
               "5. If the transcript only contains a single sentence or question, just restate it clearly without elaboration\n\n" +
               "Summarize the following transcript:";
-            const response = await client.post<{ data: { text?: string } }>(
-              "/ai.generate",
+
+            // Queue the AI summary generation job
+            const queueResult = await client.post<{ data: { jobId: string; status: string } }>(
+              "/ai.queueSummary",
               {
                 prompt,
                 context: formattedText,
+                metadata: {
+                  documentId,
+                  type: "transcript_summary",
+                },
               },
               { retry: false }
             );
 
-            const summary = response?.data?.text?.trim();
+            const summaryJobId = queueResult.data?.jobId;
+            if (!summaryJobId) {
+              throw new Error("Failed to queue summary generation");
+            }
+
+            Logger.info("editor", "AI summary generation queued", {
+              jobId,
+              summaryJobId,
+            });
+
+            // Poll for summary generation status
+            const pollInterval = 2000; // Poll every 2 seconds
+            const maxPollTime = 5 * 60 * 1000; // 5 minutes max
+            const startTime = Date.now();
+
+            const pollSummaryStatus = async (): Promise<string | null> => {
+              if (Date.now() - startTime > maxPollTime) {
+                Logger.warn("AI summary generation timed out", { jobId, summaryJobId });
+                return null;
+              }
+
+              const statusResult = await client.post<{
+                data: {
+                  status: string;
+                  result?: string;
+                  error?: string;
+                };
+              }>("/ai.summaryStatus", { jobId: summaryJobId });
+
+              const status = statusResult.data?.status;
+              const error = statusResult.data?.error;
+              const result = statusResult.data?.result;
+
+              if (status === "completed") {
+                return result || null;
+              } else if (status === "failed") {
+                Logger.error("AI summary generation failed", new Error(error || "Unknown error"), {
+                  jobId,
+                  summaryJobId,
+                });
+                return null;
+              } else if (status === "queued" || status === "processing") {
+                // Continue polling
+                await new Promise((resolve) => setTimeout(resolve, pollInterval));
+                return pollSummaryStatus();
+              } else {
+                Logger.warn("Unknown summary job status", { jobId, summaryJobId, status });
+                return null;
+              }
+            };
+
+            const summary = await pollSummaryStatus();
             if (summary) {
               summaryMarkdown = `${summary}\n\n`;
               Logger.info("editor", "AI summary generated successfully", {
                 jobId,
+                summaryJobId,
                 summaryLength: summary.length,
               });
             } else {
               Logger.warn("AI summary generation returned empty result", {
                 jobId,
+                summaryJobId,
               });
             }
           } catch (error) {
@@ -961,7 +666,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         processingJobsRef.current.delete(jobId);
       }
     },
-    [audioRecorder, dictionary, formatTranscriptText]
+    [audioRecorder, dictionary, formatTranscriptText, documentId]
   );
 
   const handleRetryTranscription = React.useCallback(async (jobId: string) => {
