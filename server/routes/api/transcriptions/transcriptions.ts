@@ -22,7 +22,8 @@ router.post(
   validate(T.TranscribeSchema),
   async (ctx: APIContext<T.TranscribeReq>) => {
     const { user } = ctx.state.auth;
-    const { attachmentId, documentId } = ctx.input.body;
+    const { attachmentId, documentId, autoSummary } = ctx.input.body;
+    const shouldAutoSummary = Boolean(autoSummary);
 
     // Find the attachment
     const attachment = await Attachment.findByPk(attachmentId);
@@ -74,6 +75,7 @@ router.post(
       progress: null,
       error: null,
       result: null,
+      metadata: shouldAutoSummary ? { autoSummary: true } : null,
     });
 
     Logger.info("utils", "Created transcription job", {
@@ -81,6 +83,7 @@ router.post(
       attachmentId,
       documentId,
       userId: user.id,
+      autoSummary: shouldAutoSummary,
     });
 
     // Schedule the transcription task
@@ -142,6 +145,7 @@ router.post(
         error: job.error,
         result: job.result,
         attachmentId: job.attachmentId,
+        autoSummary: job.metadata?.autoSummary ?? false,
       },
     };
   }
@@ -200,6 +204,7 @@ router.post(
       progress: null,
       error: null,
       result: null,
+      metadata: job.metadata ?? null,
     });
 
     Logger.info("utils", "Created retry transcription job", {
@@ -346,6 +351,7 @@ router.post(
           error: job.error,
           fileName: attachment?.name || "Unknown",
           fileSize: attachment?.size || 0,
+          autoSummary: job.metadata?.autoSummary ?? false,
         };
       })
     );

@@ -248,17 +248,9 @@ export default class RecordingPlaceholder extends Node {
             if (node.type === type && node.attrs.nodeId === attrs.nodeId) {
               const nodesToInsert: ProsemirrorNode[] = [];
 
-              if (attrs.attachment && schema.nodes.attachment) {
-                const { id, name, size } = attrs.attachment;
-                const href = `/api/attachments.redirect?id=${id}`;
-                const attachmentNode = schema.nodes.attachment.create({
-                  id,
-                  title: name,
-                  size,
-                  href,
-                });
-                nodesToInsert.push(attachmentNode);
-              }
+              // NOTE: Attachment node is intentionally NOT created here
+              // Audio files are uploaded for transcription processing only
+              // They should not appear as attachments in the document
 
               // Create heading and code block nodes for the transcribed text
               const heading = schema.nodes.heading.create(

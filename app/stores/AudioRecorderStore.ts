@@ -709,7 +709,6 @@ class AudioRecorderStore {
 
       // Upload using existing uploadFile utility
       const attachment = await uploadFile(file, {
-        documentId: this.sourceDocumentId,
         preset: AttachmentPreset.AudioTranscription,
         name: fileName,
         onProgress: (progress) => {

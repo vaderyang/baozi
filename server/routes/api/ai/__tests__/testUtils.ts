@@ -231,12 +231,10 @@ export interface TranscriptSegment {
   text: string;
 }
 
-export function generateSegmentedTranscript(
-  options?: {
-    segments?: number;
-    duration?: number; // total duration in seconds
-  }
-): TranscriptSegment[] {
+export function generateSegmentedTranscript(options?: {
+  segments?: number;
+  duration?: number; // total duration in seconds
+}): TranscriptSegment[] {
   const segmentCount = options?.segments || 4;
   const totalDuration = options?.duration || 1200; // 20 minutes default
   const segmentDuration = totalDuration / segmentCount;
@@ -282,7 +280,9 @@ export async function collectSSEEvents(
       (async () => {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            break;
+          }
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split("\n");
@@ -323,7 +323,8 @@ export const assertions = {
     ];
 
     return (
-      validModels.includes(modelName) || modelName.includes("custom-") ||
+      validModels.includes(modelName) ||
+      modelName.includes("custom-") ||
       modelName.includes("gpt-") ||
       modelName.includes("claude-") ||
       modelName.includes("glm-") ||
@@ -345,9 +346,9 @@ export const assertions = {
     const triggers = Object.values(FALLBACK_TRIGGERS);
 
     return triggers.some(
-      trigger =>
+      (trigger) =>
         trigger.status === status ||
-        trigger.messages.some(msg =>
+        trigger.messages.some((msg) =>
           message.toLowerCase().includes(msg.toLowerCase())
         )
     );
@@ -485,7 +486,9 @@ export async function measureStreamingPerformance(
         while (true) {
           const { done, value } = await streamReader.read();
 
-          if (done) break;
+          if (done) {
+            break;
+          }
 
           const currentTime = performance.now();
 
@@ -524,9 +527,7 @@ export async function measureStreamingPerformance(
     lastChunkTime,
     chunkCount,
     totalCharacters,
-    estimatedTokens: estimateTokens(
-      events.join("")
-    ),
+    estimatedTokens: estimateTokens(events.join("")),
   };
 
   return { events, metrics };
@@ -577,14 +578,12 @@ export const benchmarks = {
       maxFirstTokenTime?: number;
     }
   ): Promise<{ result: T; metrics: PerformanceMetrics; passed: boolean }> {
-    const { result, metrics } = await measureLLMPerformance(
-      operation,
-      options
-    );
+    const { result, metrics } = await measureLLMPerformance(operation, options);
 
     let passed = true;
 
     if (options.maxLatency && metrics.totalTime > options.maxLatency) {
+      // eslint-disable-next-line no-console
       console.warn(
         `⚠️  ${name}: Latency ${metrics.totalTime.toFixed(0)}ms exceeds threshold ${options.maxLatency}ms`
       );
@@ -596,6 +595,7 @@ export const benchmarks = {
       metrics.tokensPerSecond &&
       metrics.tokensPerSecond < options.minTPS
     ) {
+      // eslint-disable-next-line no-console
       console.warn(
         `⚠️  ${name}: TPS ${metrics.tokensPerSecond.toFixed(1)} below threshold ${options.minTPS}`
       );
@@ -607,6 +607,7 @@ export const benchmarks = {
       metrics.timeToFirstToken &&
       metrics.timeToFirstToken > options.maxFirstTokenTime
     ) {
+      // eslint-disable-next-line no-console
       console.warn(
         `⚠️  ${name}: First token time ${metrics.timeToFirstToken.toFixed(0)}ms exceeds threshold ${options.maxFirstTokenTime}ms`
       );
@@ -652,8 +653,7 @@ export const benchmarks = {
     parts.push(`~Tokens: ${metrics.estimatedTokens}`);
 
     if (metrics.lastChunkTime > 0) {
-      const tps =
-        (metrics.estimatedTokens / metrics.lastChunkTime) * 1000;
+      const tps = (metrics.estimatedTokens / metrics.lastChunkTime) * 1000;
       parts.push(`TPS: ${tps.toFixed(1)}`);
     }
 

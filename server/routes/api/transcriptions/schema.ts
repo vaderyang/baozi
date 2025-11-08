@@ -5,6 +5,7 @@ export const TranscribeSchema = BaseSchema.extend({
   body: z.object({
     attachmentId: z.string().uuid(),
     documentId: z.string().uuid(),
+    autoSummary: z.boolean().optional(),
   }),
 });
 

@@ -71,6 +71,7 @@ class TranscriptionJobsStore {
     }>("/transcriptions.create", {
       attachmentId,
       documentId,
+      autoSummary: options?.autoSummary ?? false,
     });
 
     const job: TranscriptionJob = {
@@ -82,7 +83,7 @@ class TranscriptionJobsStore {
       result: null,
       attachmentId,
       sourceType: options?.sourceType,
-      autoSummary: options?.autoSummary,
+      autoSummary: options?.autoSummary ?? false,
     };
 
     runInAction(() => {
@@ -117,6 +118,7 @@ class TranscriptionJobsStore {
           this.jobs.set(jobId, {
             ...existingJob,
             ...response.data,
+            autoSummary: response.data.autoSummary ?? existingJob.autoSummary,
           });
 
           // Stop polling if job is in a terminal state
@@ -199,6 +201,8 @@ class TranscriptionJobsStore {
       error: null,
       result: null,
       attachmentId: oldJob.attachmentId,
+      sourceType: oldJob.sourceType,
+      autoSummary: oldJob.autoSummary,
     };
 
     runInAction(() => {

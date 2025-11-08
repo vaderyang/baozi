@@ -285,6 +285,7 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
             progress: Number.isFinite(progressPercent) ? progressPercent : 0,
             error: null,
             autoSummary: audioRecorder.autoGenerateSummary,
+            skipAttachmentLink: true,
           });
 
           const tr = state.tr.replaceWith(

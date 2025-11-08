@@ -54,6 +54,7 @@ export type TranscriptionMetadata = {
   markers?: Array<{ timestamp: number; label?: string }>;
   originalFilename?: string;
   sourceUrl?: string;
+  autoSummary?: boolean;
 };
 
 @Table({ tableName: "transcription_jobs", modelName: "transcription_job" })
