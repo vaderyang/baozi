@@ -78,6 +78,10 @@ export const TeamsUpdateSchema = BaseSchema.extend({
         aiFallbackModel: z.string().optional(),
         /** Audio transcription service endpoint URL. */
         transcriptionEndpoint: z.string().optional(),
+        /** Base URL for outbound LLM API requests. */
+        llmApiBaseUrl: z.string().optional(),
+        /** API key for outbound LLM API requests. */
+        llmApiKey: z.string().optional(),
       })
       .optional(),
   }),

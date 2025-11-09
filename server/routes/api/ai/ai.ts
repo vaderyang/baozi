@@ -30,13 +30,15 @@ router.post("ai.models", auth(), async (ctx: APIContext) => {
     ctx.throw(403, "Admin access required");
   }
 
-  const apiKey = envValue(
+  let apiKey = envValue(
     "LLM_API_KEY",
     "AI_API_KEY",
     "OPENAI_API_KEY",
     "OPENAI_KEY"
   );
-  const apiBase = envValue(
+
+  // Get API base URL from team preferences first, then fallback to environment
+  let apiBase = envValue(
     "LLM_API_BASE_URL",
     "LLM_API_BASE",
     "AI_API_BASE_URL",
@@ -46,9 +48,43 @@ router.post("ai.models", auth(), async (ctx: APIContext) => {
     "API_BASE"
   );
 
+  // Check team preferences for API key and base URL
+  const { Team } = await import("@server/models");
+  const { TeamPreference } = await import("@shared/types");
+  const team = await Team.findByPk(user.teamId);
+
+  if (team) {
+    const teamApiKey = team.getPreference(TeamPreference.LLM_API_KEY);
+    if (typeof teamApiKey === "string" && teamApiKey.trim()) {
+      apiKey = teamApiKey.trim();
+      Logger.info(
+        "utils",
+        "Using team-specific LLM API key for models endpoint",
+        {
+          teamId: user.teamId,
+        }
+      );
+    }
+
+    const teamApiBase = team.getPreference(TeamPreference.LLM_API_BASE_URL);
+    if (typeof teamApiBase === "string" && teamApiBase.trim()) {
+      apiBase = teamApiBase.trim();
+      Logger.info(
+        "utils",
+        "Using team-specific LLM API base URL for models endpoint",
+        {
+          teamId: user.teamId,
+          apiBase: apiBase.substring(0, 30) + "...",
+        }
+      );
+    }
+  }
+
   if (!apiKey || !apiBase) {
     ctx.throw(
-      InvalidRequestError("AI API configuration not found in environment")
+      InvalidRequestError(
+        "AI API configuration not found. Please check environment variables or team settings."
+      )
     );
   }
 
@@ -174,13 +210,13 @@ const getModelConfig = async (
     contextLength,
   });
 
-  const apiKey = envValue(
+  let apiKey = envValue(
     "LLM_API_KEY",
     "AI_API_KEY",
     "OPENAI_API_KEY",
     "OPENAI_KEY"
   );
-  const apiBase = envValue(
+  let apiBase = envValue(
     "LLM_API_BASE_URL",
     "LLM_API_BASE",
     "AI_API_BASE_URL",
@@ -206,6 +242,25 @@ const getModelConfig = async (
     const team = await Team.findByPk(teamId);
 
     if (team) {
+      // Get LLM API key from team preferences, fallback to environment
+      const teamApiKey = team.getPreference(TeamPreference.LLM_API_KEY);
+      if (typeof teamApiKey === "string" && teamApiKey.trim()) {
+        apiKey = teamApiKey.trim();
+        Logger.info("utils", "Using team-specific LLM API key", {
+          teamId,
+        });
+      }
+
+      // Get LLM API base URL from team preferences, fallback to environment
+      const teamApiBase = team.getPreference(TeamPreference.LLM_API_BASE_URL);
+      if (typeof teamApiBase === "string" && teamApiBase.trim()) {
+        apiBase = teamApiBase.trim();
+        Logger.info("utils", "Using team-specific LLM API base URL", {
+          teamId,
+          apiBase: apiBase.substring(0, 30) + "...",
+        });
+      }
+
       // Get universal fallback model (applies to both primary and task)
       const universalFallback = team.getPreference(
         TeamPreference.AiFallbackModel
@@ -2861,5 +2916,32 @@ router.post(
     };
   }
 );
+
+router.post("ai.defaultConfig", auth(), async (ctx: APIContext) => {
+  const { user } = ctx.state.auth;
+
+  // Check if user has permission to view AI settings
+  // Only admins can view AI configuration
+  if (user.role !== "admin") {
+    ctx.throw(403, "Admin access required");
+  }
+
+  // Get default API base URL from environment variables
+  const apiBase = envValue(
+    "LLM_API_BASE_URL",
+    "LLM_API_BASE",
+    "AI_API_BASE_URL",
+    "AI_API_BASE",
+    "OPENAI_API_BASE",
+    "OPENAI_API_BASE_URL",
+    "API_BASE"
+  );
+
+  ctx.body = {
+    data: {
+      defaultLlmApiBaseUrl: apiBase || "",
+    },
+  };
+});
 
 export default router;

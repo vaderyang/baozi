@@ -318,13 +318,13 @@ export default class AutoSummaryTask extends BaseTask<Props> {
    * Resolve AI model configuration for timeline generation.
    */
   private async getModelConfig(teamId: string, contextLength: number) {
-    const apiKey = this.envValue(
+    let apiKey = this.envValue(
       "LLM_API_KEY",
       "AI_API_KEY",
       "OPENAI_API_KEY",
       "OPENAI_KEY"
     );
-    const apiBase = this.envValue(
+    let apiBase = this.envValue(
       "LLM_API_BASE_URL",
       "LLM_API_BASE",
       "AI_API_BASE_URL",
@@ -341,6 +341,25 @@ export default class AutoSummaryTask extends BaseTask<Props> {
     const team = await Team.findByPk(teamId);
     if (!team) {
       throw new Error(`Team not found: ${teamId}`);
+    }
+
+    // Check team preferences for API key
+    const teamApiKey = team.getPreference(TeamPreference.LLM_API_KEY);
+    if (typeof teamApiKey === "string" && teamApiKey.trim()) {
+      apiKey = teamApiKey.trim();
+      Logger.info("task", "Using team-specific LLM API key", {
+        teamId,
+      });
+    }
+
+    // Check team preferences for API base URL
+    const teamApiBase = team.getPreference(TeamPreference.LLM_API_BASE_URL);
+    if (typeof teamApiBase === "string" && teamApiBase.trim()) {
+      apiBase = teamApiBase.trim();
+      Logger.info("task", "Using team-specific LLM API base URL", {
+        teamId,
+        apiBase: apiBase.substring(0, 30) + "...",
+      });
     }
 
     // Timeline summaries can be large, prefer primary model

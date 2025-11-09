@@ -322,6 +322,16 @@ export enum TeamPreference {
   AiFallbackModel = "aiFallbackModel",
   /** Audio transcription service endpoint URL. */
   TranscriptionEndpoint = "transcriptionEndpoint",
+  /** LLM API base URL for AI model requests. */
+  LLM_API_BASE_URL = "llmApiBaseUrl",
+  /** LLM API key for AI model requests. */
+  LLM_API_KEY = "llmApiKey",
+  /** Retention period in hours for 5-minute interval metrics. */
+  MonitoringRetention5Min = "monitoringRetention5Min",
+  /** Retention period in days for 1-hour interval metrics. */
+  MonitoringRetention1Hour = "monitoringRetention1Hour",
+  /** Retention period in days for 1-day interval metrics. */
+  MonitoringRetention1Day = "monitoringRetention1Day",
 }
 
 export type TeamPreferences = {
@@ -345,6 +355,11 @@ export type TeamPreferences = {
   [TeamPreference.AiTaskModel]?: string;
   [TeamPreference.AiFallbackModel]?: string;
   [TeamPreference.TranscriptionEndpoint]?: string;
+  [TeamPreference.LLM_API_BASE_URL]?: string;
+  [TeamPreference.LLM_API_KEY]?: string;
+  [TeamPreference.MonitoringRetention5Min]?: number;
+  [TeamPreference.MonitoringRetention1Hour]?: number;
+  [TeamPreference.MonitoringRetention1Day]?: number;
 };
 
 export enum NavigationNodeType {

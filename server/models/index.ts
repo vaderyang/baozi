@@ -60,6 +60,12 @@ export { default as TranscriptionJob } from "./TranscriptionJob";
 
 export { default as AISummaryJob } from "./AISummaryJob";
 
+export { default as HealthCheck } from "./HealthCheck";
+
+export { default as ServiceMetric } from "./ServiceMetric";
+
+export { default as FailedRequest } from "./FailedRequest";
+
 export { default as User } from "./User";
 
 export { default as UserAuthentication } from "./UserAuthentication";

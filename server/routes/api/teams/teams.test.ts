@@ -175,6 +175,26 @@ describe("#team.update", () => {
     expect(await TeamDomain.findByPk(existingTeamDomain.id)).toBeNull();
   });
 
+  it("should persist LLM API preferences", async () => {
+    const team = await buildTeam();
+    const admin = await buildAdmin({ teamId: team.id });
+
+    const res = await server.post("/api/team.update", {
+      body: {
+        token: admin.getJwtToken(),
+        preferences: {
+          llmApiBaseUrl: "https://example.com/v1",
+          llmApiKey: "sk-test",
+        },
+      },
+    });
+
+    const body = await res.json();
+    expect(res.status).toEqual(200);
+    expect(body.data.preferences.llmApiBaseUrl).toBe("https://example.com/v1");
+    expect(body.data.preferences.llmApiKey).toBe("sk-test");
+  });
+
   it("should only allow member,viewer or admin as default role", async () => {
     const admin = await buildAdmin();
     const res = await server.post("/api/team.update", {
