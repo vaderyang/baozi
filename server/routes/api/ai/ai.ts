@@ -15,6 +15,90 @@ import * as T from "./schema";
 
 const router = new Router();
 
+type StreamReader = {
+  read: () => Promise<{ done: boolean; value?: Uint8Array }>;
+  releaseLock: () => void;
+};
+
+const toUint8Array = (chunk: unknown): Uint8Array => {
+  if (!chunk) {
+    return new Uint8Array();
+  }
+
+  if (chunk instanceof Uint8Array) {
+    return chunk;
+  }
+
+  if (
+    typeof Buffer !== "undefined" &&
+    typeof Buffer.isBuffer === "function" &&
+    Buffer.isBuffer(chunk)
+  ) {
+    return chunk;
+  }
+
+  if (chunk instanceof ArrayBuffer) {
+    return new Uint8Array(chunk);
+  }
+
+  if (
+    typeof chunk === "object" &&
+    chunk !== null &&
+    "buffer" in (chunk as ArrayBufferView)
+  ) {
+    const view = chunk as ArrayBufferView;
+    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  }
+
+  if (typeof chunk === "string") {
+    return Buffer.from(chunk);
+  }
+
+  throw InvalidRequestError("Unsupported stream chunk received from provider");
+};
+
+const createStreamReader = (stream: unknown): StreamReader => {
+  if (
+    stream &&
+    typeof (stream as ReadableStream<Uint8Array>).getReader === "function"
+  ) {
+    return (stream as ReadableStream<Uint8Array>).getReader();
+  }
+
+  if (
+    stream &&
+    typeof (stream as AsyncIterable<unknown>)[Symbol.asyncIterator] ===
+      "function"
+  ) {
+    const iterator = (stream as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+    return {
+      async read() {
+        const { value, done } = await iterator.next();
+        if (done) {
+          return { done: true };
+        }
+        return {
+          done: false,
+          value: toUint8Array(value),
+        };
+      },
+      releaseLock() {
+        if (typeof iterator.return === "function") {
+          try {
+            iterator.return();
+          } catch (error) {
+            Logger.warn("Failed to release async iterator stream", {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      },
+    };
+  }
+
+  throw InvalidRequestError("AI provider returned an unsupported stream type");
+};
+
 type ModelInfo = {
   id: string;
   object: string;
@@ -1320,44 +1404,48 @@ Please provide a friendly response that:
           });
 
           if (response.ok && response.body) {
-            const reader = response.body.getReader();
+            const reader = createStreamReader(response.body);
             const decoder = new TextDecoder();
 
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) {
-                break;
-              }
-
-              const chunk = decoder.decode(value, { stream: true });
-              const lines = chunk.split("\n");
-
-              for (const line of lines) {
-                if (!line.trim() || !line.startsWith("data: ")) {
-                  continue;
-                }
-                if (line.includes("[DONE]")) {
-                  continue;
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                  break;
                 }
 
-                try {
-                  const data = JSON.parse(line.slice(6)) as {
-                    choices?: ChatCompletionChoice[];
-                  };
-                  const content = parseAiResponse(data.choices?.[0] || {});
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split("\n");
 
-                  if (content) {
-                    ctx.res.write(
-                      `data: ${JSON.stringify({
-                        type: "content",
-                        content,
-                      })}\n\n`
-                    );
+                for (const line of lines) {
+                  if (!line.trim() || !line.startsWith("data: ")) {
+                    continue;
                   }
-                } catch (_e) {
-                  // Skip invalid JSON
+                  if (line.includes("[DONE]")) {
+                    continue;
+                  }
+
+                  try {
+                    const data = JSON.parse(line.slice(6)) as {
+                      choices?: ChatCompletionChoice[];
+                    };
+                    const content = parseAiResponse(data.choices?.[0] || {});
+
+                    if (content) {
+                      ctx.res.write(
+                        `data: ${JSON.stringify({
+                          type: "content",
+                          content,
+                        })}\n\n`
+                      );
+                    }
+                  } catch (_e) {
+                    // Skip invalid JSON
+                  }
                 }
               }
+            } finally {
+              reader.releaseLock();
             }
           }
         } catch (error) {
@@ -1503,14 +1591,112 @@ ${strippedMarkdown}`;
           }
         );
 
-        ctx.body = {
-          data: {
-            answer:
-              "I found some documents related to your question, but you don't have permission to access them. Please contact your administrator if you believe you should have access.",
-            sources: [],
-            followups: [],
-          },
-        };
+        // Emit error event with permission denied message
+        ctx.res.write(
+          `data: ${JSON.stringify({
+            type: "error",
+            code: "permission_denied",
+            error:
+              "I found some documents related to your question, but you don't have permission to access them.",
+            suggestions: [
+              "Contact your administrator if you believe you should have access",
+              "Try searching for documents you have access to",
+              "Check your collection and document permissions",
+            ],
+          })}\n\n`
+        );
+
+        // Generate a helpful response
+        const permissionDeniedPrompt = `You are a helpful assistant. The user asked: "${query}"
+
+We found ${resultDocumentIds.length} documents that match the query, but the user doesn't have permission to access any of them.
+
+Please provide a friendly response that:
+1. MUST be in the same language as the user's question
+2. Explains that documents were found but they don't have access
+3. Suggests contacting their administrator for access
+4. Keep it concise (under 100 words)`;
+
+        try {
+          const trimmedBase = apiBase.replace(/\/$/, "");
+          const endpoint = /\/chat\/completions$/i.test(trimmedBase)
+            ? trimmedBase
+            : `${trimmedBase}/chat/completions`;
+
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+              "User-Agent": llmUserAgent,
+            },
+            body: JSON.stringify({
+              model,
+              messages: [
+                {
+                  role: "system",
+                  content: permissionDeniedPrompt,
+                },
+              ],
+              stream: true,
+            }),
+          });
+
+          if (response.ok && response.body) {
+            const reader = createStreamReader(response.body);
+            const decoder = new TextDecoder();
+
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                  break;
+                }
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split("\n");
+
+                for (const line of lines) {
+                  if (!line.trim() || !line.startsWith("data: ")) {
+                    continue;
+                  }
+                  if (line.includes("[DONE]")) {
+                    continue;
+                  }
+
+                  try {
+                    const data = JSON.parse(line.slice(6)) as {
+                      choices?: ChatCompletionChoice[];
+                    };
+                    const content = parseAiResponse(data.choices?.[0] || {});
+
+                    if (content) {
+                      ctx.res.write(
+                        `data: ${JSON.stringify({
+                          type: "content",
+                          content,
+                        })}\n\n`
+                      );
+                    }
+                  } catch (_e) {
+                    // Skip invalid JSON
+                  }
+                }
+              }
+            } finally {
+              reader.releaseLock();
+            }
+          }
+        } catch (error) {
+          Logger.error(
+            "Failed to generate permission denied response",
+            error instanceof Error ? error : new Error(String(error)),
+            { query, userId: user.id }
+          );
+        }
+
+        ctx.res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+        ctx.res.end();
         return;
       }
 
@@ -1727,7 +1913,7 @@ CRITICAL RULES:
       );
 
       // Stream the answer and collect it for follow-up generation
-      const reader = result.stream.getReader();
+      const reader = createStreamReader(result.stream);
       const decoder = new TextDecoder();
       let buffer = "";
       let fullAnswer = "";
@@ -1869,6 +2055,8 @@ CRITICAL RULES:
           `data: ${JSON.stringify({ type: "error", error: "Stream processing failed" })}\n\n`
         );
         ctx.res.end();
+      } finally {
+        reader.releaseLock();
       }
     } catch (error: unknown) {
       const wrappedError =
@@ -2228,7 +2416,7 @@ ${context}`;
       );
 
       // Stream the answer
-      const reader = result.stream.getReader();
+      const reader = createStreamReader(result.stream);
       const decoder = new TextDecoder();
       let buffer = "";
 
@@ -2286,6 +2474,8 @@ ${context}`;
           `data: ${JSON.stringify({ type: "error", error: "Stream processing failed" })}\n\n`
         );
         ctx.res.end();
+      } finally {
+        reader.releaseLock();
       }
     } catch (error: unknown) {
       const wrappedError =
