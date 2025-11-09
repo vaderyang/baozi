@@ -17,6 +17,57 @@ import { TranscriptionJob } from "@server/models";
 import { TranscriptionJobStatus } from "@server/models/TranscriptionJob";
 import TranscriptionTask from "@server/queues/tasks/TranscriptionTask";
 
+const LOG_PREVIEW_BYTES = 100;
+
+const truncateToBytes = (value: string, maxBytes: number): string => {
+  const buffer = Buffer.from(value);
+  if (buffer.byteLength <= maxBytes) {
+    return value;
+  }
+  return buffer.subarray(0, maxBytes).toString();
+};
+
+const sanitizeEventForLogging = (event: Event): Event => {
+  if (event.name !== "transcription:status" || !event.data) {
+    return event;
+  }
+
+  if (typeof event.data !== "object") {
+    return event;
+  }
+
+  const data = event.data as Record<string, unknown>;
+  const result = data.result as
+    | {
+        text?: string;
+        speakerSegments?: unknown[];
+      }
+    | undefined;
+
+  const sanitizedResult =
+    result && typeof result === "object"
+      ? {
+          textPreview:
+            typeof result.text === "string"
+              ? truncateToBytes(result.text, LOG_PREVIEW_BYTES)
+              : undefined,
+          textLength:
+            typeof result.text === "string" ? result.text.length : undefined,
+          speakerSegmentCount: Array.isArray(result.speakerSegments)
+            ? result.speakerSegments.length
+            : undefined,
+        }
+      : undefined;
+
+  return {
+    ...event,
+    data: {
+      ...data,
+      ...(sanitizedResult ? { result: sanitizedResult } : {}),
+    },
+  };
+};
+
 /**
  * Resume incomplete transcription jobs that were interrupted by server restart.
  * Finds jobs in 'processing' state, updates them to 'queued', and re-schedules them.
@@ -60,14 +111,10 @@ async function resumeIncompleteTranscriptionJobs() {
           documentId: job.documentId,
         });
       } catch (error) {
-        Logger.error(
-          "Failed to resume transcription job",
-          error as Error,
-          {
-            jobId: job.id,
-            documentId: job.documentId,
-          }
-        );
+        Logger.error("Failed to resume transcription job", error as Error, {
+          jobId: job.id,
+          documentId: job.documentId,
+        });
       }
     }
   } catch (error) {
@@ -98,8 +145,10 @@ export default async function init() {
 
         setResource(`Event.${event.name}`);
 
+        const logEvent = sanitizeEventForLogging(event);
+
         Logger.info("worker", `Processing ${event.name}`, {
-          event,
+          event: logEvent,
           attempt: job.attemptsMade,
         });
 
@@ -130,7 +179,7 @@ export default async function init() {
             Logger.error(
               `Error adding ${event.name} to ${name} queue`,
               error,
-              event
+              logEvent
             );
             err = error;
           }
@@ -170,9 +219,11 @@ export default async function init() {
         // @ts-expect-error We will not instantiate an abstract class
         const processor = new ProcessorClass();
 
+        const logEvent = sanitizeEventForLogging(event);
+
         if (processor.perform) {
           Logger.info("worker", `${name} running ${event.name}`, {
-            event,
+            event: logEvent,
           });
 
           try {
@@ -186,7 +237,7 @@ export default async function init() {
             Logger.error(
               `Error processing ${event.name} in ${name}`,
               err,
-              event
+              logEvent
             );
             throw err;
           }
