@@ -27,17 +27,17 @@ interface AnalyzeTranscriptParams {
  */
 class AIArchiveSuggestionService {
   /**
-   * Get AI API configuration from environment
+   * Get AI API configuration from environment and team preferences
    * Uses Task model for lightweight operations (title generation, topic extraction, etc.)
    */
-  private static getAIConfig() {
-    const apiKey = this.envValue(
+  private static async getAIConfig(teamId?: string) {
+    let apiKey = this.envValue(
       "LLM_API_KEY",
       "AI_API_KEY",
       "OPENAI_API_KEY",
       "OPENAI_KEY"
     );
-    const apiBase = this.envValue(
+    let apiBase = this.envValue(
       "LLM_API_BASE_URL",
       "LLM_API_BASE",
       "AI_API_BASE_URL",
@@ -46,6 +46,41 @@ class AIArchiveSuggestionService {
       "OPENAI_API_BASE_URL",
       "API_BASE"
     );
+
+    // Check team preferences for API key and base URL if teamId provided
+    if (teamId) {
+      const { Team } = await import("@server/models");
+      const { TeamPreference } = await import("@shared/types");
+      const team = await Team.findByPk(teamId);
+
+      if (team) {
+        const teamApiKey = team.getPreference(TeamPreference.LLM_API_KEY);
+        if (typeof teamApiKey === "string" && teamApiKey.trim()) {
+          apiKey = teamApiKey.trim();
+          Logger.info(
+            "AIArchiveSuggestionService",
+            "Using team-specific LLM API key",
+            {
+              teamId,
+            }
+          );
+        }
+
+        const teamApiBase = team.getPreference(TeamPreference.LLM_API_BASE_URL);
+        if (typeof teamApiBase === "string" && teamApiBase.trim()) {
+          apiBase = teamApiBase.trim();
+          Logger.info(
+            "AIArchiveSuggestionService",
+            "Using team-specific LLM API base URL",
+            {
+              teamId,
+              apiBase: apiBase.substring(0, 30) + "...",
+            }
+          );
+        }
+      }
+    }
+
     // Use Task model for lightweight, frequent operations
     const model =
       this.envValue(
@@ -118,12 +153,16 @@ class AIArchiveSuggestionService {
       max_tokens: 1000,
     });
 
-    Logger.llmRequest("AIArchiveSuggestionService", "Archive suggestion LLM request", {
-      model,
-      endpoint,
-      requestLength: requestBody.length,
-      promptLength: prompt.length,
-    });
+    Logger.llmRequest(
+      "AIArchiveSuggestionService",
+      "Archive suggestion LLM request",
+      {
+        model,
+        endpoint,
+        requestLength: requestBody.length,
+        promptLength: prompt.length,
+      }
+    );
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -165,17 +204,17 @@ class AIArchiveSuggestionService {
     });
 
     try {
-      // Get AI configuration
-      const { apiKey, apiBase, model } = this.getAIConfig();
-
-      if (!apiKey || !apiBase || !model) {
-        throw new Error("AI configuration is incomplete");
-      }
-
-      // Get user and their collections
+      // Get user first to access teamId
       const user = await User.findByPk(userId);
       if (!user) {
         throw new Error("User not found");
+      }
+
+      // Get AI configuration with team preferences
+      const { apiKey, apiBase, model } = await this.getAIConfig(user.teamId);
+
+      if (!apiKey || !apiBase || !model) {
+        throw new Error("AI configuration is incomplete");
       }
 
       // Get user's collections

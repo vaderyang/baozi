@@ -1,9 +1,10 @@
 import { observer } from "mobx-react";
-import { SparklesIcon } from "outline-icons";
+import { SparklesIcon, RestoreIcon } from "outline-icons";
 import * as React from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { TeamPreference, TeamPreferences } from "@shared/types";
+import Button from "~/components/Button";
 import Heading from "~/components/Heading";
 import Input from "~/components/Input";
 import { InputSelect, Option } from "~/components/InputSelect";
@@ -20,6 +21,12 @@ function AI() {
   const [availableModels, setAvailableModels] = React.useState<string[]>([]);
   const [loadingModels, setLoadingModels] = React.useState(false);
   const [modelsError, setModelsError] = React.useState<string | null>(null);
+  const [defaultLlmApiBaseUrl, setDefaultLlmApiBaseUrl] =
+    React.useState<string>("");
+  const [currentApiBaseUrlValue, setCurrentApiBaseUrlValue] =
+    React.useState<string>("");
+  const [currentApiKeyValue, setCurrentApiKeyValue] =
+    React.useState<string>("");
 
   // Read values directly from team preferences (MobX will handle reactivity)
   const primaryModel =
@@ -27,8 +34,7 @@ function AI() {
     (team.getPreference(TeamPreference.AiSearchModel) as string) ||
     "__default__";
   const taskModel =
-    (team.getPreference(TeamPreference.AiTaskModel) as string) ||
-    "__default__";
+    (team.getPreference(TeamPreference.AiTaskModel) as string) || "__default__";
   const fallbackModel =
     (team.getPreference(TeamPreference.AiFallbackModel) as string) ||
     "__default__";
@@ -38,51 +44,25 @@ function AI() {
   const transcriptionEndpoint =
     (team.getPreference(TeamPreference.TranscriptionEndpoint) as string) || "";
 
-  // Fetch available models from the backend API
+  // Get the team preference values (may be undefined if not set)
+  const llmApiBaseUrl = team.getPreference(TeamPreference.LLM_API_BASE_URL) as
+    | string
+    | undefined;
+  const llmApiKey = team.getPreference(TeamPreference.LLM_API_KEY) as
+    | string
+    | undefined;
+
+  // Initialize and sync input values with team preferences
   React.useEffect(() => {
-    let cancelled = false;
+    // Always sync with team preferences on mount or when they change
+    setCurrentApiBaseUrlValue(llmApiBaseUrl || defaultLlmApiBaseUrl || "");
+  }, [llmApiBaseUrl, defaultLlmApiBaseUrl]);
 
-    const fetchModels = async () => {
-      setLoadingModels(true);
-      setModelsError(null);
+  React.useEffect(() => {
+    setCurrentApiKeyValue(llmApiKey || "");
+  }, [llmApiKey]);
 
-      try {
-        const response = await client.post("/ai.models");
-
-        if (cancelled) {
-          return;
-        }
-
-        const modelsResponse = response?.data?.models;
-        if (Array.isArray(modelsResponse)) {
-          const modelIds = modelsResponse
-            .map((model: { id?: string | null }) => model.id)
-            .filter((id: string | undefined | null): id is string => !!id)
-            .sort();
-          setAvailableModels(modelIds);
-        } else {
-          throw new Error("Invalid response format from models API");
-        }
-      } catch (error) {
-        if (!cancelled) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          setModelsError(errorMessage);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingModels(false);
-        }
-      }
-    };
-
-    void fetchModels();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+  // Save handler for team preferences
   const handleSave = React.useCallback(
     async (updates: Partial<TeamPreferences>) => {
       // Convert __default__ back to undefined for storage
@@ -92,6 +72,7 @@ function AI() {
           return undefined;
         }
         // For string preferences, empty string should be saved as undefined
+        // This allows the system to fall back to environment defaults
         if (typeof val === "string" && val.trim() === "") {
           return undefined;
         }
@@ -113,6 +94,87 @@ function AI() {
     },
     [team, t]
   );
+
+  // Fetch available models from the backend API
+  const fetchModels = React.useCallback(async () => {
+    setLoadingModels(true);
+    setModelsError(null);
+
+    try {
+      const response = await client.post("/ai.models");
+
+      const modelsResponse = response?.data?.models;
+      if (Array.isArray(modelsResponse)) {
+        const modelIds = modelsResponse
+          .map((model: { id?: string | null }) => model.id)
+          .filter((id: string | undefined | null): id is string => !!id)
+          .sort();
+        setAvailableModels(modelIds);
+
+        // Show success message
+        toast.success(
+          t("Successfully fetched {{count}} models", { count: modelIds.length })
+        );
+      } else {
+        throw new Error("Invalid response format from models API");
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      setModelsError(errorMessage);
+
+      // Show error toast with helpful message
+      toast.error(
+        t("Failed to fetch models: {{error}}", { error: errorMessage })
+      );
+    } finally {
+      setLoadingModels(false);
+    }
+  }, [t]);
+
+  // Save current input values and then fetch models
+  const handleRefreshModels = React.useCallback(async () => {
+    // First save any pending changes to the server
+    await handleSave({
+      [TeamPreference.LLM_API_KEY]: currentApiKeyValue,
+      [TeamPreference.LLM_API_BASE_URL]: currentApiBaseUrlValue,
+    });
+
+    // Then fetch models with the new credentials
+    await fetchModels();
+  }, [currentApiKeyValue, currentApiBaseUrlValue, handleSave, fetchModels]);
+
+  // Fetch models on mount
+  React.useEffect(() => {
+    void fetchModels();
+  }, [fetchModels]);
+
+  // Fetch default LLM API base URL from the backend
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const fetchDefaultConfig = async () => {
+      try {
+        const response = await client.post("/ai.defaultConfig");
+
+        if (cancelled) {
+          return;
+        }
+
+        if (response?.data?.defaultLlmApiBaseUrl) {
+          setDefaultLlmApiBaseUrl(response.data.defaultLlmApiBaseUrl);
+        }
+      } catch {
+        // Silently fail - default config is optional
+      }
+    };
+
+    void fetchDefaultConfig();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const modelOptions: Option[] = React.useMemo(() => {
     const options: Option[] = [
@@ -158,30 +220,17 @@ function AI() {
       <Heading>{t("AI")}</Heading>
       <Text as="p" type="secondary">
         <Trans>
-          Configure AI model settings using a three-tier system: Primary model for
-          heavy-duty tasks, Task model for lightweight operations, and Fallback model
-          as a universal backup.
+          Configure AI model settings using a three-tier system: Primary model
+          for heavy-duty tasks, Task model for lightweight operations, and
+          Fallback model as a universal backup.
         </Trans>
       </Text>
-
-      {modelsError && (
-        <Text as="p" type="secondary">
-          {t("Could not load models from API")}: {modelsError}
-          <br />
-          {t("You can still manually enter model names below.")}
-        </Text>
-      )}
-      {loadingModels && (
-        <Text as="p" type="secondary">
-          {t("Loading available models...")}
-        </Text>
-      )}
 
       <Heading as="h2">{t("Primary Model")}</Heading>
       <Text as="p" type="secondary">
         <Trans>
-          Used for heavy-duty AI tasks: AI Summary Generation, Generate Text, AI Ask,
-          and Search (AI Answer). Default: zai-glm-4.6
+          Used for heavy-duty AI tasks: AI Summary Generation, Generate Text, AI
+          Ask, and Search (AI Answer). Default: zai-glm-4.6
         </Trans>
       </Text>
       <SettingRow
@@ -211,8 +260,9 @@ function AI() {
       <Heading as="h2">{t("Task Model")}</Heading>
       <Text as="p" type="secondary">
         <Trans>
-          Used for lightweight, frequent operations: title generation, transcript
-          time-segment summaries, and AI Suggestions. Default: qwen3-30b-a3b-instruct
+          Used for lightweight, frequent operations: title generation,
+          transcript time-segment summaries, and AI Suggestions. Default:
+          qwen3-30b-a3b-instruct
         </Trans>
       </Text>
       <SettingRow
@@ -268,9 +318,7 @@ function AI() {
 
       <Heading as="h2">{t("Vision")}</Heading>
       <Text as="p" type="secondary">
-        <Trans>
-          Specialized model for image analysis and vision tasks.
-        </Trans>
+        <Trans>Specialized model for image analysis and vision tasks.</Trans>
       </Text>
       <SettingRow
         label={t("Vision model")}
@@ -318,6 +366,87 @@ function AI() {
           }}
           placeholder="http://v.netis.com.cn:13000/transcribe"
         />
+      </SettingRow>
+
+      <Heading as="h2">{t("LLM API Configuration")}</Heading>
+      <Text as="p" type="secondary">
+        <Trans>
+          Configure your LLM API credentials. After setting or updating these
+          values, use the "Refresh Models" button to verify the connection and
+          load available models.
+        </Trans>
+      </Text>
+
+      <SettingRow
+        label={t("LLM API key")}
+        name="llmApiKey"
+        description={t(
+          "API key for LLM API requests. Clear to use environment default."
+        )}
+      >
+        <Input
+          type="password"
+          value={currentApiKeyValue}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+            setCurrentApiKeyValue(e.target.value);
+          }}
+          onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
+            void handleSave({
+              [TeamPreference.LLM_API_KEY]: e.target.value,
+            });
+          }}
+          placeholder="sk-..."
+        />
+      </SettingRow>
+      <SettingRow
+        label={t("LLM API base URL")}
+        name="llmApiBaseUrl"
+        description={t(
+          "Base URL for LLM API requests. Clear to use environment default."
+        )}
+      >
+        <Input
+          value={currentApiBaseUrlValue}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+            setCurrentApiBaseUrlValue(e.target.value);
+          }}
+          onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
+            void handleSave({
+              [TeamPreference.LLM_API_BASE_URL]: e.target.value,
+            });
+          }}
+          placeholder={defaultLlmApiBaseUrl || "https://api.openai.com/v1"}
+        />
+      </SettingRow>
+
+      <SettingRow
+        label={t("Model list")}
+        name="modelListRefresh"
+        description={t(
+          "Fetch the list of available models from your LLM API to verify your credentials are correct."
+        )}
+        border={false}
+      >
+        <Button
+          type="button"
+          onClick={handleRefreshModels}
+          disabled={loadingModels}
+          icon={<RestoreIcon />}
+          neutral
+        >
+          {loadingModels ? t("Fetching...") : t("Refresh Models")}
+        </Button>
+        {!loadingModels && availableModels.length > 0 && !modelsError && (
+          <Text as="span" type="secondary" style={{ marginLeft: "12px" }}>
+            ✓{" "}
+            {t("{{count}} models available", { count: availableModels.length })}
+          </Text>
+        )}
+        {!loadingModels && modelsError && (
+          <Text as="span" type="danger" style={{ marginLeft: "12px" }}>
+            ✗ {t("Failed to fetch models")}
+          </Text>
+        )}
       </SettingRow>
     </Scene>
   );

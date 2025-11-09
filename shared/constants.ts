@@ -42,6 +42,11 @@ export const TeamPreferenceDefaults: TeamPreferences = {
   [TeamPreference.AiTaskModel]: undefined,
   [TeamPreference.AiFallbackModel]: undefined,
   [TeamPreference.TranscriptionEndpoint]: undefined,
+  [TeamPreference.LLM_API_BASE_URL]: undefined,
+  [TeamPreference.LLM_API_KEY]: undefined,
+  [TeamPreference.MonitoringRetention5Min]: 24,
+  [TeamPreference.MonitoringRetention1Hour]: 7,
+  [TeamPreference.MonitoringRetention1Day]: 365,
 };
 
 export const UserPreferenceDefaults: UserPreferences = {
