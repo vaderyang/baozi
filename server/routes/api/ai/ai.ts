@@ -15,6 +15,90 @@ import * as T from "./schema";
 
 const router = new Router();
 
+type StreamReader = {
+  read: () => Promise<{ done: boolean; value?: Uint8Array }>;
+  releaseLock: () => void;
+};
+
+const toUint8Array = (chunk: unknown): Uint8Array => {
+  if (!chunk) {
+    return new Uint8Array();
+  }
+
+  if (chunk instanceof Uint8Array) {
+    return chunk;
+  }
+
+  if (
+    typeof Buffer !== "undefined" &&
+    typeof Buffer.isBuffer === "function" &&
+    Buffer.isBuffer(chunk)
+  ) {
+    return chunk;
+  }
+
+  if (chunk instanceof ArrayBuffer) {
+    return new Uint8Array(chunk);
+  }
+
+  if (
+    typeof chunk === "object" &&
+    chunk !== null &&
+    "buffer" in (chunk as ArrayBufferView)
+  ) {
+    const view = chunk as ArrayBufferView;
+    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  }
+
+  if (typeof chunk === "string") {
+    return Buffer.from(chunk);
+  }
+
+  throw InvalidRequestError("Unsupported stream chunk received from provider");
+};
+
+const createStreamReader = (stream: unknown): StreamReader => {
+  if (
+    stream &&
+    typeof (stream as ReadableStream<Uint8Array>).getReader === "function"
+  ) {
+    return (stream as ReadableStream<Uint8Array>).getReader();
+  }
+
+  if (
+    stream &&
+    typeof (stream as AsyncIterable<unknown>)[Symbol.asyncIterator] ===
+      "function"
+  ) {
+    const iterator = (stream as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+    return {
+      async read() {
+        const { value, done } = await iterator.next();
+        if (done) {
+          return { done: true };
+        }
+        return {
+          done: false,
+          value: toUint8Array(value),
+        };
+      },
+      releaseLock() {
+        if (typeof iterator.return === "function") {
+          try {
+            iterator.return();
+          } catch (error) {
+            Logger.warn("Failed to release async iterator stream", {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      },
+    };
+  }
+
+  throw InvalidRequestError("AI provider returned an unsupported stream type");
+};
+
 type ModelInfo = {
   id: string;
   object: string;
@@ -1320,44 +1404,48 @@ Please provide a friendly response that:
           });
 
           if (response.ok && response.body) {
-            const reader = response.body.getReader();
+            const reader = createStreamReader(response.body);
             const decoder = new TextDecoder();
 
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) {
-                break;
-              }
-
-              const chunk = decoder.decode(value, { stream: true });
-              const lines = chunk.split("\n");
-
-              for (const line of lines) {
-                if (!line.trim() || !line.startsWith("data: ")) {
-                  continue;
-                }
-                if (line.includes("[DONE]")) {
-                  continue;
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                  break;
                 }
 
-                try {
-                  const data = JSON.parse(line.slice(6)) as {
-                    choices?: ChatCompletionChoice[];
-                  };
-                  const content = parseAiResponse(data.choices?.[0] || {});
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split("\n");
 
-                  if (content) {
-                    ctx.res.write(
-                      `data: ${JSON.stringify({
-                        type: "content",
-                        content,
-                      })}\n\n`
-                    );
+                for (const line of lines) {
+                  if (!line.trim() || !line.startsWith("data: ")) {
+                    continue;
                   }
-                } catch (_e) {
-                  // Skip invalid JSON
+                  if (line.includes("[DONE]")) {
+                    continue;
+                  }
+
+                  try {
+                    const data = JSON.parse(line.slice(6)) as {
+                      choices?: ChatCompletionChoice[];
+                    };
+                    const content = parseAiResponse(data.choices?.[0] || {});
+
+                    if (content) {
+                      ctx.res.write(
+                        `data: ${JSON.stringify({
+                          type: "content",
+                          content,
+                        })}\n\n`
+                      );
+                    }
+                  } catch (_e) {
+                    // Skip invalid JSON
+                  }
                 }
               }
+            } finally {
+              reader.releaseLock();
             }
           }
         } catch (error) {
@@ -1555,44 +1643,48 @@ Please provide a friendly response that:
           });
 
           if (response.ok && response.body) {
-            const reader = response.body.getReader();
+            const reader = createStreamReader(response.body);
             const decoder = new TextDecoder();
 
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) {
-                break;
-              }
-
-              const chunk = decoder.decode(value, { stream: true });
-              const lines = chunk.split("\n");
-
-              for (const line of lines) {
-                if (!line.trim() || !line.startsWith("data: ")) {
-                  continue;
-                }
-                if (line.includes("[DONE]")) {
-                  continue;
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                  break;
                 }
 
-                try {
-                  const data = JSON.parse(line.slice(6)) as {
-                    choices?: ChatCompletionChoice[];
-                  };
-                  const content = parseAiResponse(data.choices?.[0] || {});
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split("\n");
 
-                  if (content) {
-                    ctx.res.write(
-                      `data: ${JSON.stringify({
-                        type: "content",
-                        content,
-                      })}\n\n`
-                    );
+                for (const line of lines) {
+                  if (!line.trim() || !line.startsWith("data: ")) {
+                    continue;
                   }
-                } catch (_e) {
-                  // Skip invalid JSON
+                  if (line.includes("[DONE]")) {
+                    continue;
+                  }
+
+                  try {
+                    const data = JSON.parse(line.slice(6)) as {
+                      choices?: ChatCompletionChoice[];
+                    };
+                    const content = parseAiResponse(data.choices?.[0] || {});
+
+                    if (content) {
+                      ctx.res.write(
+                        `data: ${JSON.stringify({
+                          type: "content",
+                          content,
+                        })}\n\n`
+                      );
+                    }
+                  } catch (_e) {
+                    // Skip invalid JSON
+                  }
                 }
               }
+            } finally {
+              reader.releaseLock();
             }
           }
         } catch (error) {
@@ -1821,7 +1913,7 @@ CRITICAL RULES:
       );
 
       // Stream the answer and collect it for follow-up generation
-      const reader = result.stream.getReader();
+      const reader = createStreamReader(result.stream);
       const decoder = new TextDecoder();
       let buffer = "";
       let fullAnswer = "";
@@ -1963,6 +2055,8 @@ CRITICAL RULES:
           `data: ${JSON.stringify({ type: "error", error: "Stream processing failed" })}\n\n`
         );
         ctx.res.end();
+      } finally {
+        reader.releaseLock();
       }
     } catch (error: unknown) {
       const wrappedError =
@@ -2322,7 +2416,7 @@ ${context}`;
       );
 
       // Stream the answer
-      const reader = result.stream.getReader();
+      const reader = createStreamReader(result.stream);
       const decoder = new TextDecoder();
       let buffer = "";
 
@@ -2380,6 +2474,8 @@ ${context}`;
           `data: ${JSON.stringify({ type: "error", error: "Stream processing failed" })}\n\n`
         );
         ctx.res.end();
+      } finally {
+        reader.releaseLock();
       }
     } catch (error: unknown) {
       const wrappedError =
