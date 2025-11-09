@@ -20,6 +20,10 @@ function AIAsk() {
 
   const handleSubmit = React.useCallback(
     async (question: string) => {
+      if (!question || !question.trim()) {
+        return;
+      }
+
       try {
         // Navigate to results page immediately
         setShowResults(true);
@@ -127,25 +131,34 @@ function AIAsk() {
                 </ExampleTitle>
                 <ExampleList>
                   <ExampleItem
-                    onClick={() =>
-                      handleSubmit(t("What are our company values?"))
-                    }
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void handleSubmit(t("What are our company values?"));
+                    }}
                   >
                     {t("What are our company values?")}
                   </ExampleItem>
                   <ExampleItem
-                    onClick={() =>
-                      handleSubmit(t("How do I submit a vacation request?"))
-                    }
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void handleSubmit(t("What about DNS protocol?"));
+                    }}
                   >
-                    {t("How do I submit a vacation request?")}
+                    {t("What about DNS protocol?")}
                   </ExampleItem>
                   <ExampleItem
-                    onClick={() =>
-                      handleSubmit(t("What's our product roadmap?"))
-                    }
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void handleSubmit(t("What's tcp handshake?"));
+                    }}
                   >
-                    {t("What's our product roadmap?")}
+                    {t("What's tcp handshake?")}
                   </ExampleItem>
                 </ExampleList>
               </ExampleQuestions>
@@ -326,11 +339,17 @@ const ExampleItem = styled.button`
   text-align: left;
   width: 100%;
   max-width: 400px;
+  position: relative;
+  z-index: 1;
 
   &:hover {
     background: ${s("listItemHoverBackground")};
     border-color: ${s("inputBorder")};
     color: ${s("text")};
+  }
+
+  &:active {
+    transform: translateY(1px);
   }
 
   ${breakpoint("tablet")`
