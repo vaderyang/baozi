@@ -5,6 +5,7 @@ import { Team } from "@server/models";
 import auth from "@server/middlewares/authentication";
 import { APIContext } from "@server/types";
 import { sequelize } from "@server/storage/database";
+import fetch, { llmUserAgent } from "@server/utils/fetch";
 
 type ModelRole =
   | "primary"
@@ -115,6 +116,7 @@ async function checkLLMModel(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        "User-Agent": llmUserAgent,
       },
       body: JSON.stringify({
         model: modelName,
@@ -297,7 +299,8 @@ async function checkLLMModels(team?: Team | null): Promise<ModelHealth[]> {
  */
 async function checkASR(team?: Team | null): Promise<ServiceHealth> {
   const startTime = Date.now();
-  const teamEndpoint = team?.preferences?.[TeamPreference.TranscriptionEndpoint];
+  const teamEndpoint =
+    team?.preferences?.[TeamPreference.TranscriptionEndpoint];
   const endpoint = teamEndpoint || env.TRANSCRIPTION_ENDPOINT;
 
   if (!endpoint) {

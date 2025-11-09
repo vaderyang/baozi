@@ -33,6 +33,11 @@ export const outlineUserAgent = `Outline-${
 }`;
 
 /**
+ * User agent string required for all outbound LLM calls.
+ */
+export const llmUserAgent = "Claude Code CLI";
+
+/**
  * Fake Chrome user agent string for use in fetch requests to
  * improve reliability.
  */

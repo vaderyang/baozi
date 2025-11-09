@@ -2,7 +2,7 @@ import env from "@server/env";
 import Logger from "@server/logging/Logger";
 import { Team, TranscriptionJob } from "@server/models";
 import { TeamPreference } from "@shared/types";
-import fetch from "@server/utils/fetch";
+import fetch, { llmUserAgent } from "@server/utils/fetch";
 import parseAiResponse from "@server/utils/parseAiResponse";
 import BaseTask, { TaskPriority } from "./BaseTask";
 
@@ -395,6 +395,7 @@ export default class AutoSummaryTask extends BaseTask<Props> {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        "User-Agent": llmUserAgent,
       },
       body: JSON.stringify({
         model,

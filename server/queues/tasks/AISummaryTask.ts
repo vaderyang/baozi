@@ -254,13 +254,16 @@ export default class AISummaryTask extends BaseTask<Props> {
     model: string,
     messages: Array<{ role: string; content: string }>
   ): Promise<string> {
-    const fetch = (await import("@server/utils/fetch")).default;
+    const { default: fetch, llmUserAgent } = await import(
+      "@server/utils/fetch"
+    );
 
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        "User-Agent": llmUserAgent,
       },
       body: JSON.stringify({
         model,

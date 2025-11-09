@@ -10,6 +10,7 @@ import { DateFilter, StatusFilter } from "@shared/types";
 import parseAiResponse, {
   ChatCompletionChoice,
 } from "@server/utils/parseAiResponse";
+import fetch, { llmUserAgent } from "@server/utils/fetch";
 import * as T from "./schema";
 
 const router = new Router();
@@ -102,6 +103,7 @@ router.post("ai.models", auth(), async (ctx: APIContext) => {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        "User-Agent": llmUserAgent,
       },
     });
 
@@ -506,6 +508,7 @@ WRONG Examples (long sentence - DO NOT DO THIS):
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
+        "User-Agent": llmUserAgent,
       },
       body: requestBody,
     });
@@ -896,6 +899,7 @@ Referenced Documents: ${sources.map((s) => s.title).join(", ")}`;
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
+        "User-Agent": llmUserAgent,
       },
       body: requestBody,
     });
@@ -1301,6 +1305,7 @@ Please provide a friendly response that:
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${apiKey}`,
+              "User-Agent": llmUserAgent,
             },
             body: JSON.stringify({
               model,
@@ -1627,6 +1632,7 @@ CRITICAL RULES:
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${apiKey}`,
+            "User-Agent": llmUserAgent,
           },
           body: requestBody,
         });
@@ -2136,6 +2142,7 @@ ${context}`;
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${apiKey}`,
+            "User-Agent": llmUserAgent,
           },
           body: requestBody,
         });
@@ -2660,6 +2667,7 @@ router.post(
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${apiKey}`,
+            "User-Agent": llmUserAgent,
           },
           body: requestBody,
         });
