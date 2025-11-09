@@ -88,13 +88,48 @@ export default class Attachment extends Node {
   component = (props: ComponentProps) => {
     const { isSelected, isEditable, theme, node } = props;
 
-    // Check if the file is an audio file
+    // Check if the file is an audio or video file
+    // Videos can be transcribed by extracting their audio track
+    let isAudioOrVideo = false;
+    if (node.attrs.contentType) {
+      isAudioOrVideo =
+        FileHelper.isAudio(node.attrs.contentType) ||
+        FileHelper.isVideo(node.attrs.contentType);
+    }
+
+    // Fallback: Check by file extension if contentType doesn't indicate audio/video
+    if (!isAudioOrVideo && node.attrs.title) {
+      const fileName = node.attrs.title.toLowerCase();
+      const audioVideoExtensions = [
+        // Audio formats
+        ".mp3",
+        ".wav",
+        ".m4a",
+        ".ogg",
+        ".opus",
+        ".flac",
+        ".aac",
+        ".wma",
+        ".webm",
+        // Video formats
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".mkv",
+        ".wmv",
+        ".flv",
+        ".m4v",
+      ];
+      isAudioOrVideo = audioVideoExtensions.some((ext) =>
+        fileName.endsWith(ext)
+      );
+    }
+
+    // Only show audio player for audio files (not videos)
     let isAudio = false;
     if (node.attrs.contentType) {
       isAudio = FileHelper.isAudio(node.attrs.contentType);
     }
-
-    // Fallback: Check by file extension if contentType doesn't indicate audio
     if (!isAudio && node.attrs.title) {
       const fileName = node.attrs.title.toLowerCase();
       const audioExtensions = [
@@ -106,7 +141,6 @@ export default class Attachment extends Node {
         ".flac",
         ".aac",
         ".wma",
-        ".webm",
       ];
       isAudio = audioExtensions.some((ext) => fileName.endsWith(ext));
     }
