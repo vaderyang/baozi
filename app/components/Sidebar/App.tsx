@@ -13,8 +13,8 @@ import useCurrentUser from "~/hooks/useCurrentUser";
 import usePolicy from "~/hooks/usePolicy";
 import useStores from "~/hooks/useStores";
 import TeamMenu from "~/menus/TeamMenu";
-import { homePath, aiAskPath, audioHubPath } from "~/utils/routeHelpers";
-import MicrophoneIcon from "../Icons/MicrophoneIcon";
+import { homePath, aiAskPath } from "~/utils/routeHelpers";
+// import MicrophoneIcon from "../Icons/MicrophoneIcon";
 import TeamLogo from "../TeamLogo";
 import Tooltip from "../Tooltip";
 import Sidebar from "./Sidebar";
@@ -103,12 +103,12 @@ function AppSidebar() {
                 exact={false}
                 label={t("Home")}
               />
-              <SidebarLink
+              {/* <SidebarLink
                 to={audioHubPath()}
                 icon={<MicrophoneIcon />}
                 exact={false}
                 label={t("Audio Hub")}
-              />
+              /> */}
               <SidebarLink
                 to={aiAskPath()}
                 icon={<SearchIcon />}
