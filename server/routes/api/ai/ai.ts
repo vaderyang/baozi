@@ -1503,14 +1503,108 @@ ${strippedMarkdown}`;
           }
         );
 
-        ctx.body = {
-          data: {
-            answer:
-              "I found some documents related to your question, but you don't have permission to access them. Please contact your administrator if you believe you should have access.",
-            sources: [],
-            followups: [],
-          },
-        };
+        // Emit error event with permission denied message
+        ctx.res.write(
+          `data: ${JSON.stringify({
+            type: "error",
+            code: "permission_denied",
+            error:
+              "I found some documents related to your question, but you don't have permission to access them.",
+            suggestions: [
+              "Contact your administrator if you believe you should have access",
+              "Try searching for documents you have access to",
+              "Check your collection and document permissions",
+            ],
+          })}\n\n`
+        );
+
+        // Generate a helpful response
+        const permissionDeniedPrompt = `You are a helpful assistant. The user asked: "${query}"
+
+We found ${resultDocumentIds.length} documents that match the query, but the user doesn't have permission to access any of them.
+
+Please provide a friendly response that:
+1. MUST be in the same language as the user's question
+2. Explains that documents were found but they don't have access
+3. Suggests contacting their administrator for access
+4. Keep it concise (under 100 words)`;
+
+        try {
+          const trimmedBase = apiBase.replace(/\/$/, "");
+          const endpoint = /\/chat\/completions$/i.test(trimmedBase)
+            ? trimmedBase
+            : `${trimmedBase}/chat/completions`;
+
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+              "User-Agent": llmUserAgent,
+            },
+            body: JSON.stringify({
+              model,
+              messages: [
+                {
+                  role: "system",
+                  content: permissionDeniedPrompt,
+                },
+              ],
+              stream: true,
+            }),
+          });
+
+          if (response.ok && response.body) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) {
+                break;
+              }
+
+              const chunk = decoder.decode(value, { stream: true });
+              const lines = chunk.split("\n");
+
+              for (const line of lines) {
+                if (!line.trim() || !line.startsWith("data: ")) {
+                  continue;
+                }
+                if (line.includes("[DONE]")) {
+                  continue;
+                }
+
+                try {
+                  const data = JSON.parse(line.slice(6)) as {
+                    choices?: ChatCompletionChoice[];
+                  };
+                  const content = parseAiResponse(data.choices?.[0] || {});
+
+                  if (content) {
+                    ctx.res.write(
+                      `data: ${JSON.stringify({
+                        type: "content",
+                        content,
+                      })}\n\n`
+                    );
+                  }
+                } catch (_e) {
+                  // Skip invalid JSON
+                }
+              }
+            }
+          }
+        } catch (error) {
+          Logger.error(
+            "Failed to generate permission denied response",
+            error instanceof Error ? error : new Error(String(error)),
+            { query, userId: user.id }
+          );
+        }
+
+        ctx.res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+        ctx.res.end();
         return;
       }
 
