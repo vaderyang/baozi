@@ -1,6 +1,7 @@
 import Logger from "@server/logging/Logger";
 import { Document, Collection, User } from "@server/models";
 import env from "@server/env";
+import fetch, { llmUserAgent } from "@server/utils/fetch";
 
 interface AIArchiveSuggestion {
   suggestions: Array<{
@@ -169,6 +170,7 @@ class AIArchiveSuggestionService {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
+        "User-Agent": llmUserAgent,
       },
       body: requestBody,
     });
