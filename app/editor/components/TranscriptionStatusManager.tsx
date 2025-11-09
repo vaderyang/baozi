@@ -759,6 +759,8 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           });
 
           const job = response.data;
+          const jobRecord = transcriptionJobs.getJob(jobId);
+          const sourceType = jobRecord?.sourceType;
 
           if (job.status === "completed" && job.result) {
             // Job is already completed, replace the status card with the transcript
@@ -774,6 +776,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
               job.result,
               job.attachmentId,
               {
+                sourceType,
                 autoSummary: job.autoSummary ?? false,
               }
             );
@@ -801,7 +804,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         }
       }
     },
-    [replaceStatusCardWithTranscript]
+    [replaceStatusCardWithTranscript, transcriptionJobs]
   );
 
   // React to completed jobs stored client-side (covers fast jobs without cards)
@@ -1091,6 +1094,8 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             });
 
             const job = response.data;
+            const jobRecord = transcriptionJobs.getJob(job.id);
+            const sourceType = jobRecord?.sourceType;
 
             Logger.debug("editor", "Received job status", {
               jobId: job.id,
@@ -1118,6 +1123,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                 job.result,
                 job.attachmentId,
                 {
+                  sourceType,
                   autoSummary: job.autoSummary ?? false,
                 }
               );
@@ -1212,6 +1218,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
     pendingJobsLoaded,
     dictionary,
     replaceStatusCardWithTranscript,
+    transcriptionJobs,
   ]);
 
   // Register command handlers for retry and cancel
