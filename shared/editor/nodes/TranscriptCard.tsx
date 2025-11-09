@@ -2054,7 +2054,7 @@ const SummaryPreview = styled.div`
   padding: 16px;
   background: ${s("background")};
   font-size: 15px;
-  line-height: 0.8;
+  line-height: 1.2;
   color: ${s("text")};
   max-height: 420px;
   overflow: auto;
@@ -2066,8 +2066,8 @@ const SummaryPreview = styled.div`
   & h5,
   & h6 {
     margin-top: 0.2em;
-    margin-bottom: 0.08em;
-    line-height: 0.9;
+    margin-bottom: 0.15em;
+    line-height: 0.5;
   }
 
   & h1:first-child,
@@ -2079,27 +2079,46 @@ const SummaryPreview = styled.div`
     margin-top: 0;
   }
 
+  & h1:has(+ ul),
+  & h2:has(+ ul),
+  & h3:has(+ ul),
+  & h4:has(+ ul),
+  & h5:has(+ ul),
+  & h6:has(+ ul),
+  & h1:has(+ ol),
+  & h2:has(+ ol),
+  & h3:has(+ ol),
+  & h4:has(+ ol),
+  & h5:has(+ ol),
+  & h6:has(+ ol) {
+    margin-bottom: 0.05em;
+  }
+
   & p {
-    margin: 0 0 0.15em;
+    margin: 0 0 0.3em;
   }
 
   & p:last-child {
     margin-bottom: 0;
   }
 
+  & p:empty {
+    display: none;
+  }
+
   & ul,
   & ol {
     padding-left: 20px;
-    margin: 0 0 0.15em;
+    margin: 0 0 0.2em;
   }
 
   & li {
-    margin-bottom: 0.03em;
+    margin-bottom: 0.1em;
   }
 
   & pre {
     background: ${s("backgroundSecondary")};
-    padding: 12px;
+    padding: 5px;
     border-radius: 6px;
     overflow: auto;
     margin: 0.3em 0;
