@@ -1,22 +1,18 @@
-import { InferAttributes, InferCreationAttributes, Op } from "sequelize";
+import { InferAttributes, InferCreationAttributes } from "sequelize";
 import {
-  ForeignKey,
-  BelongsTo,
   Column,
-  Table,
   DataType,
+  BelongsTo,
+  ForeignKey,
+  Table,
   IsIn,
+  AllowNull,
 } from "sequelize-typescript";
 import Team from "./Team";
 import IdModel from "./base/IdModel";
 import Fix from "./decorators/Fix";
 
-export enum HealthStatus {
-  Healthy = "healthy",
-  Degraded = "degraded",
-  Unhealthy = "unhealthy",
-  Unknown = "unknown",
-}
+export type HealthStatus = "healthy" | "degraded" | "unhealthy" | "unknown";
 
 export type LLMModelHealth = {
   modelName: string;
@@ -37,33 +33,38 @@ class HealthCheck extends IdModel<
   @Column(DataType.DATE)
   timestamp: Date;
 
-  @IsIn([Object.values(HealthStatus)])
-  @Column(DataType.STRING(20))
-  overallStatus: HealthStatus;
+  @IsIn([["healthy", "degraded", "unhealthy"]])
+  @Column(DataType.STRING)
+  overallStatus: "healthy" | "degraded" | "unhealthy";
 
-  @IsIn([Object.values(HealthStatus)])
-  @Column(DataType.STRING(20))
+  @IsIn([["healthy", "unhealthy", "unknown"]])
+  @Column(DataType.STRING)
   databaseStatus: HealthStatus;
 
+  @AllowNull
   @Column(DataType.INTEGER)
   databaseResponseTime: number | null;
 
+  @AllowNull
   @Column(DataType.TEXT)
   databaseError: string | null;
 
   @Column(DataType.JSONB)
   llmModelsHealth: LLMModelHealth[];
 
-  @IsIn([Object.values(HealthStatus)])
-  @Column(DataType.STRING(20))
+  @IsIn([["healthy", "unhealthy", "unknown"]])
+  @Column(DataType.STRING)
   asrStatus: HealthStatus;
 
+  @AllowNull
   @Column(DataType.INTEGER)
   asrResponseTime: number | null;
 
+  @AllowNull
   @Column(DataType.TEXT)
   asrError: string | null;
 
+  @AllowNull
   @Column(DataType.TEXT)
   asrEndpoint: string | null;
 
@@ -72,74 +73,10 @@ class HealthCheck extends IdModel<
   @BelongsTo(() => Team, "teamId")
   team: Team | null;
 
+  @AllowNull
   @ForeignKey(() => Team)
   @Column(DataType.UUID)
   teamId: string | null;
-
-  /**
-   * Find health checks within a time range.
-   *
-   * @param startTime - Start of time range
-   * @param endTime - End of time range
-   * @param teamId - Optional team ID filter
-   * @returns Array of health checks
-   */
-  static async findByTimeRange(
-    startTime: Date,
-    endTime: Date,
-    teamId?: string
-  ): Promise<HealthCheck[]> {
-    const where: any = {
-      timestamp: {
-        [Op.gte]: startTime,
-        [Op.lte]: endTime,
-      },
-    };
-
-    if (teamId !== undefined) {
-      where.teamId = teamId;
-    }
-
-    return this.findAll({
-      where,
-      order: [["timestamp", "DESC"]],
-    });
-  }
-
-  /**
-   * Get the most recent health check.
-   *
-   * @param teamId - Optional team ID filter
-   * @returns Most recent health check or null
-   */
-  static async findMostRecent(teamId?: string): Promise<HealthCheck | null> {
-    const where: any = {};
-
-    if (teamId !== undefined) {
-      where.teamId = teamId;
-    }
-
-    return this.findOne({
-      where,
-      order: [["timestamp", "DESC"]],
-    });
-  }
-
-  /**
-   * Delete health checks older than the specified date.
-   *
-   * @param cutoffDate - Date before which to delete
-   * @returns Number of deleted health checks
-   */
-  static async deleteOlderThan(cutoffDate: Date): Promise<number> {
-    return this.destroy({
-      where: {
-        createdAt: {
-          [Op.lt]: cutoffDate,
-        },
-      },
-    });
-  }
 }
 
 export default HealthCheck;

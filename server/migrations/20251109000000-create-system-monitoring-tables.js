@@ -10,8 +10,8 @@ module.exports = {
         {
           id: {
             type: Sequelize.UUID,
+            allowNull: false,
             primaryKey: true,
-            defaultValue: Sequelize.literal("gen_random_uuid()"),
           },
           timestamp: {
             type: Sequelize.DATE,
@@ -56,29 +56,36 @@ module.exports = {
           teamId: {
             type: Sequelize.UUID,
             allowNull: true,
+            onDelete: "cascade",
             references: {
               model: "teams",
-              key: "id",
             },
-            onDelete: "CASCADE",
           },
           createdAt: {
             type: Sequelize.DATE,
             allowNull: false,
-            defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+          },
+          updatedAt: {
+            type: Sequelize.DATE,
+            allowNull: false,
           },
         },
         { transaction }
       );
 
-      // Create indexes for health_checks
+      // Add indexes for health_checks
       await queryInterface.addIndex("health_checks", ["timestamp"], {
         name: "idx_health_checks_timestamp",
+        order: [["timestamp", "DESC"]],
         transaction,
       });
 
       await queryInterface.addIndex("health_checks", ["teamId", "timestamp"], {
         name: "idx_health_checks_team_timestamp",
+        order: [
+          ["teamId", "ASC"],
+          ["timestamp", "DESC"],
+        ],
         transaction,
       });
 
@@ -88,8 +95,8 @@ module.exports = {
         {
           id: {
             type: Sequelize.UUID,
+            allowNull: false,
             primaryKey: true,
-            defaultValue: Sequelize.literal("gen_random_uuid()"),
           },
           timestamp: {
             type: Sequelize.DATE,
@@ -162,27 +169,34 @@ module.exports = {
           teamId: {
             type: Sequelize.UUID,
             allowNull: true,
+            onDelete: "cascade",
             references: {
               model: "teams",
-              key: "id",
             },
-            onDelete: "CASCADE",
           },
           createdAt: {
             type: Sequelize.DATE,
             allowNull: false,
-            defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+          },
+          updatedAt: {
+            type: Sequelize.DATE,
+            allowNull: false,
           },
         },
         { transaction }
       );
 
-      // Create indexes for service_metrics
+      // Add indexes for service_metrics
       await queryInterface.addIndex(
         "service_metrics",
         ["serviceType", "intervalType", "timestamp"],
         {
           name: "idx_service_metrics_lookup",
+          order: [
+            ["serviceType", "ASC"],
+            ["intervalType", "ASC"],
+            ["timestamp", "DESC"],
+          ],
           transaction,
         }
       );
@@ -197,6 +211,10 @@ module.exports = {
               [Sequelize.Op.ne]: null,
             },
           },
+          order: [
+            ["modelName", "ASC"],
+            ["timestamp", "DESC"],
+          ],
           transaction,
         }
       );
@@ -211,6 +229,10 @@ module.exports = {
               [Sequelize.Op.ne]: null,
             },
           },
+          order: [
+            ["teamId", "ASC"],
+            ["timestamp", "DESC"],
+          ],
           transaction,
         }
       );
@@ -221,8 +243,8 @@ module.exports = {
         {
           id: {
             type: Sequelize.UUID,
+            allowNull: false,
             primaryKey: true,
-            defaultValue: Sequelize.literal("gen_random_uuid()"),
           },
           timestamp: {
             type: Sequelize.DATE,
@@ -239,11 +261,10 @@ module.exports = {
           userId: {
             type: Sequelize.UUID,
             allowNull: false,
+            onDelete: "cascade",
             references: {
               model: "users",
-              key: "id",
             },
-            onDelete: "CASCADE",
           },
           username: {
             type: Sequelize.STRING(255),
@@ -264,27 +285,33 @@ module.exports = {
           teamId: {
             type: Sequelize.UUID,
             allowNull: false,
+            onDelete: "cascade",
             references: {
               model: "teams",
-              key: "id",
             },
-            onDelete: "CASCADE",
           },
           createdAt: {
             type: Sequelize.DATE,
             allowNull: false,
-            defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+          },
+          updatedAt: {
+            type: Sequelize.DATE,
+            allowNull: false,
           },
         },
         { transaction }
       );
 
-      // Create indexes for failed_requests
+      // Add indexes for failed_requests
       await queryInterface.addIndex(
         "failed_requests",
         ["serviceType", "timestamp"],
         {
           name: "idx_failed_requests_lookup",
+          order: [
+            ["serviceType", "ASC"],
+            ["timestamp", "DESC"],
+          ],
           transaction,
         }
       );
@@ -294,6 +321,10 @@ module.exports = {
         ["teamId", "timestamp"],
         {
           name: "idx_failed_requests_team",
+          order: [
+            ["teamId", "ASC"],
+            ["timestamp", "DESC"],
+          ],
           transaction,
         }
       );
@@ -303,6 +334,10 @@ module.exports = {
         ["userId", "timestamp"],
         {
           name: "idx_failed_requests_user",
+          order: [
+            ["userId", "ASC"],
+            ["timestamp", "DESC"],
+          ],
           transaction,
         }
       );
