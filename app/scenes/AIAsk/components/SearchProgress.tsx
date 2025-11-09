@@ -28,14 +28,10 @@ function SearchProgress({
 
   const { keywords } = searchStrategy;
 
-  // Calculate total results across all keywords
-  const totalResults = React.useMemo(
-    () =>
-      Array.from(searchProgress.values()).reduce(
-        (sum, progress) => sum + progress.resultCount,
-        0
-      ),
-    [searchProgress]
+  // Calculate total results across all keywords (Map mutates in place so avoid memo)
+  const totalResults = Array.from(searchProgress.values()).reduce(
+    (sum, progress) => sum + progress.resultCount,
+    0
   );
 
   return (
