@@ -6,23 +6,22 @@ type SpeakerSegment = {
 };
 
 const meetingTypePrompts: Record<string, string> = {
-  auto: "Analyze the transcript to detect the meeting context and craft the most suitable summary format. Start with 'Topic: [one clear sentence describing what this meeting is about]'",
-  general:
-    "Create a comprehensive summary of this meeting transcript. Start with 'Topic: [one clear sentence describing what this meeting is about]'",
+  auto: "Analyze the transcript to detect the meeting context and craft the most suitable summary format ",
+  general: "Create a comprehensive summary of this meeting transcript ",
   "project-update":
-    "Summarize this project update meeting, focusing on progress, blockers, and next steps. Start with 'Topic: [one clear sentence describing what this meeting is about]'",
+    "Summarize this project update meeting, focusing on progress, change requests, risks/blockers, and next steps ",
   "decision-making":
-    "Extract and summarize the key decisions made in this meeting, including rationale. Start with 'Topic: [one clear sentence describing what this meeting is about]'",
+    "Extract and summarize the key decisions made in this meeting, including rationale ",
   brainstorming:
-    "Summarize the brainstorming session, highlighting key ideas and insights. Start with 'Topic: [one clear sentence describing what this meeting is about]'",
+    "Summarize the brainstorming session, highlighting key ideas and insights ",
   retrospective:
-    "Create a retrospective summary covering what went well, what didn't, and action items. Start with 'Topic: [one clear sentence describing what this meeting is about]'",
+    "Create a retrospective summary covering what went well, what didn't, and action items ",
   interview:
-    "Summarize this interview, highlighting key responses and insights. Start with 'Topic: [one clear sentence describing what this meeting is about]'",
+    "Summarize this interview, highlighting key responses and insights ",
   training:
-    "Summarize the training session, covering main topics and key takeaways. Start with 'Topic: [one clear sentence describing what this meeting is about]'",
+    "Summarize the training session, covering main topics and key takeaways ",
   "client-call":
-    "Summarize this client call, focusing on requirements, feedback, and outcomes. Start with 'Topic: [one clear sentence describing what this meeting is about]'",
+    "Summarize this client call, focusing on requirements, feedback, opportunities, and outcomes ",
 };
 
 const languageInstructions: Record<string, string> = {
@@ -72,7 +71,15 @@ const buildSummaryPrompt = ({
     fullPrompt += ` The session took place around ${formattedRecordingTime}; reflect this in the subject line.`;
   }
   fullPrompt +=
-    " IMPORTANT: Your response MUST start with 'Topic: [one clear, direct sentence describing what this meeting is about]' on the first line. After the topic line, include a 'Subject: [Meeting name with date/time]' line, then provide the detailed summary. Use markdown formatting with headings, bullet points, and emphasis where appropriate.";
+    " IMPORTANT: Your response MUST follow this exact structure:\n" +
+    "1. First line: 'Subject: [A concise meeting title/name within 10 words without the date/time" +
+    languageInstruction +
+    ' e.g., "Product Roadmap Planning" or "Sprint Retrospective"]\'\n' +
+    "2. Second line: 'Topic: [A natural, story-telling style sentence describing the key purpose and outcome of the meeting" +
+    languageInstruction +
+    ' e.g., "The team discussed the Q4 roadmap and decided to prioritize the mobile app launch over desktop features"]\'\n' +
+    "3. Then provide the detailed summary using markdown formatting with headings, bullet points, and emphasis where appropriate.\n" +
+    "The Topic line should tell the story of what happened, while the Subject line should be a brief title.";
 
   return fullPrompt;
 };
