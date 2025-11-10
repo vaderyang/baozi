@@ -599,40 +599,6 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       // Remove any existing recording placeholder nodes first
       Logger.debug(
         "editor",
-        "SuggestionsMenu: Checking for existing recording placeholder nodes"
-      );
-      let tr = state.tr;
-      let foundExisting = false;
-      state.doc.descendants((node, pos) => {
-        if (node.type.name === "recording_placeholder") {
-          Logger.debug(
-            "editor",
-            "SuggestionsMenu: Found existing placeholder",
-            {
-              position: pos,
-              nodeId: node.attrs.nodeId,
-            }
-          );
-          tr.delete(pos, pos + node.nodeSize);
-          foundExisting = true;
-          return false; // Stop after first match
-        }
-        return true;
-      });
-
-      if (foundExisting) {
-        Logger.debug(
-          "editor",
-          "SuggestionsMenu: Removed existing placeholder node"
-        );
-        dispatch(tr);
-        // Get fresh state after deletion
-        state = view.state;
-        tr = state.tr;
-      }
-
-      Logger.debug(
-        "editor",
         "SuggestionsMenu: Creating recording_placeholder node"
       );
       const placeholderNode = state.schema.nodes.recording_placeholder.create({
@@ -645,16 +611,15 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         "editor",
         "SuggestionsMenu: Inserting placeholder node into document"
       );
-      tr = tr.replaceRangeWith(position, position, placeholderNode);
+      const tr = state.tr.replaceRangeWith(position, position, placeholderNode);
       dispatch(tr.scrollIntoView());
       Logger.debug("editor", "SuggestionsMenu: Placeholder node inserted");
       placeholderInserted = true;
 
-      // Clean up any previous recording state first
-      if (audioRecorder.isActive || audioRecorder.insertionPoint) {
+      if (audioRecorder.isActive) {
         Logger.debug(
           "editor",
-          "SuggestionsMenu: Cleaning up previous recording state"
+          "SuggestionsMenu: Active recording detected, cancelling before restart"
         );
         audioRecorder.cancelRecording();
       }
