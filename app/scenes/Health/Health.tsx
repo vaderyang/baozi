@@ -106,9 +106,7 @@ function Health() {
         vision: t("Vision model"),
       };
 
-      return roles
-        .map((role) => roleLabels[role] ?? role)
-        .join(", ");
+      return roles.map((role) => roleLabels[role] ?? role).join(", ");
     },
     [t]
   );
@@ -189,12 +187,20 @@ function Health() {
                 )}
 
                 {healthData.services.database.details && (
-                  <ServiceDetail>
-                    <DetailLabel>{t("Users")}:</DetailLabel>
-                    <DetailValue>
-                      {healthData.services.database.details.userCount}
-                    </DetailValue>
-                  </ServiceDetail>
+                  <>
+                    <ServiceDetail>
+                      <DetailLabel>{t("Users")}:</DetailLabel>
+                      <DetailValue>
+                        {healthData.services.database.details.userCount}
+                      </DetailValue>
+                    </ServiceDetail>
+                    <ServiceDetail>
+                      <DetailLabel>{t("Documents")}:</DetailLabel>
+                      <DetailValue>
+                        {healthData.services.database.details.documentCount}
+                      </DetailValue>
+                    </ServiceDetail>
+                  </>
                 )}
 
                 {healthData.services.database.error && (

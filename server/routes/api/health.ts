@@ -50,8 +50,13 @@ async function checkDatabase(): Promise<ServiceHealth> {
     const responseTime = Date.now() - startTime;
 
     // Get additional database stats
-    const result = (await sequelize.query(
+    const userResult = (await sequelize.query(
       'SELECT COUNT(*) as count FROM users WHERE "deletedAt" IS NULL',
+      { type: "SELECT" }
+    )) as Array<{ count: number }>;
+
+    const documentResult = (await sequelize.query(
+      'SELECT COUNT(*) as count FROM documents WHERE "deletedAt" IS NULL',
       { type: "SELECT" }
     )) as Array<{ count: number }>;
 
@@ -60,7 +65,8 @@ async function checkDatabase(): Promise<ServiceHealth> {
       responseTime,
       details: {
         connected: true,
-        userCount: result[0]?.count || 0,
+        userCount: userResult[0]?.count || 0,
+        documentCount: documentResult[0]?.count || 0,
       },
     };
   } catch (error) {
@@ -79,14 +85,20 @@ async function checkDatabase(): Promise<ServiceHealth> {
 async function checkLLMModel(
   modelName: string,
   roles: ModelRole[],
-  source: "team" | "environment"
+  source: "team" | "environment",
+  team?: Team | null
 ): Promise<ModelHealth> {
   const startTime = Date.now();
 
-  // Check for API key and base URL from various env variables
+  // Check for API key and base URL from team preferences first, then env variables
+  const preferences = team?.preferences ?? undefined;
   const apiKey =
-    process.env.LLM_API_KEY || process.env.AI_API_KEY || process.env.OPENAI_KEY;
+    preferences?.[TeamPreference.LLM_API_KEY] ||
+    process.env.LLM_API_KEY ||
+    process.env.AI_API_KEY ||
+    process.env.OPENAI_KEY;
   const apiBase =
+    preferences?.[TeamPreference.LLM_API_BASE_URL] ||
     process.env.LLM_API_BASE_URL ||
     process.env.LLM_API_BASE ||
     process.env.AI_API_BASE_URL;
@@ -289,7 +301,7 @@ async function checkLLMModels(team?: Team | null): Promise<ModelHealth[]> {
 
   return Promise.all(
     Array.from(models.entries()).map(([modelName, meta]) =>
-      checkLLMModel(modelName, meta.roles, meta.source)
+      checkLLMModel(modelName, meta.roles, meta.source, team)
     )
   );
 }
