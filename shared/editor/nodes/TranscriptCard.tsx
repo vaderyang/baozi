@@ -94,7 +94,9 @@ const normalizeDurationValue = (value?: number | null) => {
   if (typeof value !== "number" || Number.isNaN(value) || value <= 0) {
     return undefined;
   }
-  return value > 1000 ? value / 1000 : value;
+  // If value is very large (>100000), assume it's in milliseconds and convert to seconds
+  // This threshold allows recordings up to ~27 hours in seconds format
+  return value > 100000 ? value / 1000 : value;
 };
 
 const VIEW_MODE_STORAGE_PREFIX = "transcript-card:view-mode";
@@ -569,7 +571,9 @@ export default class TranscriptCard extends Node {
       if (typeof value !== "number") {
         return undefined;
       }
-      return value > 1000 ? value / 1000 : value;
+      // If value is very large (>100000), assume it's in milliseconds and convert to seconds
+      // This threshold allows recordings up to ~27 hours in seconds format
+      return value > 100000 ? value / 1000 : value;
     }, []);
 
     const summarizeText = React.useCallback((text: string, limit = 160) => {

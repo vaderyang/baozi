@@ -46,7 +46,9 @@ const normalizeTimestampValue = (value?: number) => {
   if (typeof value !== "number") {
     return undefined;
   }
-  return value > 1000 ? value / 1000 : value;
+  // If value is very large (>100000), assume it's in milliseconds and convert to seconds
+  // This threshold allows recordings up to ~27 hours in seconds format
+  return value > 100000 ? value / 1000 : value;
 };
 
 /**
