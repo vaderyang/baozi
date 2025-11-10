@@ -86,6 +86,16 @@ const RecordingStudio = observer(function _RecordingStudio({
     };
   }, [audioRecorder.analyser, audioRecorder.isRecording]);
 
+  // Ensure the floating controller appears if the user navigates away mid-recording
+  useEffect(
+    () => () => {
+      if (audioRecorder.isActive && !audioRecorder.isMinimized) {
+        audioRecorder.minimizeStudio();
+      }
+    },
+    [audioRecorder]
+  );
+
   // Format duration as MM:SS
   const formatDuration = (milliseconds: number): string => {
     const totalSeconds = Math.floor(milliseconds / 1000);

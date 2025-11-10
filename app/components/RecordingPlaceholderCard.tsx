@@ -250,9 +250,7 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
         !editor ||
         !editor.view ||
         !audioRecorder.currentJobId ||
-        !audioRecorder.lastAttachment ||
-        audioRecorder.status === "recording" ||
-        audioRecorder.status === "paused"
+        !audioRecorder.lastAttachment
       ) {
         return;
       }
