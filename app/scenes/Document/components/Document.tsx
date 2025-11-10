@@ -127,6 +127,11 @@ class DocumentScene extends React.Component<Props> {
   }
 
   componentWillUnmount() {
+    const { audioRecorder } = this.props;
+    if (audioRecorder?.isActive && !audioRecorder.isMinimized) {
+      audioRecorder.minimizeStudio();
+    }
+
     if (
       this.isEmpty &&
       this.props.document.createdBy?.id === this.props.auth.user?.id &&

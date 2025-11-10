@@ -30,6 +30,12 @@ export interface ActiveSession {
   markers: RecordingMarker[];
 }
 
+interface TranscriptionTaskContext {
+  sessionId: string;
+  documentId: string;
+  insertionPoint: InsertionPoint;
+}
+
 export type RecordingStatus =
   | "idle"
   | "recording"
@@ -197,6 +203,28 @@ class AudioRecorderStore {
   }
 
   /**
+   * Capture the current recording context for async workflows (upload/transcription)
+   */
+  private snapshotCurrentContext(): TranscriptionTaskContext | null {
+    if (!this.sessionId || !this.insertionPoint || !this.sourceDocumentId) {
+      return null;
+    }
+
+    return {
+      sessionId: this.sessionId,
+      documentId: this.sourceDocumentId,
+      insertionPoint: { ...this.insertionPoint },
+    };
+  }
+
+  private isContextCurrent(context?: TranscriptionTaskContext | null): boolean {
+    if (!context) {
+      return true;
+    }
+    return this.sessionId === context.sessionId;
+  }
+
+  /**
    * Check if the current insertion point is still valid
    * This will be used when inserting transcribed text to ensure the position still exists
    */
@@ -299,6 +327,8 @@ class AudioRecorderStore {
         this.error = null;
         this.transcriptionResult = null;
         this.lastAttachment = null;
+        this.currentJobId = null;
+        this.uploadProgress = 0;
         this.isMinimized = false;
         this.realtimeTranscript = "";
       });
@@ -481,11 +511,13 @@ class AudioRecorderStore {
       void audioRecovery.deleteSession(this.sessionId);
     }
 
+    const context = this.snapshotCurrentContext();
     // Start upload and transcription flow asynchronously
     Logger.debug("store", "Starting upload and transcription", {
       blobSize: audioBlob.size,
+      sessionId: context?.sessionId,
     });
-    void this.uploadAndTranscribe(audioBlob);
+    void this.uploadAndTranscribe(audioBlob, context ?? undefined);
   };
 
   @action
@@ -652,31 +684,39 @@ class AudioRecorderStore {
    * Upload audio blob and start transcription
    */
   @action
-  private uploadAndTranscribe = async (audioBlob: Blob): Promise<void> => {
-    if (!this.insertionPoint) {
+  private uploadAndTranscribe = async (
+    audioBlob: Blob,
+    context?: TranscriptionTaskContext
+  ): Promise<void> => {
+    const targetContext = context ?? this.snapshotCurrentContext();
+    if (!targetContext) {
       throw new Error("No insertion point set");
     }
 
     try {
       // Update status to uploading
-      runInAction(() => {
-        this.status = "uploading";
-        this.uploadProgress = 0;
-      });
+      if (this.isContextCurrent(targetContext)) {
+        runInAction(() => {
+          this.status = "uploading";
+          this.uploadProgress = 0;
+        });
+      }
 
       // Upload the audio file
-      const attachmentId = await this.uploadAudio(audioBlob);
+      const attachmentId = await this.uploadAudio(audioBlob, targetContext);
 
       // Start transcription
-      await this.startTranscription(attachmentId);
+      await this.startTranscription(attachmentId, targetContext);
     } catch (error) {
-      runInAction(() => {
-        this.error =
-          error instanceof Error
-            ? error.message
-            : "Upload or transcription failed";
-        this.status = "error";
-      });
+      if (this.isContextCurrent(targetContext)) {
+        runInAction(() => {
+          this.error =
+            error instanceof Error
+              ? error.message
+              : "Upload or transcription failed";
+          this.status = "error";
+        });
+      }
       throw error;
     }
   };
@@ -685,8 +725,12 @@ class AudioRecorderStore {
    * Upload audio blob to server
    */
   @action
-  private uploadAudio = async (audioBlob: Blob): Promise<string> => {
-    if (!this.sourceDocumentId) {
+  private uploadAudio = async (
+    audioBlob: Blob,
+    context?: TranscriptionTaskContext
+  ): Promise<string> => {
+    const documentId = context?.documentId ?? this.sourceDocumentId;
+    if (!documentId) {
       throw new Error("No source document ID");
     }
 
@@ -712,9 +756,11 @@ class AudioRecorderStore {
         preset: AttachmentPreset.AudioTranscription,
         name: fileName,
         onProgress: (progress) => {
-          runInAction(() => {
-            this.uploadProgress = progress;
-          });
+          if (this.isContextCurrent(context)) {
+            runInAction(() => {
+              this.uploadProgress = progress;
+            });
+          }
         },
       });
 
@@ -745,32 +791,40 @@ class AudioRecorderStore {
    * Start transcription job
    */
   @action
-  private startTranscription = async (attachmentId: string): Promise<void> => {
-    if (!this.sourceDocumentId) {
+  private startTranscription = async (
+    attachmentId: string,
+    context: TranscriptionTaskContext
+  ): Promise<void> => {
+    const documentId = context.documentId ?? this.sourceDocumentId;
+    if (!documentId) {
       throw new Error("No source document ID");
     }
 
     try {
-      runInAction(() => {
-        this.status = "transcribing";
-      });
+      if (this.isContextCurrent(context)) {
+        runInAction(() => {
+          this.status = "transcribing";
+        });
+      }
 
       // Create transcription job using TranscriptionJobsStore
       const job = await this.rootStore.transcriptionJobs.createJob(
         attachmentId,
-        this.sourceDocumentId,
+        documentId,
         {
           sourceType: "recording",
           autoSummary: this.autoGenerateSummary,
         }
       );
 
-      runInAction(() => {
-        this.currentJobId = job.id;
-      });
+      if (this.isContextCurrent(context)) {
+        runInAction(() => {
+          this.currentJobId = job.id;
+        });
+      }
 
       // Poll for transcription completion
-      await this.pollTranscriptionStatus(job.id);
+      await this.pollTranscriptionStatus(job.id, context);
     } catch (error) {
       // Log error details for debugging
 
@@ -780,6 +834,13 @@ class AudioRecorderStore {
           ? `Transcription failed: ${error.message}`
           : "Transcription failed. Please try again.";
 
+      if (this.isContextCurrent(context)) {
+        runInAction(() => {
+          this.error = errorMessage;
+          this.status = "error";
+        });
+      }
+
       throw new Error(errorMessage);
     }
   };
@@ -788,7 +849,10 @@ class AudioRecorderStore {
    * Poll transcription job status until completion
    */
   @action
-  private pollTranscriptionStatus = async (jobId: string): Promise<void> => {
+  private pollTranscriptionStatus = async (
+    jobId: string,
+    context?: TranscriptionTaskContext
+  ): Promise<void> => {
     const maxAttempts = 120; // 10 minutes with 5 second intervals
     let attempts = 0;
 
@@ -805,7 +869,7 @@ class AudioRecorderStore {
 
         if (job.status === "completed") {
           // Transcription completed successfully (even if empty)
-          await this.insertTranscribedText(job.result?.text || "");
+          await this.insertTranscribedText(job.result?.text || "", context);
           return;
         } else if (job.status === "failed") {
           // Transcription failed - preserve error message from API
@@ -818,13 +882,15 @@ class AudioRecorderStore {
       } catch (error) {
         // Log error for debugging
 
-        runInAction(() => {
-          this.error =
-            error instanceof Error
-              ? error.message
-              : "Failed to check transcription status";
-          this.status = "error";
-        });
+        if (this.isContextCurrent(context)) {
+          runInAction(() => {
+            this.error =
+              error instanceof Error
+                ? error.message
+                : "Failed to check transcription status";
+            this.status = "error";
+          });
+        }
         throw error;
       }
     }
@@ -837,8 +903,13 @@ class AudioRecorderStore {
    * Insert transcribed text at the insertion point
    */
   @action
-  private insertTranscribedText = async (text: string): Promise<void> => {
-    if (!this.insertionPoint) {
+  private insertTranscribedText = async (
+    text: string,
+    context?: TranscriptionTaskContext
+  ): Promise<void> => {
+    const targetInsertionPoint = context?.insertionPoint ?? this.insertionPoint;
+
+    if (!targetInsertionPoint) {
       throw new Error("No insertion point");
     }
 
@@ -848,15 +919,17 @@ class AudioRecorderStore {
       text.length
     );
 
-    runInAction(() => {
-      this.transcriptionResult = text;
-      this.status = "completed";
-    });
+    if (this.isContextCurrent(context)) {
+      runInAction(() => {
+        this.transcriptionResult = text;
+        this.status = "completed";
+      });
+    }
 
     // Update document audioMetadata to exit Recording Studio mode
     // This will cause the Document component to show the editor instead of Recording Studio
     const document = this.rootStore.documents.get(
-      this.insertionPoint.documentId
+      context?.documentId ?? targetInsertionPoint.documentId
     );
     if (document) {
       // eslint-disable-next-line no-console
@@ -914,8 +987,10 @@ class AudioRecorderStore {
       this.status = "uploading";
     });
 
+    const context = this.snapshotCurrentContext();
+
     // Retry upload and transcription
-    await this.uploadAndTranscribe(audioBlob);
+    await this.uploadAndTranscribe(audioBlob, context ?? undefined);
   };
 
   @action
