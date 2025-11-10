@@ -719,7 +719,7 @@ export default class TranscriptCard extends Node {
       toast.success("Transcript copied");
     }, [speakerSegments, transcript]);
 
-    const renderAudioAttachment = () => {
+    const renderAudioAttachment = (preventDownload = false) => {
       if (!audioUrl) {
         return null;
       }
@@ -733,11 +733,11 @@ export default class TranscriptCard extends Node {
           }
           title={downloadLabel}
           context={fileSizeWithFormat}
-          href={audioUrl}
+          href={preventDownload ? undefined : audioUrl}
           isSelected={isSelected}
           onMouseDown={this.handleSelect(props)}
           onClick={(event) => {
-            if (isEditable) {
+            if (isEditable || preventDownload) {
               event.preventDefault();
               event.stopPropagation();
             }
@@ -1209,7 +1209,7 @@ export default class TranscriptCard extends Node {
         {audioUrl && (
           <CollapsedAudioAttachment>
             <AudioAttachmentWrapper>
-              {renderAudioAttachment()}
+              {renderAudioAttachment(true)}
             </AudioAttachmentWrapper>
           </CollapsedAudioAttachment>
         )}
@@ -1579,7 +1579,7 @@ export default class TranscriptCard extends Node {
                       <Trans>Audio File</Trans>
                     </MetadataHeading>
                     <AudioAttachmentWrapper>
-                      {renderAudioAttachment()}
+                      {renderAudioAttachment(true)}
                     </AudioAttachmentWrapper>
                   </MetadataSection>
                 )}

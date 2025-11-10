@@ -52,7 +52,6 @@ import {
   documentEditPath,
   updateDocumentPath,
 } from "~/utils/routeHelpers";
-import AudioTranscript from "~/components/AudioTranscript";
 import Container from "./Container";
 import Contents from "./Contents";
 import Editor from "./Editor";
@@ -637,7 +636,6 @@ class DocumentScene extends React.Component<Props> {
                         canComment={abilities.comment}
                         autoFocus={document.createdAt === document.updatedAt}
                       >
-                        <AudioTranscript documentId={document.id} />
                         {shareId ? (
                           <ReferencesWrapper>
                             <PublicReferences
