@@ -90,6 +90,26 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
     );
 
     const isMatchingRecording = audioRecorder.insertionPoint?.nodeId === nodeId;
+    const sessionSnapshot = audioRecorder.getSessionSnapshot(nodeId);
+
+    const derivedStatus: RecordingStatus = isMatchingRecording
+      ? audioRecorder.status
+      : (sessionSnapshot?.status ?? initialStatus);
+    const derivedStartTime = isMatchingRecording
+      ? audioRecorder.startTime
+      : (sessionSnapshot?.startTime ?? initialStartTime ?? null);
+    const derivedUploadProgress = isMatchingRecording
+      ? audioRecorder.uploadProgress
+      : (sessionSnapshot?.uploadProgress ?? 0);
+    const derivedJobId = isMatchingRecording
+      ? audioRecorder.currentJobId
+      : (sessionSnapshot?.jobId ?? null);
+    const derivedAttachment = isMatchingRecording
+      ? audioRecorder.lastAttachment
+      : (sessionSnapshot?.attachment ?? null);
+    const derivedAutoSummary = isMatchingRecording
+      ? audioRecorder.autoGenerateSummary
+      : (sessionSnapshot?.autoSummary ?? false);
 
     React.useEffect(() => {
       if (isMatchingRecording) {
@@ -194,9 +214,9 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
         return () => window.clearInterval(interval);
       }
 
-      if (initialStartTime) {
-        // Fallback for historical placeholders rendered from document state
-        const calc = () => Math.max(0, Date.now() - initialStartTime);
+      if (derivedStartTime) {
+        // Fallback for historical placeholders rendered from document state or snapshots
+        const calc = () => Math.max(0, Date.now() - derivedStartTime);
         setDisplayDuration(calc());
         const interval = window.setInterval(() => {
           setDisplayDuration(calc());
@@ -207,11 +227,11 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
       return undefined;
     }, [
       isMatchingRecording,
-      initialStartTime,
       audioRecorder.startTime,
       audioRecorder.pausedDuration,
       audioRecorder.isPaused,
       audioRecorder.pauseStartTime,
+      derivedStartTime,
     ]);
 
     // Pull analyser data at ~10 FPS for the mini level meter (only when active card)
@@ -249,8 +269,8 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
         hasReplacedWithStatusCardRef.current ||
         !editor ||
         !editor.view ||
-        !audioRecorder.currentJobId ||
-        !audioRecorder.lastAttachment
+        !derivedJobId ||
+        !derivedAttachment
       ) {
         return;
       }
@@ -268,21 +288,21 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
       let replaced = false;
       const progressPercent = Math.min(
         100,
-        Math.max(0, Math.round(audioRecorder.uploadProgress * 100))
+        Math.max(0, Math.round(derivedUploadProgress * 100))
       );
       const statusAttr =
-        audioRecorder.status === "uploading" ? "queued" : "processing";
+        derivedStatus === "uploading" ? "queued" : "processing";
 
       state.doc.descendants((node, pos) => {
         if (node.type === placeholderType && node.attrs.nodeId === nodeId) {
           const statusCardNode = statusCardType.create({
-            jobId: audioRecorder.currentJobId,
-            fileName: audioRecorder.lastAttachment.name,
-            fileSize: audioRecorder.lastAttachment.size,
+            jobId: derivedJobId,
+            fileName: derivedAttachment.name,
+            fileSize: derivedAttachment.size,
             status: statusAttr,
             progress: Number.isFinite(progressPercent) ? progressPercent : 0,
             error: null,
-            autoSummary: audioRecorder.autoGenerateSummary,
+            autoSummary: derivedAutoSummary,
             skipAttachmentLink: true,
           });
 
@@ -302,24 +322,18 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
         hasReplacedWithStatusCardRef.current = true;
       }
     }, [
-      audioRecorder.currentJobId,
-      audioRecorder.lastAttachment,
-      audioRecorder.status,
-      audioRecorder.uploadProgress,
-      audioRecorder.autoGenerateSummary,
+      derivedJobId,
+      derivedAttachment,
+      derivedStatus,
+      derivedUploadProgress,
+      derivedAutoSummary,
       editor,
-      isMatchingRecording,
       nodeId,
     ]);
 
     const preventDefault = React.useCallback((event: React.MouseEvent) => {
       event.preventDefault();
     }, []);
-
-    const displayStatus: RecordingStatus = React.useMemo(
-      () => (isMatchingRecording ? audioRecorder.status : initialStatus),
-      [audioRecorder.status, initialStatus, isMatchingRecording]
-    );
 
     const formatDuration = (ms: number): string => {
       const totalSeconds = Math.floor(ms / 1000);
@@ -413,6 +427,8 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
       }
     }, [audioRecorder, canControlRecording, t]);
 
+    const displayStatus = derivedStatus;
+
     const getStatusDisplay = () => {
       switch (displayStatus) {
         case "recording":
@@ -483,20 +499,21 @@ const RecordingPlaceholderCard: React.FC<RecordingPlaceholderCardProps> =
           </StatusSection>
         </Header>
 
-        {!canControlRecording && (
-          <ReadOnlyHint>
-            {t(
-              "Recording controls are only available to the person capturing audio."
-            )}
-          </ReadOnlyHint>
-        )}
+        {!canControlRecording &&
+          (displayStatus === "recording" || displayStatus === "paused") && (
+            <ReadOnlyHint>
+              {t(
+                "Recording controls are only available to the person capturing audio."
+              )}
+            </ReadOnlyHint>
+          )}
 
         {showControls && (
           <AutoSummaryOption onMouseDown={preventDefault}>
             <label>
               <input
                 type="checkbox"
-                checked={audioRecorder.autoGenerateSummary}
+                checked={derivedAutoSummary}
                 onChange={(e) =>
                   audioRecorder.setAutoGenerateSummary(e.target.checked)
                 }
