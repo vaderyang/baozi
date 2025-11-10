@@ -570,6 +570,18 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
         throw new Error("Failed to generate recording node identifier");
       }
 
+      if (audioRecorder.isActive) {
+        Logger.debug(
+          "editor",
+          "SuggestionsMenu: Active recording detected, blocking new recording"
+        );
+        toast.error(
+          dictionary.recordingInProgress ||
+            "Finish the current recording before starting another one."
+        );
+        return;
+      }
+
       // Insert recording placeholder node at cursor position
       let { state, dispatch } = view;
 
@@ -615,14 +627,6 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
       dispatch(tr.scrollIntoView());
       Logger.debug("editor", "SuggestionsMenu: Placeholder node inserted");
       placeholderInserted = true;
-
-      if (audioRecorder.isActive) {
-        Logger.debug(
-          "editor",
-          "SuggestionsMenu: Active recording detected, cancelling before restart"
-        );
-        audioRecorder.cancelRecording();
-      }
 
       // Start recording
       Logger.debug("editor", "SuggestionsMenu: Starting audio recording");
