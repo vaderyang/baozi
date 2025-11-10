@@ -390,15 +390,17 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
               placeholderRange.to,
               slice
             );
-            const insertionEnd = Math.min(
-              tr.doc.content.size,
-              placeholderRange.from + slice.content.size
-            );
+            // Position cursor at the beginning of inserted content
             tr = tr.setSelection(
-              TextSelection.near(tr.doc.resolve(insertionEnd), -1)
+              TextSelection.near(tr.doc.resolve(placeholderRange.from), 1)
             );
           } else {
+            const insertionPos = stateForInsert.selection.from;
             tr = tr.replaceSelection(slice);
+            // Position cursor at the beginning of inserted content
+            tr = tr.setSelection(
+              TextSelection.near(tr.doc.resolve(insertionPos), 1)
+            );
           }
 
           dispatch(
@@ -412,23 +414,36 @@ function SuggestionsMenu<T extends MenuItem>(props: Props<T>) {
             ? normalized
             : `${normalized}\n`;
 
+          let tr = stateForInsert.tr;
           if (placeholderRange) {
-            dispatch(
-              stateForInsert.tr.insertText(
-                insertTextValue,
-                placeholderRange.from,
-                placeholderRange.to
-              )
+            tr = tr.insertText(
+              insertTextValue,
+              placeholderRange.from,
+              placeholderRange.to
+            );
+            // Position cursor at the beginning of inserted content
+            tr = tr.setSelection(
+              TextSelection.near(tr.doc.resolve(placeholderRange.from), 1)
             );
           } else {
-            dispatch(
-              stateForInsert.tr.insertText(
-                insertTextValue,
-                stateForInsert.selection.from,
-                stateForInsert.selection.to
-              )
+            const insertionPos = stateForInsert.selection.from;
+            tr = tr.insertText(
+              insertTextValue,
+              insertionPos,
+              stateForInsert.selection.to
+            );
+            // Position cursor at the beginning of inserted content
+            tr = tr.setSelection(
+              TextSelection.near(tr.doc.resolve(insertionPos), 1)
             );
           }
+
+          dispatch(
+            tr
+              .scrollIntoView()
+              .setMeta("paste", true)
+              .setMeta("uiEvent", "paste")
+          );
         }
 
         close();
