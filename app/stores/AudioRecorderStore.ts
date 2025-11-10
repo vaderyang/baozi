@@ -30,6 +30,16 @@ export interface ActiveSession {
   markers: RecordingMarker[];
 }
 
+interface RecordingSessionSnapshot {
+  nodeId: string;
+  status: RecordingStatus;
+  startTime: number | null;
+  uploadProgress: number;
+  jobId: string | null;
+  attachment: RecordingAttachmentMetadata | null;
+  autoSummary: boolean;
+}
+
 interface TranscriptionTaskContext {
   sessionId: string;
   documentId: string;
@@ -133,6 +143,9 @@ class AudioRecorderStore {
   @observable
   lastChunkIndex = 0;
 
+  @observable
+  sessionSnapshots = observable.map<string, RecordingSessionSnapshot>();
+
   rootStore: RootStore;
 
   constructor(rootStore: RootStore) {
@@ -200,6 +213,64 @@ class AudioRecorderStore {
    */
   generateNodeId(): string {
     return `recording-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private getOrCreateSnapshot(nodeId: string): RecordingSessionSnapshot {
+    const existing = this.sessionSnapshots.get(nodeId);
+    if (existing) {
+      return existing;
+    }
+
+    const snapshot: RecordingSessionSnapshot = {
+      nodeId,
+      status: "idle",
+      startTime: null,
+      uploadProgress: 0,
+      jobId: null,
+      attachment: null,
+      autoSummary: true,
+    };
+    this.sessionSnapshots.set(nodeId, snapshot);
+    return snapshot;
+  }
+
+  @action
+  private updateSnapshot(
+    nodeId: string,
+    updates: Partial<RecordingSessionSnapshot>
+  ): void {
+    const merged = { ...this.getOrCreateSnapshot(nodeId), ...updates };
+    this.sessionSnapshots.set(nodeId, merged);
+  }
+
+  @action
+  private updateSnapshotForCurrent(
+    updates: Partial<RecordingSessionSnapshot>
+  ): void {
+    if (!this.insertionPoint) {
+      return;
+    }
+    this.updateSnapshot(this.insertionPoint.nodeId, updates);
+  }
+
+  @action
+  private updateSnapshotForContext(
+    context?: TranscriptionTaskContext | null,
+    updates?: Partial<RecordingSessionSnapshot>
+  ): void {
+    if (!context?.insertionPoint?.nodeId || !updates) {
+      return;
+    }
+    this.updateSnapshot(context.insertionPoint.nodeId, updates);
+  }
+
+  getSessionSnapshot(nodeId: string): RecordingSessionSnapshot | undefined {
+    return this.sessionSnapshots.get(nodeId);
+  }
+
+  @action
+  private deleteSnapshot(nodeId: string): void {
+    this.sessionSnapshots.delete(nodeId);
   }
 
   /**
@@ -333,6 +404,15 @@ class AudioRecorderStore {
         this.realtimeTranscript = "";
       });
 
+      this.updateSnapshot(recordingNodeId, {
+        status: "recording",
+        startTime: this.startTime,
+        uploadProgress: 0,
+        jobId: null,
+        attachment: null,
+        autoSummary: this.autoGenerateSummary,
+      });
+
       // Initialize audio analysis for level meter
       this.setupAudioAnalysis(stream);
 
@@ -407,6 +487,7 @@ class AudioRecorderStore {
       this.isRecording = false;
       this.pauseStartTime = Date.now();
       this.status = "paused";
+      this.updateSnapshotForCurrent({ status: "paused" });
     }
   };
 
@@ -421,6 +502,7 @@ class AudioRecorderStore {
       this.isPaused = false;
       this.isRecording = true;
       this.status = "recording";
+      this.updateSnapshotForCurrent({ status: "recording" });
 
       // Update paused duration
       if (this.pauseStartTime) {
@@ -506,6 +588,8 @@ class AudioRecorderStore {
       }
     });
 
+    this.updateSnapshotForCurrent({ status: "stopped" });
+
     // Clean up IndexedDB chunks for this session
     if (this.sessionId) {
       void audioRecovery.deleteSession(this.sessionId);
@@ -522,6 +606,7 @@ class AudioRecorderStore {
 
   @action
   cancelRecording = (): void => {
+    const currentNodeId = this.insertionPoint?.nodeId;
     // Stop chunk saving
     this.stopChunkSaving();
 
@@ -550,22 +635,29 @@ class AudioRecorderStore {
 
     // Clean up and reset state
     this.cleanup();
+
+    if (currentNodeId) {
+      this.deleteSnapshot(currentNodeId);
+    }
   };
 
   @action
   setStatus = (status: RecordingStatus): void => {
     this.status = status;
+    this.updateSnapshotForCurrent({ status });
   };
 
   @action
   setError = (error: string): void => {
     this.error = error;
     this.status = "error";
+    this.updateSnapshotForCurrent({ status: "error" });
   };
 
   @action
   setAutoGenerateSummary = (value: boolean): void => {
     this.autoGenerateSummary = value;
+    this.updateSnapshotForCurrent({ autoSummary: value });
   };
 
   /**
@@ -701,6 +793,10 @@ class AudioRecorderStore {
           this.uploadProgress = 0;
         });
       }
+      this.updateSnapshotForContext(targetContext, {
+        status: "uploading",
+        uploadProgress: 0,
+      });
 
       // Upload the audio file
       const attachmentId = await this.uploadAudio(audioBlob, targetContext);
@@ -717,6 +813,7 @@ class AudioRecorderStore {
           this.status = "error";
         });
       }
+      this.updateSnapshotForContext(targetContext, { status: "error" });
       throw error;
     }
   };
@@ -761,17 +858,20 @@ class AudioRecorderStore {
               this.uploadProgress = progress;
             });
           }
+          this.updateSnapshotForContext(context, { uploadProgress: progress });
         },
       });
 
+      const attachmentMeta: RecordingAttachmentMetadata = {
+        id: attachment.id,
+        name: attachment.name || fileName,
+        size: typeof attachment.size === "number" ? attachment.size : file.size,
+      };
+
       runInAction(() => {
-        this.lastAttachment = {
-          id: attachment.id,
-          name: attachment.name || fileName,
-          size:
-            typeof attachment.size === "number" ? attachment.size : file.size,
-        };
+        this.lastAttachment = attachmentMeta;
       });
+      this.updateSnapshotForContext(context, { attachment: attachmentMeta });
 
       return attachment.id;
     } catch (error) {
@@ -806,6 +906,7 @@ class AudioRecorderStore {
           this.status = "transcribing";
         });
       }
+      this.updateSnapshotForContext(context, { status: "transcribing" });
 
       // Create transcription job using TranscriptionJobsStore
       const job = await this.rootStore.transcriptionJobs.createJob(
@@ -822,6 +923,7 @@ class AudioRecorderStore {
           this.currentJobId = job.id;
         });
       }
+      this.updateSnapshotForContext(context, { jobId: job.id });
 
       // Poll for transcription completion
       await this.pollTranscriptionStatus(job.id, context);
@@ -840,6 +942,7 @@ class AudioRecorderStore {
           this.status = "error";
         });
       }
+      this.updateSnapshotForContext(context, { status: "error" });
 
       throw new Error(errorMessage);
     }
@@ -874,6 +977,7 @@ class AudioRecorderStore {
         } else if (job.status === "failed") {
           // Transcription failed - preserve error message from API
           const errorMessage = job.error || "Transcription failed";
+          this.updateSnapshotForContext(context, { status: "error" });
           throw new Error(errorMessage);
         }
 
@@ -891,6 +995,7 @@ class AudioRecorderStore {
             this.status = "error";
           });
         }
+        this.updateSnapshotForContext(context, { status: "error" });
         throw error;
       }
     }
@@ -925,6 +1030,7 @@ class AudioRecorderStore {
         this.status = "completed";
       });
     }
+    this.updateSnapshotForContext(context, { status: "completed" });
 
     // Update document audioMetadata to exit Recording Studio mode
     // This will cause the Document component to show the editor instead of Recording Studio
