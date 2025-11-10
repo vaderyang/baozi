@@ -91,9 +91,9 @@ const GlobalRecorderController: React.FC = observer(() => {
   const handleReopenStudio = React.useCallback(() => {
     audioRecorder.reopenStudio();
 
-    // Navigate to the Recording Studio route
+    // Navigate back to the source document
     if (sourceDocument) {
-      history.push(`/recording/${sourceDocument.id}`);
+      history.push(sourceDocument.path);
     }
   }, [audioRecorder, sourceDocument]);
 

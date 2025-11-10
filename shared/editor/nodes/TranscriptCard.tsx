@@ -96,7 +96,7 @@ const normalizeDurationValue = (value?: number | null) => {
   }
   // If value is very large (>100000), assume it's in milliseconds and convert to seconds
   // This threshold allows recordings up to ~27 hours in seconds format
-  return value > 100000 ? value / 1000 : value;
+  return value > 5000 ? value / 1000 : value;
 };
 
 const VIEW_MODE_STORAGE_PREFIX = "transcript-card:view-mode";
