@@ -1362,11 +1362,18 @@ export default class TranscriptCard extends Node {
                       <Select
                         value={meetingType}
                         onChange={(e) => setMeetingType(e.target.value)}
-                        onMouseDown={(e: React.MouseEvent) =>
-                          e.stopPropagation()
-                        }
-                        onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                        onFocus={(e: React.FocusEvent) => e.stopPropagation()}
+                        onPointerDown={(e: React.PointerEvent) => {
+                          e.stopPropagation();
+                        }}
+                        onMouseDown={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                        }}
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                        }}
+                        onFocus={(e: React.FocusEvent) => {
+                          e.stopPropagation();
+                        }}
                         disabled={isGenerating}
                       >
                         <option value="auto">
@@ -1390,11 +1397,18 @@ export default class TranscriptCard extends Node {
                       <Select
                         value={summaryLanguage}
                         onChange={(e) => setSummaryLanguage(e.target.value)}
-                        onMouseDown={(e: React.MouseEvent) =>
-                          e.stopPropagation()
-                        }
-                        onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                        onFocus={(e: React.FocusEvent) => e.stopPropagation()}
+                        onPointerDown={(e: React.PointerEvent) => {
+                          e.stopPropagation();
+                        }}
+                        onMouseDown={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                        }}
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                        }}
+                        onFocus={(e: React.FocusEvent) => {
+                          e.stopPropagation();
+                        }}
                         disabled={isGenerating}
                       >
                         <option value="auto">
@@ -1424,11 +1438,18 @@ export default class TranscriptCard extends Node {
                         onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
                           setCustomPrompt(e.target.value)
                         }
-                        onMouseDown={(e: React.MouseEvent) =>
-                          e.stopPropagation()
-                        }
-                        onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                        onFocus={(e: React.FocusEvent) => e.stopPropagation()}
+                        onPointerDown={(e: React.PointerEvent) => {
+                          e.stopPropagation();
+                        }}
+                        onMouseDown={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                        }}
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                        }}
+                        onFocus={(e: React.FocusEvent) => {
+                          e.stopPropagation();
+                        }}
                         placeholder="Optional: Add specific instructions for the summary..."
                         disabled={isGenerating}
                         rows={4}
@@ -1442,11 +1463,18 @@ export default class TranscriptCard extends Node {
                       <Select
                         value={insertPosition}
                         onChange={(e) => setInsertPosition(e.target.value)}
-                        onMouseDown={(e: React.MouseEvent) =>
-                          e.stopPropagation()
-                        }
-                        onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                        onFocus={(e: React.FocusEvent) => e.stopPropagation()}
+                        onPointerDown={(e: React.PointerEvent) => {
+                          e.stopPropagation();
+                        }}
+                        onMouseDown={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                        }}
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                        }}
+                        onFocus={(e: React.FocusEvent) => {
+                          e.stopPropagation();
+                        }}
                         disabled={isGenerating}
                       >
                         <option value="summary_tab">In Summary Tab</option>
@@ -2287,6 +2315,9 @@ const Select = styled.select`
   background: ${s("background")};
   color: ${s("text")};
   font-size: 14px;
+  user-select: auto;
+  pointer-events: auto;
+  cursor: pointer;
 
   &:focus {
     outline: none;
