@@ -1278,9 +1278,9 @@ export default class TranscriptCard extends Node {
               onClick={() => setIsCardView(!isCardView)}
             >
               {isCardView ? (
-                <MinimizeIcon size={14} />
-              ) : (
                 <MaximizeIcon size={14} />
+              ) : (
+                <MinimizeIcon size={14} />
               )}
             </ViewToggleButton>
           </CardControls>

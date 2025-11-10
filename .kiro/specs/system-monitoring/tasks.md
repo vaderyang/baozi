@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Create database schema and models
+- [x] 1. Create database schema and models
   - Create migration for health_checks, service_metrics, and failed_requests tables
   - Implement HealthCheck Sequelize model with JSONB support for LLM models health
   - Implement ServiceMetric Sequelize model with support for multiple interval types
@@ -8,7 +8,7 @@
   - Add new TeamPreference enum values for retention settings (MonitoringRetention5Min, MonitoringRetention1Hour, MonitoringRetention1Day)
   - _Requirements: 1.10, 3.1-3.3, 4.1-4.3, 5.1-5.3, 6.1-6.8, 11.2-11.6, 12.3_
 
-- [ ] 2. Implement SystemMonitoringService
+- [x] 2. Implement SystemMonitoringService
   - Create SystemMonitoringService class in server/services/
   - Implement recordLLMMetric() method with in-memory buffering
   - Implement recordTranscriptionMetric() method with in-memory buffering
@@ -21,7 +21,7 @@
   - Add metrics buffer with 30-second flush interval for batch inserts
   - _Requirements: 2.1-2.7, 3.1-3.5, 4.1-4.5, 5.1-5.6, 7.1-7.8, 9.1-9.7, 10.1-10.8, 12.1-12.7_
 
-- [ ] 3. Add metrics collection hooks to existing services
+- [x] 3. Add metrics collection hooks to existing services
   - Add LLM metrics collection hook in AIArchiveSuggestionService
   - Add LLM metrics collection hook in AISummaryTask
   - Add transcription metrics collection hook in TranscriptionTask
@@ -29,7 +29,7 @@
   - Record success/failure status, token counts, duration, and user context
   - _Requirements: 2.1-2.7, 7.1-7.8, 12.1-12.2, 12.6_
 
-- [ ] 4. Implement background tasks
+- [x] 4. Implement background tasks
   - Create HealthCheckTask that runs every 5 minutes
   - Implement health check execution for global and team-specific configurations
   - Create MetricsAggregationTask that runs every 5 minutes
@@ -41,14 +41,14 @@
   - Register all tasks in the task queue scheduler
   - _Requirements: 3.1-3.5, 4.1-4.5, 5.1-5.6, 6.7, 11.1-11.8, 12.4-12.5_
 
-- [ ] 5. Enhance health check API endpoint
+- [x] 5. Enhance health check API endpoint
   - Modify existing GET /api/health endpoint to store results in database
   - Add optional history parameter to return last 24 hours of health checks
   - Ensure backward compatibility with existing health check response format
   - Add health status trend calculation for selected time range
   - _Requirements: 1.1-1.10_
 
-- [ ] 6. Create monitoring API endpoints
+- [x] 6. Create monitoring API endpoints
   - Create GET /api/monitoring/metrics endpoint with query parameters
   - Implement automatic interval selection based on time range
   - Create GET /api/monitoring/users endpoint for user analytics
@@ -58,14 +58,14 @@
   - Add response pagination for large result sets
   - _Requirements: 9.1-9.7, 10.1-10.8, 13.1-13.7_
 
-- [ ] 7. Create settings API endpoint for retention configuration
+- [x] 7. Create settings API endpoint for retention configuration
   - Create PUT /api/settings/monitoring endpoint
   - Implement validation for retention period values (positive integers)
   - Store retention settings in team preferences JSONB field
   - Return updated settings in response
   - _Requirements: 6.1-6.8_
 
-- [ ] 8. Build monitoring dashboard frontend components
+- [x] 8. Build monitoring dashboard frontend components
   - Create MonitoringDashboard scene at app/scenes/Settings/Monitoring.tsx
   - Implement HealthStatusPanel component with overall, database, LLM, and ASR status
   - Implement MetricsVisualization component with time-series charts using recharts
@@ -78,7 +78,7 @@
   - Add loading indicators and error handling
   - _Requirements: 1.1-1.10, 9.1-9.7, 10.1-10.8, 13.1-13.7_
 
-- [ ] 9. Create retention settings UI
+- [x] 9. Create retention settings UI
   - Add monitoring retention configuration section to Settings/AI.tsx
   - Create input fields for 5-minute, 1-hour, and 1-day retention periods
   - Set default values (24 hours, 7 days, 365 days)
@@ -87,8 +87,8 @@
   - Display current retention settings
   - _Requirements: 6.1-6.8_
 
-- [ ] 10. Add navigation and routing
-  - Add "System Monitoring" menu item to Settings navigation
+- [x] 10. Add navigation and routing
+  - Add "System Monitoring" menu item to Settings navigation and remove "System Health" menu item.
   - Create route for /settings/monitoring
   - Ensure admin-only access to monitoring dashboard
   - Add breadcrumb navigation

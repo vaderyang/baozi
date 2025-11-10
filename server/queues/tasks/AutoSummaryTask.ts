@@ -63,7 +63,8 @@ export default class AutoSummaryTask extends BaseTask<Props> {
       // This will use the same logic as in the frontend TranscriptionStatusManager
       const timelineEntries = await this.generateTimelineSummaries(
         job.result,
-        job.teamId
+        job.teamId,
+        jobId
       );
 
       // Update job with timeline summaries
@@ -124,7 +125,8 @@ export default class AutoSummaryTask extends BaseTask<Props> {
    */
   private async generateTimelineSummaries(
     result: any,
-    teamId: string
+    teamId: string,
+    jobId: string
   ): Promise<any[]> {
     try {
       // Import AI client dynamically to avoid circular dependencies
@@ -236,7 +238,7 @@ export default class AutoSummaryTask extends BaseTask<Props> {
           }
         } catch (parseError) {
           Logger.warn("Failed to parse AI timeline response", {
-            jobId: props.jobId,
+            jobId,
             response: aiResponse.slice(0, 300),
             error:
               parseError instanceof Error
@@ -245,23 +247,23 @@ export default class AutoSummaryTask extends BaseTask<Props> {
           });
 
           // Fallback: create simple timeline based on content
-          aiResults = this.createFallbackTimeline(result, props.jobId);
+          aiResults = this.createFallbackTimeline(result);
         }
       }
 
       Logger.info("task", "Generated AI timeline summaries", {
-        jobId: props.jobId,
+        jobId,
         entriesGenerated: aiResults.length,
       });
 
       return aiResults;
     } catch (error) {
       Logger.error("Failed to generate AI timeline summaries", error as Error, {
-        jobId: props.jobId,
+        jobId,
       });
 
       // Fallback timeline
-      return this.createFallbackTimeline(result, props.jobId);
+      return this.createFallbackTimeline(result);
     }
   }
 
