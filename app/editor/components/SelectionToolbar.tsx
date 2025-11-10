@@ -275,12 +275,9 @@ export function SelectionToolbar(props: Props) {
         if (markdownContent) {
           const slice = markdownContent.slice(0);
           let tr = currentState.tr.replaceRange(targetFrom, targetTo, slice);
-          const insertionEnd = Math.min(
-            tr.doc.content.size,
-            targetFrom + slice.content.size
-          );
+          // Position cursor at the beginning of inserted content
           tr = tr.setSelection(
-            TextSelection.near(tr.doc.resolve(insertionEnd), -1)
+            TextSelection.near(tr.doc.resolve(targetFrom), 1)
           );
           dispatch(
             tr
@@ -293,9 +290,17 @@ export function SelectionToolbar(props: Props) {
             ? normalized
             : `${normalized}\n`;
 
+          let tr = currentState.tr.insertText(
+            insertTextValue,
+            targetFrom,
+            targetTo
+          );
+          // Position cursor at the beginning of inserted content
+          tr = tr.setSelection(
+            TextSelection.near(tr.doc.resolve(targetFrom), 1)
+          );
           dispatch(
-            currentState.tr
-              .insertText(insertTextValue, targetFrom, targetTo)
+            tr
               .scrollIntoView()
               .setMeta("paste", true)
               .setMeta("uiEvent", "paste")

@@ -14,7 +14,7 @@ import {
   PopoverContent,
 } from "~/components/primitives/Popover";
 import { id as bodyContentId } from "~/components/SkipNavContent";
-import useKeyDown from "~/hooks/useKeyDown";
+// import useKeyDown from "~/hooks/useKeyDown";
 import useStores from "~/hooks/useStores";
 import { SearchResult } from "~/types";
 import SearchListItem from "./SearchListItem";
@@ -76,7 +76,7 @@ function SearchPopover({ shareId, className }: Props) {
         setQuery(trimmedValue);
         setOpen(!!trimmedValue);
       }, 300),
-    [cachedQuery]
+    []
   );
 
   const searchInputRef = React.useRef<HTMLInputElement>(null);
@@ -154,15 +154,16 @@ function SearchPopover({ shareId, className }: Props) {
     }
   }, [searchInputRef]);
 
-  useKeyDown("/", (ev) => {
-    if (
-      searchInputRef.current &&
-      searchInputRef.current !== document.activeElement
-    ) {
-      searchInputRef.current.focus();
-      ev.preventDefault();
-    }
-  });
+  // Global "/" shortcut disabled
+  // useKeyDown("/", (ev) => {
+  //   if (
+  //     searchInputRef.current &&
+  //     searchInputRef.current !== document.activeElement
+  //   ) {
+  //     searchInputRef.current.focus();
+  //     ev.preventDefault();
+  //   }
+  // });
 
   return (
     <Popover open={open} onOpenChange={setOpen} modal={true}>
