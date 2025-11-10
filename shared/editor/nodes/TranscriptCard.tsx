@@ -101,19 +101,45 @@ const normalizeDurationValue = (value?: number | null) => {
 
 const VIEW_MODE_STORAGE_PREFIX = "transcript-card:view-mode";
 
+const SUBJECT_LINE_PATTERNS = [
+  /^(?:meeting\s+)?subject[:：]\s*(.+)$/i,
+  /^(?:meeting\s+)?title[:：]\s*(.+)$/i,
+  /^(?:meeting\s+)?topic[:：]\s*(.+)$/i,
+];
+
+const sanitizeSubjectLine = (line: string) =>
+  line
+    .replace(/^[-*]\s+/, "")
+    .replace(/^#+\s*/, "")
+    .replace(/\*\*/g, "")
+    .replace(/__/g, "")
+    .trim();
+
 const extractSubjectFromSummary = (summaryMarkdown: string) => {
   if (!summaryMarkdown.trim()) {
     return null;
   }
 
-  const lines = summaryMarkdown.split(/\r?\n/);
+  const lines = summaryMarkdown
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    // Look for "Subject:" at the start of the line
-    const match = trimmed.match(/^Subject[:：]\s*(.+)$/i);
-    if (match?.[1]) {
-      return match[1].trim();
+  for (const rawLine of lines) {
+    const sanitized = sanitizeSubjectLine(rawLine);
+
+    for (const pattern of SUBJECT_LINE_PATTERNS) {
+      const match = sanitized.match(pattern);
+      if (match?.[1]) {
+        return match[1].trim();
+      }
+    }
+
+    if (/^#+/.test(rawLine)) {
+      const heading = sanitized;
+      if (heading && !/meeting summary/i.test(heading)) {
+        return heading;
+      }
     }
   }
 
@@ -125,14 +151,45 @@ const extractOneLineSummary = (summaryMarkdown: string): string => {
     return "";
   }
 
-  const lines = summaryMarkdown.split(/\r?\n/);
+  // Try to find a line that starts with "Topic:", "Summary:", or similar
+  const lines = summaryMarkdown.split(/\r?\n/).map((line) => line.trim());
+
+  const topicPatterns = [
+    /^(?:topic|subject|about|regarding)[:：]\s*(.+)$/i,
+    /^(?:meeting\s+)?(?:topic|subject)[:：]\s*(.+)$/i,
+  ];
 
   for (const line of lines) {
-    const trimmed = line.trim();
-    // Look for "Topic:" at the start of the line
-    const match = trimmed.match(/^Topic[:：]\s*(.+)$/i);
-    if (match?.[1]) {
-      return match[1].trim();
+    for (const pattern of topicPatterns) {
+      const match = line.match(pattern);
+      if (match?.[1]) {
+        return match[1].trim();
+      }
+    }
+  }
+
+  // If no topic line found, take first meaningful paragraph (skip headers and empty lines)
+  for (const line of lines) {
+    const cleaned = line
+      .replace(/^#+\s*/, "") // Remove markdown headers
+      .replace(/^[-*]\s+/, "") // Remove list markers
+      .replace(/\*\*/g, "") // Remove bold markers
+      .trim();
+
+    if (
+      cleaned &&
+      cleaned.length > 10 &&
+      !/^meeting summary$/i.test(cleaned) &&
+      !cleaned.match(/^(topic|subject|about|regarding)[:：]/i)
+    ) {
+      // Take first sentence or first 120 chars
+      const firstSentence = cleaned.match(/^[^.!?]+[.!?]/);
+      if (firstSentence) {
+        return firstSentence[0].trim();
+      }
+      return cleaned.length > 120
+        ? cleaned.slice(0, 120).trim() + "…"
+        : cleaned;
     }
   }
 
@@ -1469,42 +1526,6 @@ export default class TranscriptCard extends Node {
               <MetadataContainer>
                 <MetadataSection>
                   <MetadataHeading>
-                    <Trans>Summary Extraction Debug</Trans>
-                  </MetadataHeading>
-                  <MetadataInfoGrid>
-                    <MetadataInfoItem style={{ gridColumn: "1 / -1" }}>
-                      <MetadataLabel>
-                        <Trans>Subject (extracted)</Trans>
-                      </MetadataLabel>
-                      <MetadataValue>
-                        {summarySubjectFromContent ? (
-                          summarySubjectFromContent
-                        ) : (
-                          <MetadataPlaceholder>
-                            <Trans>Not extracted from summary</Trans>
-                          </MetadataPlaceholder>
-                        )}
-                      </MetadataValue>
-                    </MetadataInfoItem>
-                    <MetadataInfoItem style={{ gridColumn: "1 / -1" }}>
-                      <MetadataLabel>
-                        <Trans>Topic (extracted)</Trans>
-                      </MetadataLabel>
-                      <MetadataValue>
-                        {oneLineSummary ? (
-                          oneLineSummary
-                        ) : (
-                          <MetadataPlaceholder>
-                            <Trans>Not extracted from summary</Trans>
-                          </MetadataPlaceholder>
-                        )}
-                      </MetadataValue>
-                    </MetadataInfoItem>
-                  </MetadataInfoGrid>
-                </MetadataSection>
-
-                <MetadataSection>
-                  <MetadataHeading>
                     <Trans>Recording Details</Trans>
                   </MetadataHeading>
                   <MetadataInfoGrid>
@@ -2179,8 +2200,6 @@ const CollapsedHeader = styled.div`
   gap: 8px;
   flex: 1;
   min-height: 0;
-  min-width: 0;
-  overflow: hidden;
 `;
 
 const CollapsedHeaderTitle = styled.span`
@@ -2188,7 +2207,6 @@ const CollapsedHeaderTitle = styled.span`
   font-weight: 500;
   color: ${s("text")};
   flex: 1;
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
