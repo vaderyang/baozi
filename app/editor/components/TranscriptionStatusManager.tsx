@@ -209,6 +209,31 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           return;
         }
 
+        // If a TranscriptCard with this job already exists, skip inserting another one
+        if (jobId) {
+          let transcriptCardAlreadyExists = false;
+          view.state.doc.descendants((node) => {
+            if (
+              node.type.name === "transcript_card" &&
+              node.attrs.jobId === jobId
+            ) {
+              transcriptCardAlreadyExists = true;
+              return false;
+            }
+            return true;
+          });
+
+          if (transcriptCardAlreadyExists) {
+            Logger.info(
+              "editor",
+              "TranscriptCard already exists for job, skipping insertion",
+              { jobId }
+            );
+            markJobProcessed();
+            return;
+          }
+        }
+
         const locateStatusCard = (docToSearch: ProsemirrorNode) => {
           let info:
             | {
