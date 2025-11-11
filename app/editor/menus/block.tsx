@@ -29,6 +29,7 @@ import Image from "@shared/editor/components/Img";
 import { MenuItem } from "@shared/editor/types";
 import { metaDisplay } from "@shared/utils/keyboard";
 import { Dictionary } from "~/hooks/useDictionary";
+import MicrophoneIcon from "~/components/Icons/MicrophoneIcon";
 
 const Img = styled(Image)`
   border-radius: 2px;
@@ -71,7 +72,7 @@ export default function blockMenuItems(
         {
           name: "start_recording",
           title: dictionary.startRecording,
-          icon: <AttachmentIcon />,
+          icon: <MicrophoneIcon />,
           keywords: "record recording microphone live",
           skipCommandCheck: true,
         },
