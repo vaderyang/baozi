@@ -179,6 +179,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
       processingJobsRef.current.add(jobId);
       const markJobProcessed = () => {
         processedCompletedJobsRef.current.add(jobId);
+        transcriptionJobs.markResultConsumed(jobId);
       };
 
       Logger.info("editor", "Attempting to replace status card", {
@@ -700,7 +701,14 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         processingJobsRef.current.delete(jobId);
       }
     },
-    [audioRecorder, dictionary, documents, formatTranscriptText, documentId]
+    [
+      audioRecorder,
+      dictionary,
+      documents,
+      formatTranscriptText,
+      documentId,
+      transcriptionJobs,
+    ]
   );
 
   const handleRetryTranscription = React.useCallback(async (jobId: string) => {

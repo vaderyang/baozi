@@ -239,6 +239,24 @@ class TranscriptionJobsStore {
   };
 
   /**
+   * Marks a completed job's result as consumed so observers don't reprocess it.
+   *
+   * @param jobId The ID of the job
+   */
+  @action
+  markResultConsumed = (jobId: string): void => {
+    const job = this.jobs.get(jobId);
+    if (!job) {
+      return;
+    }
+
+    this.jobs.set(jobId, {
+      ...job,
+      result: null,
+    });
+  };
+
+  /**
    * Get a job by ID.
    *
    * @param jobId The ID of the job
