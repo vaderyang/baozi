@@ -26,7 +26,8 @@ function AuthenticationProvider(props: Props) {
   const [authState, setAuthState] = React.useState<AuthState>("initial");
   const [isSubmitting, setSubmitting] = React.useState(false);
   const [email, setEmail] = React.useState("");
-  const { isCreate, id, name, authUrl, onEmailSuccess, ...rest } = props;
+  const { isCreate, id, name, authUrl, onEmailSuccess, preferOTP, ...rest } =
+    props;
   const clientType = Desktop.isElectron() ? Client.Desktop : Client.Web;
 
   const handleChangeEmail = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,7 +46,7 @@ function AuthenticationProvider(props: Props) {
         const response = await client.post(event.currentTarget.action, {
           email,
           client: clientType,
-          preferOTP: props.preferOTP,
+          preferOTP,
         });
 
         if (response.redirect) {

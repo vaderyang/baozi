@@ -1652,7 +1652,7 @@ router.post(
 router.post(
   "documents.create",
   auth(),
-  rateLimiter(RateLimiterStrategy.TwentyFivePerMinute),
+  rateLimiter(RateLimiterStrategy.OneThousandPerMinute),
   validate(T.DocumentsCreateSchema),
   transaction(),
   async (ctx: APIContext<T.DocumentsCreateReq>) => {

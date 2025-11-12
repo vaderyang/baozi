@@ -78,6 +78,11 @@ export const RateLimiterStrategy = {
     duration: 3600,
     requests: 1000,
   },
+  /** Allows one thousand requests per minute, per IP address */
+  OneThousandPerMinute: {
+    duration: 60,
+    requests: 1000,
+  },
   /** Allows one hunred requests per hour, per IP address */
   OneHundredPerHour: {
     duration: 3600,
