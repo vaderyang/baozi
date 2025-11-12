@@ -6,6 +6,8 @@ import auth from "@server/middlewares/authentication";
 import { APIContext } from "@server/types";
 import { sequelize } from "@server/storage/database";
 import fetch, { llmUserAgent } from "@server/utils/fetch";
+import { promises as fs } from "fs";
+import path from "path";
 
 type ModelRole =
   | "primary"
@@ -37,6 +39,8 @@ interface HealthCheckResponse {
     database: ServiceHealth;
     llmModels: ModelHealth[];
     asr: ServiceHealth;
+    filePermissions: ServiceHealth;
+    storageSpace: ServiceHealth;
   };
 }
 
@@ -379,6 +383,171 @@ async function checkASR(team?: Team | null): Promise<ServiceHealth> {
   }
 }
 
+/**
+ * Check file permissions for local storage directory
+ */
+async function checkFilePermissions(): Promise<ServiceHealth> {
+  const startTime = Date.now();
+
+  // Only check file permissions if using local storage
+  if (env.FILE_STORAGE !== "local") {
+    return {
+      status: "healthy",
+      responseTime: Date.now() - startTime,
+      details: {
+        storageType: env.FILE_STORAGE,
+        message: "File permissions check skipped (not using local storage)",
+      },
+    };
+  }
+
+  if (!env.FILE_STORAGE_LOCAL_ROOT_DIR) {
+    return {
+      status: "unknown",
+      responseTime: Date.now() - startTime,
+      error:
+        "Local storage not configured (missing FILE_STORAGE_LOCAL_ROOT_DIR)",
+    };
+  }
+
+  try {
+    const storageDir = env.FILE_STORAGE_LOCAL_ROOT_DIR;
+    const testFileName = `.health-check-${Date.now()}.tmp`;
+    const testFilePath = path.join(storageDir, testFileName);
+
+    // Check if directory exists, create if not
+    try {
+      await fs.access(storageDir);
+    } catch (_error) {
+      // Directory doesn't exist, try to create it
+      await fs.mkdir(storageDir, { recursive: true });
+    }
+
+    // Test write permission
+    await fs.writeFile(testFilePath, "health-check");
+
+    // Test read permission
+    await fs.readFile(testFilePath);
+
+    // Test delete permission
+    await fs.unlink(testFilePath);
+
+    const responseTime = Date.now() - startTime;
+
+    return {
+      status: "healthy",
+      responseTime,
+      details: {
+        storageDirectory: storageDir,
+        permissions: {
+          read: true,
+          write: true,
+          delete: true,
+        },
+      },
+    };
+  } catch (error) {
+    return {
+      status: "unhealthy",
+      responseTime: Date.now() - startTime,
+      error:
+        error instanceof Error ? error.message : "File permission check failed",
+      details: {
+        storageDirectory: env.FILE_STORAGE_LOCAL_ROOT_DIR,
+      },
+    };
+  }
+}
+
+/**
+ * Check available storage space
+ */
+async function checkStorageSpace(): Promise<ServiceHealth> {
+  const startTime = Date.now();
+
+  // Only check storage space if using local storage
+  if (env.FILE_STORAGE !== "local") {
+    return {
+      status: "healthy",
+      responseTime: Date.now() - startTime,
+      details: {
+        storageType: env.FILE_STORAGE,
+        message: "Storage space check skipped (not using local storage)",
+      },
+    };
+  }
+
+  if (!env.FILE_STORAGE_LOCAL_ROOT_DIR) {
+    return {
+      status: "unknown",
+      responseTime: Date.now() - startTime,
+      error:
+        "Local storage not configured (missing FILE_STORAGE_LOCAL_ROOT_DIR)",
+    };
+  }
+
+  try {
+    const storageDir = env.FILE_STORAGE_LOCAL_ROOT_DIR;
+
+    // Check if directory exists
+    await fs.access(storageDir);
+
+    // Get disk space statistics
+    const stats = await fs.statfs(storageDir);
+
+    // Calculate available and total space
+    const totalSpace = stats.blocks * stats.bsize;
+    const freeSpace = stats.bavail * stats.bsize;
+    const usedSpace = totalSpace - freeSpace;
+    const usagePercentage = (usedSpace / totalSpace) * 100;
+
+    const responseTime = Date.now() - startTime;
+
+    // Determine health based on usage percentage
+    let status: "healthy" | "unhealthy";
+    if (usagePercentage >= 95) {
+      status = "unhealthy";
+    } else if (usagePercentage >= 90) {
+      status = "unhealthy"; // Consider >90% as unhealthy for storage
+    } else {
+      status = "healthy";
+    }
+
+    return {
+      status,
+      responseTime,
+      details: {
+        storageDirectory: storageDir,
+        totalSpace: {
+          bytes: totalSpace,
+          gb: Math.round((totalSpace / (1024 * 1024 * 1024)) * 100) / 100,
+        },
+        usedSpace: {
+          bytes: usedSpace,
+          gb: Math.round((usedSpace / (1024 * 1024 * 1024)) * 100) / 100,
+        },
+        freeSpace: {
+          bytes: freeSpace,
+          gb: Math.round((freeSpace / (1024 * 1024 * 1024)) * 100) / 100,
+        },
+        usagePercentage: Math.round(usagePercentage * 100) / 100,
+        warning:
+          usagePercentage >= 80 ? "Running low on storage space" : undefined,
+      },
+    };
+  } catch (error) {
+    return {
+      status: "unhealthy",
+      responseTime: Date.now() - startTime,
+      error:
+        error instanceof Error ? error.message : "Storage space check failed",
+      details: {
+        storageDirectory: env.FILE_STORAGE_LOCAL_ROOT_DIR,
+      },
+    };
+  }
+}
+
 router.post("health.check", auth(), async (ctx: APIContext) => {
   const { user } = ctx.state.auth;
   const team =
@@ -387,16 +556,25 @@ router.post("health.check", auth(), async (ctx: APIContext) => {
       rejectOnEmpty: true,
     }));
 
-  const [database, llmModels, asr] = await Promise.all([
-    checkDatabase(),
-    checkLLMModels(team),
-    checkASR(team),
-  ]);
+  const [database, llmModels, asr, filePermissions, storageSpace] =
+    await Promise.all([
+      checkDatabase(),
+      checkLLMModels(team),
+      checkASR(team),
+      checkFilePermissions(),
+      checkStorageSpace(),
+    ]);
 
-  const services = { database, llmModels, asr };
+  const services = { database, llmModels, asr, filePermissions, storageSpace };
 
   // Determine overall health
-  const allServices = [database, ...llmModels, asr];
+  const allServices = [
+    database,
+    ...llmModels,
+    asr,
+    filePermissions,
+    storageSpace,
+  ];
 
   const healthyCount = allServices.filter((s) => s.status === "healthy").length;
   const unhealthyCount = allServices.filter(

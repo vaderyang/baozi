@@ -286,7 +286,14 @@ export default class CodeFence extends Node {
   parseMarkdown() {
     return {
       block: "code_block",
-      getAttrs: (tok: Token) => ({ language: tok.info }),
+      getAttrs: (tok: Token) => {
+        // Map common language aliases to internal identifiers
+        const languageAliases: Record<string, string> = {
+          mermaid: "mermaidjs",
+        };
+        const language = tok.info || "";
+        return { language: languageAliases[language] || language };
+      },
       noCloseToken: true,
     };
   }

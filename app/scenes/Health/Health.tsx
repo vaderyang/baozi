@@ -38,6 +38,8 @@ interface HealthData {
     database: ServiceHealth;
     llmModels: ModelHealth[];
     asr: ServiceHealth;
+    filePermissions: ServiceHealth;
+    storageSpace: ServiceHealth;
   };
 }
 
@@ -287,6 +289,186 @@ function Health() {
 
                 {healthData.services.asr.error && (
                   <ErrorMessage>{healthData.services.asr.error}</ErrorMessage>
+                )}
+              </ServiceCard>
+
+              <ServiceCard>
+                <ServiceHeader>
+                  <Flex align="center" gap={8}>
+                    {getStatusIcon(healthData.services.filePermissions.status)}
+                    <ServiceName>{t("File Permissions")}</ServiceName>
+                  </Flex>
+                  <StatusBadge
+                    $status={healthData.services.filePermissions.status}
+                  >
+                    {healthData.services.filePermissions.status}
+                  </StatusBadge>
+                </ServiceHeader>
+
+                {healthData.services.filePermissions.responseTime !==
+                  undefined && (
+                  <ServiceDetail>
+                    <DetailLabel>{t("Response Time")}:</DetailLabel>
+                    <DetailValue>
+                      {healthData.services.filePermissions.responseTime}ms
+                    </DetailValue>
+                  </ServiceDetail>
+                )}
+
+                {healthData.services.filePermissions.details
+                  ?.storageDirectory && (
+                  <ServiceDetail>
+                    <DetailLabel>{t("Storage Directory")}:</DetailLabel>
+                    <DetailValue>
+                      {
+                        healthData.services.filePermissions.details
+                          .storageDirectory
+                      }
+                    </DetailValue>
+                  </ServiceDetail>
+                )}
+
+                {healthData.services.filePermissions.details?.permissions && (
+                  <>
+                    <ServiceDetail>
+                      <DetailLabel>{t("Read Access")}:</DetailLabel>
+                      <DetailValue>
+                        {healthData.services.filePermissions.details.permissions
+                          .read
+                          ? "✅"
+                          : "❌"}
+                      </DetailValue>
+                    </ServiceDetail>
+                    <ServiceDetail>
+                      <DetailLabel>{t("Write Access")}:</DetailLabel>
+                      <DetailValue>
+                        {healthData.services.filePermissions.details.permissions
+                          .write
+                          ? "✅"
+                          : "❌"}
+                      </DetailValue>
+                    </ServiceDetail>
+                    <ServiceDetail>
+                      <DetailLabel>{t("Delete Access")}:</DetailLabel>
+                      <DetailValue>
+                        {healthData.services.filePermissions.details.permissions
+                          .delete
+                          ? "✅"
+                          : "❌"}
+                      </DetailValue>
+                    </ServiceDetail>
+                  </>
+                )}
+
+                {healthData.services.filePermissions.details?.message && (
+                  <ServiceDetail>
+                    <DetailLabel>{t("Note")}:</DetailLabel>
+                    <DetailValue>
+                      {healthData.services.filePermissions.details.message}
+                    </DetailValue>
+                  </ServiceDetail>
+                )}
+
+                {healthData.services.filePermissions.error && (
+                  <ErrorMessage>
+                    {healthData.services.filePermissions.error}
+                  </ErrorMessage>
+                )}
+              </ServiceCard>
+
+              <ServiceCard>
+                <ServiceHeader>
+                  <Flex align="center" gap={8}>
+                    {getStatusIcon(healthData.services.storageSpace.status)}
+                    <ServiceName>{t("Storage Space")}</ServiceName>
+                  </Flex>
+                  <StatusBadge
+                    $status={healthData.services.storageSpace.status}
+                  >
+                    {healthData.services.storageSpace.status}
+                  </StatusBadge>
+                </ServiceHeader>
+
+                {healthData.services.storageSpace.responseTime !==
+                  undefined && (
+                  <ServiceDetail>
+                    <DetailLabel>{t("Response Time")}:</DetailLabel>
+                    <DetailValue>
+                      {healthData.services.storageSpace.responseTime}ms
+                    </DetailValue>
+                  </ServiceDetail>
+                )}
+
+                {healthData.services.storageSpace.details?.storageDirectory && (
+                  <ServiceDetail>
+                    <DetailLabel>{t("Storage Directory")}:</DetailLabel>
+                    <DetailValue>
+                      {
+                        healthData.services.storageSpace.details
+                          .storageDirectory
+                      }
+                    </DetailValue>
+                  </ServiceDetail>
+                )}
+
+                {healthData.services.storageSpace.details?.totalSpace && (
+                  <>
+                    <ServiceDetail>
+                      <DetailLabel>{t("Total Space")}:</DetailLabel>
+                      <DetailValue>
+                        {healthData.services.storageSpace.details.totalSpace.gb}{" "}
+                        GB
+                      </DetailValue>
+                    </ServiceDetail>
+                    <ServiceDetail>
+                      <DetailLabel>{t("Used Space")}:</DetailLabel>
+                      <DetailValue>
+                        {healthData.services.storageSpace.details.usedSpace.gb}{" "}
+                        GB
+                      </DetailValue>
+                    </ServiceDetail>
+                    <ServiceDetail>
+                      <DetailLabel>{t("Free Space")}:</DetailLabel>
+                      <DetailValue>
+                        {healthData.services.storageSpace.details.freeSpace.gb}{" "}
+                        GB
+                      </DetailValue>
+                    </ServiceDetail>
+                    <ServiceDetail>
+                      <DetailLabel>{t("Usage")}:</DetailLabel>
+                      <DetailValue>
+                        {
+                          healthData.services.storageSpace.details
+                            .usagePercentage
+                        }
+                        %
+                      </DetailValue>
+                    </ServiceDetail>
+                  </>
+                )}
+
+                {healthData.services.storageSpace.details?.warning && (
+                  <ServiceDetail>
+                    <DetailLabel>{t("Warning")}:</DetailLabel>
+                    <DetailValue style={{ color: s("warning") }}>
+                      {healthData.services.storageSpace.details.warning}
+                    </DetailValue>
+                  </ServiceDetail>
+                )}
+
+                {healthData.services.storageSpace.details?.message && (
+                  <ServiceDetail>
+                    <DetailLabel>{t("Note")}:</DetailLabel>
+                    <DetailValue>
+                      {healthData.services.storageSpace.details.message}
+                    </DetailValue>
+                  </ServiceDetail>
+                )}
+
+                {healthData.services.storageSpace.error && (
+                  <ErrorMessage>
+                    {healthData.services.storageSpace.error}
+                  </ErrorMessage>
                 )}
               </ServiceCard>
             </ServicesGrid>
