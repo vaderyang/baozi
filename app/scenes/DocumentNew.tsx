@@ -40,6 +40,14 @@ function DocumentNew({ template }: Props) {
         if (id) {
           collection = await collections.fetch(id);
         }
+
+        // Get title from location.state or query parameter
+        const locationState = location.state as
+          | { title?: string; startRecording?: boolean }
+          | undefined;
+        const titleFromState = locationState?.title;
+        const startRecording = locationState?.startRecording;
+
         const document = await documents.create(
           {
             collectionId: collection?.id,
@@ -49,7 +57,7 @@ function DocumentNew({ template }: Props) {
               user.getPreference(UserPreference.FullWidthDocuments),
             templateId: query.get("templateId") ?? undefined,
             template,
-            title: query.get("title") ?? "",
+            title: titleFromState || query.get("title") || "",
             data: ProsemirrorHelper.getEmptyDocument(),
           },
           { publish: collection?.id || parentDocumentId ? true : undefined }
@@ -59,10 +67,10 @@ function DocumentNew({ template }: Props) {
           template || !user.separateEditMode
             ? documentPath(document)
             : documentEditPath(document),
-          location.state
+          { ...location.state, startRecording }
         );
       } catch (_err) {
-        toast.error(t("Couldn’t create the document, try again?"));
+        toast.error(t("Couldn't create the document, try again?"));
         history.goBack();
       }
     }

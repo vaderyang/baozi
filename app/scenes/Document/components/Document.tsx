@@ -74,6 +74,7 @@ type LocationState = {
   restore?: boolean;
   revisionId?: string;
   sidebarContext?: SidebarContextType;
+  startRecording?: boolean;
 };
 
 type Props = WithTranslation &
@@ -117,7 +118,74 @@ class DocumentScene extends React.Component<Props> {
 
   componentDidMount() {
     this.updateIsDirty();
+
+    // Check if we should start recording automatically
+    const { location, audioRecorder } = this.props;
+    const shouldStartRecording = location.state?.startRecording;
+
+    if (shouldStartRecording && audioRecorder && !audioRecorder.isActive) {
+      // Wait for editor to be ready, then start recording
+      setTimeout(() => {
+        this.startRecording();
+      }, 500);
+    }
   }
+
+  startRecording = async () => {
+    const { audioRecorder, document } = this.props;
+    const editorRef = this.editor.current;
+
+    if (!editorRef || !audioRecorder) {
+      return;
+    }
+
+    try {
+      const { view } = editorRef;
+      const { state } = view;
+
+      // Check if MediaRecorder is supported
+      if (typeof MediaRecorder === "undefined") {
+        toast.error("Audio recording is not supported in this browser");
+        return;
+      }
+
+      if (audioRecorder.isActive) {
+        toast.error(
+          "Finish the current recording before starting another one."
+        );
+        return;
+      }
+
+      // Generate unique node ID for the placeholder
+      const nodeId = audioRecorder.generateNodeId();
+      if (!nodeId) {
+        throw new Error("Failed to generate recording node identifier");
+      }
+
+      // Check if recording_placeholder node type exists in schema
+      if (!state.schema.nodes.recording_placeholder) {
+        throw new Error("Recording placeholder node type not found in schema");
+      }
+
+      // Insert recording placeholder node at the beginning of the document
+      const placeholderNode = state.schema.nodes.recording_placeholder.create({
+        nodeId,
+        status: "recording",
+        startTime: Date.now(),
+      });
+
+      const position = 0; // Insert at the beginning
+      const tr = state.tr.replaceRangeWith(position, position, placeholderNode);
+      view.dispatch(tr.scrollIntoView());
+
+      // Start actual recording
+      await audioRecorder.startRecording(document.id, position, nodeId);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to start recording"
+      );
+    }
+  };
 
   componentDidUpdate(prevProps: Props) {
     if (prevProps.readOnly && !this.props.readOnly) {

@@ -18,6 +18,7 @@ type LocationState = {
   restore?: boolean;
   revisionId?: string;
   sidebarContext?: SidebarContextType;
+  startRecording?: boolean;
 };
 
 type Props = RouteComponentProps<Params, StaticContext, LocationState>;

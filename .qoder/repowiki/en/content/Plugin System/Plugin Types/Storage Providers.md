@@ -34,45 +34,45 @@ The storage provider system in baozi follows a plugin-based architecture with a 
 ```mermaid
 classDiagram
 class BaseStorage {
-+static defaultSignedUrlExpires : number
-+getPresignedPost(ctx, key, acl, maxUploadSize, contentType) : Promise~Partial~PresignedPost~~
-+getFileStream(key, range) : Promise~NodeJS.ReadableStream | null~
-+getUploadUrl(isServerUpload) : string
-+getUrlForKey(key) : string
-+getSignedUrl(key, expiresIn) : Promise~string~
-+store(body, contentLength, contentType, key, acl) : Promise~string | undefined~
-+getFileHandle(key) : Promise~{path : string, cleanup : () => Promise~void~~~
-+getFileBuffer(key) : Promise~Buffer~
-+storeFromUrl(url, key, acl, init, options) : Promise~{url : string, contentType : string, contentLength : number} | undefined~
-+deleteFile(key) : Promise~void~
-+getContentDisposition(contentType) : string
-+safeInlineContentTypes : string[]
+    +static defaultSignedUrlExpires : number
+    +getPresignedPost(ctx, key, acl, maxUploadSize, contentType) : Promise<Partial<PresignedPost>>
+    +getFileStream(key, range) : Promise<NodeJS.ReadableStream | null>
+    +getUploadUrl(isServerUpload) : string
+    +getUrlForKey(key) : string
+    +getSignedUrl(key, expiresIn) : Promise<string>
+    +store(body, contentLength, contentType, key, acl) : Promise<string | undefined>
+    +getFileHandle(key) : Promise<{path : string, cleanup : () => Promise<void>}>
+    +getFileBuffer(key) : Promise<Buffer>
+    +storeFromUrl(url, key, acl, init, options) : Promise<{url : string, contentType : string, contentLength : number} | undefined>
+    +deleteFile(key) : Promise<void>
+    +getContentDisposition(contentType) : string
+    +safeInlineContentTypes : string[]
 }
 class LocalStorage {
-+getPresignedPost(ctx, key, acl, maxUploadSize, contentType) : Promise~Partial~PresignedPost~~
-+getUploadUrl() : string
-+getUrlForKey(key) : string
-+store(body, key) : Promise~string~
-+deleteFile(key) : Promise~void~
-+getSignedUrl(key, expiresIn) : Promise~string~
-+getFileHandle(key) : Promise~{path : string, cleanup : () => Promise~void~~~
-+getFileStream(key, range) : Promise~NodeJS.ReadableStream | null~
-+stat(key) : Promise~Stats~
-+getFilePath(key) : string
+    +getPresignedPost(ctx, key, acl, maxUploadSize, contentType) : Promise<Partial<PresignedPost>>
+    +getUploadUrl() : string
+    +getUrlForKey(key) : string
+    +store(body, key) : Promise<string>
+    +deleteFile(key) : Promise<void>
+    +getSignedUrl(key, expiresIn) : Promise<string>
+    +getFileHandle(key) : Promise<{path : string, cleanup : () => Promise<void>}>
+    +getFileStream(key, range) : Promise<NodeJS.ReadableStream | null>
+    +stat(key) : Promise<Stats>
+    +getFilePath(key) : string
 }
 class S3Storage {
-+constructor()
-+getPresignedPost(ctx, key, acl, maxUploadSize, contentType) : Promise~Partial~PresignedPost~~
-+getUploadUrl(isServerUpload) : string
-+getUrlForKey(key) : string
-+store(body, contentType, key, acl) : Promise~string~
-+deleteFile(key) : Promise~void~
-+getSignedUrl(key, expiresIn) : Promise~string~
-+getFileHandle(key) : Promise~{path : string, cleanup : () => Promise~void~~~
-+getFileStream(key, range) : Promise~NodeJS.ReadableStream | null~
-+getEndpoint() : string
-+getBucket() : string
-+client : S3Client
+    +constructor()
+    +getPresignedPost(ctx, key, acl, maxUploadSize, contentType) : Promise<Partial<PresignedPost>>
+    +getUploadUrl(isServerUpload) : string
+    +getUrlForKey(key) : string
+    +store(body, contentType, key, acl) : Promise<string>
+    +deleteFile(key) : Promise<void>
+    +getSignedUrl(key, expiresIn) : Promise<string>
+    +getFileHandle(key) : Promise<{path : string, cleanup : () => Promise<void>}>
+    +getFileStream(key, range) : Promise<NodeJS.ReadableStream | null>
+    +getEndpoint() : string
+    +getBucket() : string
+    +client : S3Client
 }
 BaseStorage <|-- LocalStorage
 BaseStorage <|-- S3Storage

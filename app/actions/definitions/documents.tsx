@@ -33,6 +33,7 @@ import {
   RestoreIcon,
   EditIcon,
 } from "outline-icons";
+import MicrophoneIcon from "~/components/Icons/MicrophoneIcon";
 import { toast } from "sonner";
 import Icon from "@shared/components/Icon";
 import {
@@ -182,6 +183,52 @@ export const createDocument = createAction({
     history.push(newDocumentPath(activeCollectionId), {
       sidebarContext,
     }),
+});
+
+export const createRecordingDocument = createAction({
+  name: ({ t }) => t("New recording"),
+  analyticsName: "New recording",
+  section: DocumentSection,
+  icon: <MicrophoneIcon />,
+  keywords: "create recording audio microphone",
+  visible: ({ currentTeamId, activeCollectionId, stores }) => {
+    // Check MediaRecorder support
+    if (typeof MediaRecorder === "undefined") {
+      return false;
+    }
+
+    if (
+      activeCollectionId &&
+      !stores.policies.abilities(activeCollectionId).createDocument
+    ) {
+      return false;
+    }
+
+    return (
+      !!currentTeamId && stores.policies.abilities(currentTeamId).createDocument
+    );
+  },
+  perform: async ({ activeCollectionId, sidebarContext }) => {
+    try {
+      // Create a new document with a timestamp title
+      const now = new Date();
+      const title = `Recording ${now.toLocaleString()}`;
+
+      // Navigate to new document path and pass recording flag
+      const path = newDocumentPath(activeCollectionId);
+      history.push(path, {
+        sidebarContext,
+        title,
+        startRecording: true,
+      });
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Failed to create recording document"
+      );
+    }
+  },
 });
 
 export const createDraftDocument = createAction({

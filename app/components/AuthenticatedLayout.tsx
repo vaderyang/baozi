@@ -73,6 +73,30 @@ const AuthenticatedLayout: React.FC = ({ children }: Props) => {
     history.push(newDocumentPath(activeCollectionId));
   };
 
+  const goToNewRecording = (event: KeyboardEvent) => {
+    if (event.metaKey || event.altKey) {
+      return;
+    }
+    const { activeCollectionId } = ui;
+    if (!activeCollectionId || !canCollection.createDocument) {
+      return;
+    }
+
+    // Check MediaRecorder support
+    if (typeof MediaRecorder === "undefined") {
+      return;
+    }
+
+    // Create recording document with timestamp title
+    const now = new Date();
+    const title = `Recording ${now.toLocaleString()}`;
+
+    history.push(newDocumentPath(activeCollectionId), {
+      title,
+      startRecording: true,
+    });
+  };
+
   if (auth.isSuspended) {
     return <ErrorSuspended />;
   }
@@ -128,6 +152,7 @@ const AuthenticatedLayout: React.FC = ({ children }: Props) => {
           ref={layoutRef}
         >
           <RegisterKeyDown trigger="n" handler={goToNewDocument} />
+          <RegisterKeyDown trigger="r" handler={goToNewRecording} />
           <RegisterKeyDown trigger="t" handler={goToSearch} />
           <RegisterKeyDown trigger="/" handler={goToSearch} />
           {children}
