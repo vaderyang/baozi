@@ -516,6 +516,11 @@ export default class TranscriptCard extends Node {
     } = node.attrs;
     const { t } = useTranslation();
     const summaryMarkdown = summaryMarkdownAttr || "";
+
+    // In read-only mode (shared links), hide interactive features
+    // isEditable is false when the editor is readOnly
+    const isReadOnlyView = !isEditable;
+
     const [activeTab, setActiveTab] = React.useState<
       "summary" | "generate" | "transcript" | "metadata"
     >("summary");
@@ -724,6 +729,9 @@ export default class TranscriptCard extends Node {
         return null;
       }
 
+      // In read-only view, always prevent download
+      const shouldPreventDownload = preventDownload || isReadOnlyView;
+
       return (
         <Widget
           icon={
@@ -733,11 +741,11 @@ export default class TranscriptCard extends Node {
           }
           title={downloadLabel}
           context={fileSizeWithFormat}
-          href={preventDownload ? undefined : audioUrl}
+          href={shouldPreventDownload ? undefined : audioUrl}
           isSelected={isSelected}
           onMouseDown={this.handleSelect(props)}
           onClick={(event) => {
-            if (isEditable || preventDownload) {
+            if (isEditable || shouldPreventDownload) {
               event.preventDefault();
               event.stopPropagation();
             }
@@ -1206,7 +1214,8 @@ export default class TranscriptCard extends Node {
             )}
           </CollapsedStats>
         )}
-        {audioUrl && (
+        {/* Hide audio attachment in read-only view */}
+        {audioUrl && !isReadOnlyView && (
           <CollapsedAudioAttachment>
             <AudioAttachmentWrapper>
               {renderAudioAttachment(true)}
@@ -1238,24 +1247,32 @@ export default class TranscriptCard extends Node {
               >
                 <Trans>Summary</Trans>
               </Tab>
-              <Tab
-                active={activeTab === "generate"}
-                onClick={() => setActiveTab("generate")}
-              >
-                <Trans>Generate</Trans>
-              </Tab>
-              <Tab
-                active={activeTab === "transcript"}
-                onClick={() => setActiveTab("transcript")}
-              >
-                <Trans>Transcript</Trans>
-              </Tab>
-              <Tab
-                active={activeTab === "metadata"}
-                onClick={() => setActiveTab("metadata")}
-              >
-                <Trans>Metadata</Trans>
-              </Tab>
+              {/* Hide Generate tab in read-only view */}
+              {!isReadOnlyView && (
+                <Tab
+                  active={activeTab === "generate"}
+                  onClick={() => setActiveTab("generate")}
+                >
+                  <Trans>Generate</Trans>
+                </Tab>
+              )}
+              {/* Hide Transcript and Metadata tabs in read-only view */}
+              {!isReadOnlyView && (
+                <>
+                  <Tab
+                    active={activeTab === "transcript"}
+                    onClick={() => setActiveTab("transcript")}
+                  >
+                    <Trans>Transcript</Trans>
+                  </Tab>
+                  <Tab
+                    active={activeTab === "metadata"}
+                    onClick={() => setActiveTab("metadata")}
+                  >
+                    <Trans>Metadata</Trans>
+                  </Tab>
+                </>
+              )}
             </TabBar>
           ) : (
             <CollapsedHeader>
@@ -1296,32 +1313,35 @@ export default class TranscriptCard extends Node {
                   <>
                     <SummaryToolbar>
                       <SummaryToolbarTitle>{summaryTitle}</SummaryToolbarTitle>
-                      <SummaryActions>
-                        <SummaryActionButton
-                          type="button"
-                          onClick={handleCopySummaryMarkdown}
-                          disabled={!hasSummaryContent}
-                          title="Copy the summary"
-                          aria-label={t("Copy summary")}
-                        >
-                          <CopyIcon size={16} />
-                          <SummaryActionText>
-                            <Trans>Summary</Trans>
-                          </SummaryActionText>
-                        </SummaryActionButton>
-                        <SummaryActionButton
-                          type="button"
-                          onClick={handleCopyTranscript}
-                          disabled={!transcriptWordCount}
-                          title={t("Copy transcript")}
-                          aria-label={t("Copy transcript")}
-                        >
-                          <CopyIcon size={16} />
-                          <SummaryActionText>
-                            <Trans>Transcript</Trans>
-                          </SummaryActionText>
-                        </SummaryActionButton>
-                      </SummaryActions>
+                      {/* Hide copy buttons in read-only view */}
+                      {!isReadOnlyView && (
+                        <SummaryActions>
+                          <SummaryActionButton
+                            type="button"
+                            onClick={handleCopySummaryMarkdown}
+                            disabled={!hasSummaryContent}
+                            title="Copy the summary"
+                            aria-label={t("Copy summary")}
+                          >
+                            <CopyIcon size={16} />
+                            <SummaryActionText>
+                              <Trans>Summary</Trans>
+                            </SummaryActionText>
+                          </SummaryActionButton>
+                          <SummaryActionButton
+                            type="button"
+                            onClick={handleCopyTranscript}
+                            disabled={!transcriptWordCount}
+                            title={t("Copy transcript")}
+                            aria-label={t("Copy transcript")}
+                          >
+                            <CopyIcon size={16} />
+                            <SummaryActionText>
+                              <Trans>Transcript</Trans>
+                            </SummaryActionText>
+                          </SummaryActionButton>
+                        </SummaryActions>
+                      )}
                     </SummaryToolbar>
                     <SummaryPreview
                       dangerouslySetInnerHTML={{ __html: summaryHtml }}
