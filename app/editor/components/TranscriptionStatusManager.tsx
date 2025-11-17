@@ -42,6 +42,14 @@ type TimelineEntryPayload = {
   summary: string;
 };
 
+// Global tracking of inserted status cards to prevent duplicates across component remounts
+// Key: documentId, Value: Set of jobIds that have had status cards inserted
+const insertedStatusCardsPerDocument = new Map<string, Set<string>>();
+
+// Global tracking of completed jobs to prevent reprocessing across component remounts
+// Key: documentId, Value: Set of jobIds that have been processed
+const processedJobsPerDocument = new Map<string, Set<string>>();
+
 const normalizeTimestampValue = (value?: number) => {
   if (typeof value !== "number") {
     return undefined;
@@ -64,8 +72,22 @@ export function TranscriptionStatusManager({ documentId }: Props) {
   const pollingIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
   const [pendingJobsLoaded, setPendingJobsLoaded] = React.useState(false);
   const [, setHasActiveTasks] = React.useState(false);
-  const processedCompletedJobsRef = React.useRef(new Set<string>());
   const processingJobsRef = React.useRef(new Set<string>());
+
+  // Use global tracking instead of local refs to persist across component remounts
+  const getProcessedJobs = React.useCallback(() => {
+    if (!processedJobsPerDocument.has(documentId)) {
+      processedJobsPerDocument.set(documentId, new Set<string>());
+    }
+    return processedJobsPerDocument.get(documentId)!;
+  }, [documentId]);
+
+  const getInsertedStatusCards = React.useCallback(() => {
+    if (!insertedStatusCardsPerDocument.has(documentId)) {
+      insertedStatusCardsPerDocument.set(documentId, new Set<string>());
+    }
+    return insertedStatusCardsPerDocument.get(documentId)!;
+  }, [documentId]);
 
   // Keep editor ref up to date and track mount status
   React.useEffect(() => {
@@ -164,22 +186,32 @@ export function TranscriptionStatusManager({ documentId }: Props) {
         autoSummary?: boolean;
       }
     ) => {
-      if (processedCompletedJobsRef.current.has(jobId)) {
-        Logger.info("editor", "Skipping already processed job", { jobId });
+      const processedJobs = getProcessedJobs();
+
+      if (processedJobs.has(jobId)) {
+        Logger.info("editor", "Skipping already processed job", {
+          jobId,
+          documentId,
+        });
         return;
       }
 
       if (processingJobsRef.current.has(jobId)) {
         Logger.info("editor", "Transcription job already in progress", {
           jobId,
+          documentId,
         });
         return;
       }
 
       processingJobsRef.current.add(jobId);
       const markJobProcessed = () => {
-        processedCompletedJobsRef.current.add(jobId);
+        processedJobs.add(jobId);
         transcriptionJobs.markResultConsumed(jobId);
+
+        // Clean up the inserted cards tracking since the job is now complete
+        const insertedCards = getInsertedStatusCards();
+        insertedCards.delete(jobId);
       };
 
       Logger.info("editor", "Attempting to replace status card", {
@@ -967,11 +999,15 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             return true;
           });
 
+          // Get global tracking for this document
+          const insertedCards = getInsertedStatusCards();
+
           // Insert status cards for jobs that don't already have cards or TranscriptCards
           for (const job of pendingJobs) {
             if (
               !existingJobIds.has(job.id) &&
-              !existingTranscriptCardJobIds.has(job.id)
+              !existingTranscriptCardJobIds.has(job.id) &&
+              !insertedCards.has(job.id)
             ) {
               // Insert at the end of the document
               const { state, dispatch } = view;
@@ -992,9 +1028,13 @@ export function TranscriptionStatusManager({ documentId }: Props) {
               tr.insert(endPos, node);
               dispatch(tr);
 
+              // Mark as inserted globally
+              insertedCards.add(job.id);
+
               Logger.info("editor", "Inserted status card for pending job", {
                 jobId: job.id,
                 status: job.status,
+                documentId,
               });
             } else if (existingTranscriptCardJobIds.has(job.id)) {
               Logger.info(
@@ -1002,6 +1042,16 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                 "Skipping status card insertion - TranscriptCard already exists",
                 {
                   jobId: job.id,
+                  documentId,
+                }
+              );
+            } else if (insertedCards.has(job.id)) {
+              Logger.info(
+                "editor",
+                "Skipping status card insertion - already inserted in this document",
+                {
+                  jobId: job.id,
+                  documentId,
                 }
               );
             }
@@ -1086,9 +1136,14 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                 return true;
               });
 
-              // Filter out jobs that already have TranscriptCards
+              // Get global tracking for this document
+              const insertedCards = getInsertedStatusCards();
+
+              // Filter out jobs that already have TranscriptCards or have been inserted globally
               const jobsToInsert = pendingJobs.filter(
-                (job) => !existingTranscriptCardJobIds.has(job.id)
+                (job) =>
+                  !existingTranscriptCardJobIds.has(job.id) &&
+                  !insertedCards.has(job.id)
               );
 
               if (jobsToInsert.length > 0) {
@@ -1099,8 +1154,12 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                     documentId,
                     count: jobsToInsert.length,
                     jobIds: jobsToInsert.map((j) => j.id),
-                    skippedWithTranscriptCard:
-                      pendingJobs.length - jobsToInsert.length,
+                    skippedWithTranscriptCard: pendingJobs.filter((j) =>
+                      existingTranscriptCardJobIds.has(j.id)
+                    ).length,
+                    skippedAlreadyInserted: pendingJobs.filter((j) =>
+                      insertedCards.has(j.id)
+                    ).length,
                   }
                 );
 
@@ -1124,6 +1183,9 @@ export function TranscriptionStatusManager({ documentId }: Props) {
 
                   tr.insert(currentPos, node);
                   currentPos += node.nodeSize;
+
+                  // Mark as inserted globally to prevent duplicates
+                  insertedCards.add(job.id);
                 }
 
                 dispatch(tr);
@@ -1135,7 +1197,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
               } else {
                 Logger.info(
                   "editor",
-                  "All pending jobs already have TranscriptCards",
+                  "All pending jobs already have TranscriptCards or status cards",
                   {
                     documentId,
                     count: pendingJobs.length,
