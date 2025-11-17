@@ -210,7 +210,7 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           return;
         }
 
-        // If a TranscriptCard with this job already exists, skip inserting another one
+        // If a TranscriptCard with this job already exists, remove status card and skip
         if (jobId) {
           let transcriptCardAlreadyExists = false;
           view.state.doc.descendants((node) => {
@@ -227,9 +227,43 @@ export function TranscriptionStatusManager({ documentId }: Props) {
           if (transcriptCardAlreadyExists) {
             Logger.info(
               "editor",
-              "TranscriptCard already exists for job, skipping insertion",
+              "TranscriptCard already exists for job, removing any status cards",
               { jobId }
             );
+
+            // Remove any status cards for this job
+            const { state, dispatch } = view;
+            let tr = state.tr;
+            const statusCardsToRemove: Array<{ from: number; to: number }> = [];
+
+            tr.doc.descendants((node, pos) => {
+              if (
+                node.type.name === "transcription_status_card" &&
+                node.attrs.jobId === jobId
+              ) {
+                statusCardsToRemove.push({
+                  from: pos,
+                  to: pos + node.nodeSize,
+                });
+              }
+              return true;
+            });
+
+            // Remove status cards in reverse order to maintain positions
+            statusCardsToRemove
+              .sort((a, b) => b.from - a.from)
+              .forEach(({ from, to }) => {
+                tr = tr.delete(from, to);
+              });
+
+            if (statusCardsToRemove.length > 0) {
+              dispatch(tr);
+              Logger.info("editor", "Removed duplicate status cards", {
+                jobId,
+                count: statusCardsToRemove.length,
+              });
+            }
+
             markJobProcessed();
             return;
           }
@@ -924,9 +958,21 @@ export function TranscriptionStatusManager({ documentId }: Props) {
             return true;
           });
 
-          // Insert status cards for jobs that don't already have cards
+          // Check if TranscriptCards already exist for these jobs
+          const existingTranscriptCardJobIds = new Set<string>();
+          view.state.doc.descendants((node) => {
+            if (node.type.name === "transcript_card" && node.attrs.jobId) {
+              existingTranscriptCardJobIds.add(node.attrs.jobId);
+            }
+            return true;
+          });
+
+          // Insert status cards for jobs that don't already have cards or TranscriptCards
           for (const job of pendingJobs) {
-            if (!existingJobIds.has(job.id)) {
+            if (
+              !existingJobIds.has(job.id) &&
+              !existingTranscriptCardJobIds.has(job.id)
+            ) {
               // Insert at the end of the document
               const { state, dispatch } = view;
               const { tr, doc } = state;
@@ -950,6 +996,14 @@ export function TranscriptionStatusManager({ documentId }: Props) {
                 jobId: job.id,
                 status: job.status,
               });
+            } else if (existingTranscriptCardJobIds.has(job.id)) {
+              Logger.info(
+                "editor",
+                "Skipping status card insertion - TranscriptCard already exists",
+                {
+                  jobId: job.id,
+                }
+              );
             }
           }
         }
@@ -1021,45 +1075,72 @@ export function TranscriptionStatusManager({ documentId }: Props) {
 
             const pendingJobs = response.data;
 
-            // If there are pending jobs without status cards, insert them
+            // If there are pending jobs without status cards, check if TranscriptCards exist
             if (pendingJobs.length > 0) {
-              Logger.info(
-                "editor",
-                "Found pending jobs without status cards, inserting them",
-                {
-                  documentId,
-                  count: pendingJobs.length,
-                  jobIds: pendingJobs.map((j) => j.id),
+              // Check if TranscriptCards already exist for these jobs
+              const existingTranscriptCardJobIds = new Set<string>();
+              view.state.doc.descendants((node) => {
+                if (node.type.name === "transcript_card" && node.attrs.jobId) {
+                  existingTranscriptCardJobIds.add(node.attrs.jobId);
                 }
+                return true;
+              });
+
+              // Filter out jobs that already have TranscriptCards
+              const jobsToInsert = pendingJobs.filter(
+                (job) => !existingTranscriptCardJobIds.has(job.id)
               );
 
-              const { state, dispatch } = view;
-              const { tr, doc } = state;
-              const endPos = doc.content.size;
+              if (jobsToInsert.length > 0) {
+                Logger.info(
+                  "editor",
+                  "Found pending jobs without status cards, inserting them",
+                  {
+                    documentId,
+                    count: jobsToInsert.length,
+                    jobIds: jobsToInsert.map((j) => j.id),
+                    skippedWithTranscriptCard:
+                      pendingJobs.length - jobsToInsert.length,
+                  }
+                );
 
-              // Insert all pending job cards at the end of the document
-              let currentPos = endPos;
-              for (const job of pendingJobs) {
-                const node =
-                  view.state.schema.nodes.transcription_status_card.create({
-                    jobId: job.id,
-                    fileName: job.fileName,
-                    fileSize: job.fileSize,
-                    status: job.status,
-                    progress: job.progress || 0,
-                    error: job.error,
-                    autoSummary: job.autoSummary ?? false,
-                  });
+                const { state, dispatch } = view;
+                const { tr, doc } = state;
+                const endPos = doc.content.size;
 
-                tr.insert(currentPos, node);
-                currentPos += node.nodeSize;
-              }
+                // Insert all pending job cards at the end of the document
+                let currentPos = endPos;
+                for (const job of jobsToInsert) {
+                  const node =
+                    view.state.schema.nodes.transcription_status_card.create({
+                      jobId: job.id,
+                      fileName: job.fileName,
+                      fileSize: job.fileSize,
+                      status: job.status,
+                      progress: job.progress || 0,
+                      error: job.error,
+                      autoSummary: job.autoSummary ?? false,
+                    });
 
-              dispatch(tr);
+                  tr.insert(currentPos, node);
+                  currentPos += node.nodeSize;
+                }
 
-              // Update active tasks state
-              if (isMountedRef.current) {
-                setHasActiveTasks(true);
+                dispatch(tr);
+
+                // Update active tasks state
+                if (isMountedRef.current) {
+                  setHasActiveTasks(true);
+                }
+              } else {
+                Logger.info(
+                  "editor",
+                  "All pending jobs already have TranscriptCards",
+                  {
+                    documentId,
+                    count: pendingJobs.length,
+                  }
+                );
               }
             } else {
               // No status cards and no pending jobs - keep polling in case a new recording starts
