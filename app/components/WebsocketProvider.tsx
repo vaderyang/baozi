@@ -705,12 +705,16 @@ class WebsocketProvider extends Component<Props> {
       }
     );
 
-    // Transcription status updates are handled by TranscriptionStatusManager
-    // in the editor component, but we need to register the event here so it's
-    // available to components
-    this.socket.on("transcription:status", () => {
-      // Event is handled by TranscriptionStatusManager component
-    });
+    // Transcription status updates - now properly handled
+    this.socket.on(
+      "transcription:status",
+      action((event: any) => {
+        const { transcriptionJobs } = this.props;
+
+        // Update the job in the store with the latest status
+        transcriptionJobs.updateJobFromEvent(event.data);
+      })
+    );
 
     // received a message from the API server that we should request
     // to join a specific room. Forward that to the ws server.

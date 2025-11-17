@@ -142,10 +142,14 @@ router.post(
         id: job.id,
         status: job.status,
         progress: job.progress,
+        message: job.lastProgressMessage,
         error: job.error,
         result: job.result,
         attachmentId: job.attachmentId,
         autoSummary: job.metadata?.autoSummary ?? false,
+        startedAt: job.startedAt,
+        completedAt: job.completedAt,
+        failedAt: job.failedAt,
       },
     };
   }

@@ -26,11 +26,15 @@ export interface TranscriptionJob {
   documentId: string;
   status: TranscriptionJobStatus;
   progress: number | null;
+  message?: string | null;
   error: string | null;
   result: TranscriptionResult | null;
   attachmentId: string;
   sourceType?: "recording" | "upload" | "url";
   autoSummary?: boolean;
+  startedAt?: Date | null;
+  completedAt?: Date | null;
+  failedAt?: Date | null;
 }
 
 /**
@@ -139,6 +143,8 @@ class TranscriptionJobsStore {
 
   /**
    * Start polling for a job's status updates.
+   * NOTE: Polling is now only used as a fallback when WebSocket is disconnected.
+   * Real-time updates come via WebSocket events.
    *
    * @param jobId The ID of the job to poll
    */
@@ -149,10 +155,17 @@ class TranscriptionJobsStore {
       return;
     }
 
-    // Poll every 2 seconds
+    // Check if WebSocket is connected - if so, rely on events instead
+    const isWebSocketConnected = this.rootStore.websockets?.connected;
+    if (isWebSocketConnected) {
+      // WebSocket will handle updates, no need to poll
+      return;
+    }
+
+    // Poll every 5 seconds (reduced frequency since it's only a fallback)
     const interval = setInterval(() => {
       this.pollJobStatus(jobId);
-    }, 2000);
+    }, 5000);
 
     this.pollingIntervals.set(jobId, interval);
 
@@ -236,6 +249,68 @@ class TranscriptionJobsStore {
 
     // Stop polling
     this.stopPolling(jobId);
+  };
+
+  /**
+   * Update a job from a WebSocket event.
+   * This is the primary way jobs are updated in real-time.
+   *
+   * @param eventData The event data from the WebSocket
+   */
+  @action
+  updateJobFromEvent = (eventData: any): void => {
+    const {
+      jobId,
+      status,
+      progress,
+      message,
+      error,
+      result,
+      startedAt,
+      completedAt,
+      failedAt,
+    } = eventData;
+
+    let job = this.jobs.get(jobId);
+
+    if (!job) {
+      // Job doesn't exist in store yet, create a minimal entry
+      job = {
+        id: jobId,
+        documentId: eventData.documentId,
+        status,
+        progress: progress ?? null,
+        message: message ?? null,
+        error: error ?? null,
+        result: result ?? null,
+        attachmentId: eventData.attachmentId || "",
+        startedAt: startedAt ? new Date(startedAt) : null,
+        completedAt: completedAt ? new Date(completedAt) : null,
+        failedAt: failedAt ? new Date(failedAt) : null,
+      };
+      this.jobs.set(jobId, job);
+    } else {
+      // Update existing job
+      job.status = status || job.status;
+      job.progress = progress !== undefined ? progress : job.progress;
+      job.message = message !== undefined ? message : job.message;
+      job.error = error !== undefined ? error : job.error;
+      job.result = result !== undefined ? result : job.result;
+      job.startedAt = startedAt ? new Date(startedAt) : job.startedAt;
+      job.completedAt = completedAt ? new Date(completedAt) : job.completedAt;
+      job.failedAt = failedAt ? new Date(failedAt) : job.failedAt;
+
+      this.jobs.set(jobId, { ...job });
+    }
+
+    // If job is in a terminal state, stop any polling
+    if (
+      status === TranscriptionJobStatus.Completed ||
+      status === TranscriptionJobStatus.Failed ||
+      status === TranscriptionJobStatus.Cancelled
+    ) {
+      this.stopPolling(jobId);
+    }
   };
 
   /**

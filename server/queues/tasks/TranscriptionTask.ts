@@ -83,8 +83,12 @@ export default class TranscriptionTask extends BaseTask<Props> {
     }
 
     try {
-      // Update job status to processing
-      await job.updateStatus(TranscriptionJobStatus.Processing);
+      // Update job status to processing (0% progress)
+      await job.updateStatus(
+        TranscriptionJobStatus.Processing,
+        0,
+        "Starting transcription..."
+      );
 
       Logger.info("task", "Downloading audio file", {
         jobId,
@@ -115,6 +119,13 @@ export default class TranscriptionTask extends BaseTask<Props> {
           fileSizeBytes: fileBuffer.length,
           downloadDurationMs: downloadDuration,
         });
+
+        // Update progress: file downloaded (10%)
+        await job.updateStatus(
+          TranscriptionJobStatus.Processing,
+          10,
+          "Audio file downloaded"
+        );
       } else {
         // For S3 or other storage, use signed URL
         const fileUrl = await attachment.signedUrl;
@@ -132,6 +143,13 @@ export default class TranscriptionTask extends BaseTask<Props> {
           downloadDurationMs: downloadDuration,
           statusCode: fileResponse.status,
         });
+
+        // Update progress: file downloaded (10%)
+        await job.updateStatus(
+          TranscriptionJobStatus.Processing,
+          10,
+          "Audio file downloaded"
+        );
       }
 
       // Create form data
@@ -160,6 +178,13 @@ export default class TranscriptionTask extends BaseTask<Props> {
         fileName: attachment.name,
       });
 
+      // Update progress: sending to ASR (20%)
+      await job.updateStatus(
+        TranscriptionJobStatus.Processing,
+        20,
+        "Sending audio to transcription service..."
+      );
+
       // Send to transcription service
       const requestStartTime = Date.now();
       const response = await fetch(transcriptionEndpoint, {
@@ -178,6 +203,13 @@ export default class TranscriptionTask extends BaseTask<Props> {
         contentType: response.headers.get("content-type"),
         contentLength: response.headers.get("content-length"),
       });
+
+      // Update progress: received response (70%)
+      await job.updateStatus(
+        TranscriptionJobStatus.Processing,
+        70,
+        "Transcription received, processing..."
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -210,6 +242,13 @@ export default class TranscriptionTask extends BaseTask<Props> {
         speakerSegmentCount: result.speaker_segments?.length || 0,
         resultKeys: Object.keys(result),
       });
+
+      // Update progress: result parsed (90%)
+      await job.updateStatus(
+        TranscriptionJobStatus.Processing,
+        90,
+        "Finalizing transcription..."
+      );
 
       // Log speaker segment details if available
       if (result.speaker_segments && result.speaker_segments.length > 0) {

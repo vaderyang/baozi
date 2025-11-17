@@ -86,6 +86,18 @@ class TranscriptionJob extends IdModel<
   @Column(DataType.JSONB)
   metadata: TranscriptionMetadata | null;
 
+  @Column(DataType.TEXT)
+  lastProgressMessage: string | null;
+
+  @Column(DataType.DATE)
+  startedAt: Date | null;
+
+  @Column(DataType.DATE)
+  completedAt: Date | null;
+
+  @Column(DataType.DATE)
+  failedAt: Date | null;
+
   // methods
 
   /**
@@ -93,21 +105,42 @@ class TranscriptionJob extends IdModel<
    *
    * @param status - The new status
    * @param progress - Optional progress percentage (0-100)
+   * @param message - Optional progress message
    * @param error - Optional error message
    * @returns The updated job
    */
   async updateStatus(
     status: TranscriptionJobStatus,
     progress?: number,
+    message?: string,
     error?: string
   ): Promise<TranscriptionJob> {
     this.status = status;
+
     if (progress !== undefined) {
       this.progress = progress;
     }
+
+    if (message !== undefined) {
+      this.lastProgressMessage = message;
+    }
+
     if (error !== undefined) {
       this.error = error;
     }
+
+    // Update timestamp fields based on status
+    if (status === TranscriptionJobStatus.Processing && !this.startedAt) {
+      this.startedAt = new Date();
+    } else if (
+      status === TranscriptionJobStatus.Completed &&
+      !this.completedAt
+    ) {
+      this.completedAt = new Date();
+    } else if (status === TranscriptionJobStatus.Failed && !this.failedAt) {
+      this.failedAt = new Date();
+    }
+
     await this.save();
     await this.emitWebsocketEvent();
     return this;
@@ -124,6 +157,8 @@ class TranscriptionJob extends IdModel<
     this.progress = 100;
     this.result = result;
     this.error = null;
+    this.completedAt = new Date();
+    this.lastProgressMessage = "Transcription completed";
     await this.save();
     await this.emitWebsocketEvent();
     return this;
@@ -138,6 +173,8 @@ class TranscriptionJob extends IdModel<
   async fail(error: string): Promise<TranscriptionJob> {
     this.status = TranscriptionJobStatus.Failed;
     this.error = error;
+    this.failedAt = new Date();
+    this.lastProgressMessage = "Transcription failed";
     await this.save();
     await this.emitWebsocketEvent();
     return this;
@@ -158,8 +195,12 @@ class TranscriptionJob extends IdModel<
         documentId: this.documentId,
         status: this.status,
         progress: this.progress,
+        message: this.lastProgressMessage,
         error: this.error,
         result: this.result,
+        startedAt: this.startedAt,
+        completedAt: this.completedAt,
+        failedAt: this.failedAt,
       },
     };
 
