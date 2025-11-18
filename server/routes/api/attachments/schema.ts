@@ -79,3 +79,12 @@ export const AttachmentsRedirectSchema = BaseSchema.extend({
 });
 
 export type AttachmentsRedirectReq = z.infer<typeof AttachmentsRedirectSchema>;
+
+export const AttachmentPreviewSchema = BaseSchema.extend({
+  body: z.object({
+    /** Id of the attachment to preview */
+    id: z.string().uuid(),
+  }),
+});
+
+export type AttachmentPreviewReq = z.infer<typeof AttachmentPreviewSchema>;

@@ -43,6 +43,8 @@ import RegisterKeyDown from "~/components/RegisterKeyDown";
 import { SidebarContextType } from "~/components/Sidebar/components/SidebarContext";
 import withStores from "~/components/withStores";
 import { MeasuredContainer } from "~/components/MeasuredContainer";
+import AttachmentPreviewModal from "~/components/AttachmentPreviewModal";
+import useAttachmentPreview from "~/hooks/useAttachmentPreview";
 import type { Editor as TEditor } from "~/editor";
 import { Properties } from "~/types";
 import { client } from "~/utils/ApiClient";
@@ -734,9 +736,30 @@ class DocumentScene extends React.Component<Props> {
             {children}
           </Container>
         </MeasuredContainer>
+        <AttachmentPreviewPortal />
       </ErrorBoundary>
     );
   }
+}
+
+/**
+ * Portal component to handle attachment preview modal
+ * Separated to use hooks in the class-based Document component
+ */
+function AttachmentPreviewPortal() {
+  const { previewState, closePreview } = useAttachmentPreview();
+
+  if (!previewState) {
+    return null;
+  }
+
+  return (
+    <AttachmentPreviewModal
+      attachmentId={previewState.attachmentId}
+      attachmentName={previewState.attachmentName}
+      onClose={closePreview}
+    />
+  );
 }
 
 type MainProps = {

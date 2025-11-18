@@ -16,6 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Audio transcription service integration
 - Meeting AI with transcript cards and time-segmented summaries
 - AI Ask (conversational RAG), AI Search, AI Generate features
+- File preview for Office documents (Word, PowerPoint, Excel) and PDFs using LibreOffice
 
 ## Development Commands
 
@@ -336,6 +337,10 @@ AI_ASK_SESSION_TIMEOUT_MS=3600000
 TRANSCRIPTION_ENDPOINT=http://asr-service:8000/transcribe
 TRANSCRIPTION_DELETE_AUDIO_AFTER=false  # Keep audio as attachments
 ALLOWED_PRIVATE_IP_ADDRESSES=172.16.103.100  # ASR service IP
+
+# File Preview (requires LibreOffice installed on server)
+FILE_PREVIEW_ENABLED=true
+LIBREOFFICE_CONVERSION_TIMEOUT_MS=30000
 ```
 
 ### Test Environment
@@ -437,6 +442,7 @@ export default router;
 - `AI_TESTING_QUICK_START.md` - Quick reference for running AI tests
 - `docs/AI_ASK_CONFIGURATION.md` - AI Ask feature configuration
 - `docs/AI_SEARCH.md` - AI Search implementation details
+- `docs/FILE_PREVIEW_FEATURE.md` - File preview feature for Office documents and PDFs
 
 **API Docs**: https://getoutline.com/developers
 
