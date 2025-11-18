@@ -320,4 +320,108 @@ router.post(
   handleAttachmentsRedirect
 );
 
+router.post(
+  "attachments.preview",
+  rateLimiter(RateLimiterStrategy.TenPerMinute),
+  auth(),
+  validate(T.AttachmentPreviewSchema),
+  async (ctx: APIContext<T.AttachmentPreviewReq>) => {
+    const { id } = ctx.input.body;
+    const { user } = ctx.state.auth;
+    const env = (await import("@server/env")).default;
+    const LibreOfficeConverter = (
+      await import("@server/utils/LibreOfficeConverter")
+    ).default;
+
+    // Check if feature is enabled
+    if (!env.FILE_PREVIEW_ENABLED) {
+      throw InvalidRequestError("File preview feature is not enabled");
+    }
+
+    // Check if LibreOffice is available
+    const isLibreOfficeAvailable = await LibreOfficeConverter.isAvailable();
+    if (!isLibreOfficeAvailable) {
+      throw InvalidRequestError(
+        "LibreOffice is not installed or not available on this server"
+      );
+    }
+
+    const attachment = await Attachment.findByPk(id, {
+      rejectOnEmpty: true,
+    });
+
+    if (attachment.isPrivate && attachment.teamId !== user.teamId) {
+      throw AuthorizationError();
+    }
+
+    // Check if file type is supported
+    if (
+      !LibreOfficeConverter.isSupportedFormat(
+        attachment.key,
+        attachment.contentType
+      )
+    ) {
+      throw ValidationError(
+        "File type not supported for preview. Supported formats: docx, doc, pptx, ppt, xlsx, xls, pdf"
+      );
+    }
+
+    const os = await import("os");
+    const path = await import("path");
+    const fs = await import("fs/promises");
+
+    try {
+      // Create temporary directory for this conversion
+      const tmpDir = await fs.mkdtemp(
+        path.join(os.tmpdir(), "attachment-preview-")
+      );
+      const inputPath = path.join(
+        tmpDir,
+        LibreOfficeConverter.getTempFilename(
+          "input",
+          path.extname(attachment.key)
+        )
+      );
+      const outputDir = path.join(tmpDir, "output");
+
+      // Download the file to temporary location
+      const fileUrl = attachment.isPrivate
+        ? await attachment.signedUrl
+        : attachment.canonicalUrl;
+
+      await LibreOfficeConverter.downloadFile(fileUrl, inputPath);
+
+      // Convert to PDF
+      const pdfPath = await LibreOfficeConverter.convertToPDF(
+        inputPath,
+        outputDir
+      );
+
+      // Read the PDF file
+      const pdfBuffer = await fs.readFile(pdfPath);
+
+      // Clean up temporary files
+      await LibreOfficeConverter.cleanup(inputPath, pdfPath);
+      await fs.rm(tmpDir, { recursive: true, force: true });
+
+      // Sanitize filename for Content-Disposition header
+      // Remove any characters that could cause issues in HTTP headers
+      const sanitizedName = attachment.name
+        .replace(/[^\w\s.-]/g, "_")
+        .replace(/\s+/g, "_");
+
+      // Set response headers
+      ctx.set("Content-Type", "application/pdf");
+      ctx.set("Content-Disposition", `inline; filename="${sanitizedName}.pdf"`);
+      ctx.set("Cache-Control", "private, max-age=3600");
+
+      ctx.body = pdfBuffer;
+    } catch (error) {
+      throw InvalidRequestError(
+        `Failed to generate preview: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    }
+  }
+);
+
 export default router;

@@ -54,7 +54,7 @@ export default function createCSPMiddleware() {
         ],
         mediaSrc: ["*", "data:", "blob:"],
         imgSrc: ["*", "data:", "blob:"],
-        frameSrc: ["*", "data:"],
+        frameSrc: ["*", "data:", "blob:"],
         // Do not use connect-src: because self + websockets does not work in
         // Safari, ref: https://bugs.webkit.org/show_bug.cgi?id=201591
         connectSrc: ["*"],

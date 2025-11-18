@@ -825,6 +825,27 @@ export class Environment {
     10;
 
   /**
+   * Enable or disable the file preview feature using LibreOffice.
+   * When enabled, users can preview Office documents (docx, pptx, xlsx) and PDFs.
+   * Requires LibreOffice to be installed on the server.
+   * Defaults to false.
+   */
+  @Public
+  @IsBoolean()
+  public FILE_PREVIEW_ENABLED = this.toBoolean(
+    environment.FILE_PREVIEW_ENABLED ?? "false"
+  );
+
+  /**
+   * Timeout in milliseconds for LibreOffice document conversion.
+   * Defaults to 30000 (30 seconds).
+   */
+  @IsNumber()
+  public LIBREOFFICE_CONVERSION_TIMEOUT_MS =
+    this.toOptionalNumber(environment.LIBREOFFICE_CONVERSION_TIMEOUT_MS) ??
+    30000;
+
+  /**
    * Enable or disable the AI Ask feature.
    * When disabled, the AI Ask interface will not be accessible.
    * Defaults to true.

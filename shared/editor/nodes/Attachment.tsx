@@ -199,6 +199,41 @@ export default class Attachment extends Node {
         dispatch?.(state.tr.deleteSelection());
         return true;
       },
+      previewAttachment: (): Command => (state) => {
+        if (!(state.selection instanceof NodeSelection)) {
+          return false;
+        }
+        const { node } = state.selection;
+
+        if (node.type.name !== "attachment") {
+          return false;
+        }
+
+        // Extract attachment ID from href
+        // Format: /api/attachments.redirect?id=<uuid>
+        let attachmentId = node.attrs.id;
+
+        if (!attachmentId && node.attrs.href) {
+          const url = new URL(node.attrs.href, window.location.origin);
+          attachmentId = url.searchParams.get("id");
+        }
+
+        if (!attachmentId) {
+          throw new Error("Cannot preview: attachment ID not found");
+        }
+
+        // Dispatch custom event to open preview modal
+        // We use an event to avoid circular dependencies with the React components
+        const event = new CustomEvent("attachment-preview", {
+          detail: {
+            attachmentId,
+            attachmentName: node.attrs.title,
+          },
+        });
+        document.dispatchEvent(event);
+
+        return true;
+      },
       replaceAttachment: (): Command => (state) => {
         if (!(state.selection instanceof NodeSelection)) {
           return false;
